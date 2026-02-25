@@ -137,7 +137,7 @@ const Login = () =>
   };
 
   return (
-    <div style={{ textAlign: 'center', marginTop: '50px' }}>
+    <div style={view === 'dashboard' ? { height: '100vh', width: '100vw' } : { paddingTop: '50px' }}>
       {renderContent()}
     </div>
   );
