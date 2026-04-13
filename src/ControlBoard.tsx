@@ -1,22 +1,8 @@
-import { useState } from 'react';
+import { useAppSelector, useAppDispatch } from './store';
+import { setSelectedLot, setIsEditMode, setEditAction, toggleEditMode } from './store/parkingSlice';
 
-/**
- * Represents the properties required by the ControlBoard component.
- *
- * @interface ControlBoardProps
- *
- * @property {'student' | 'admin'} userType - Specifies the type of user accessing the control board.
- *        This can either be a 'student' or an 'admin'.
- *
- * @property {string} [userCode] - Optional user-specific code, typically used for identification
- *        purposes. This property may not always be provided.
- *
- * @property {() => void} onLogout - A callback function to handle the user logout event.
- */
 interface ControlBoardProps
 {
-  userType: 'student' | 'admin';
-  userCode?: string;
   onLogout: () => void;
 }
 
@@ -36,11 +22,12 @@ interface ControlBoardProps
  *                        on various internal state values such as the selected lot, edit mode status,
  *                        and user actions.
  */
-export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps) =>
+export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
 {
-  const [selectedLot, setSelectedLot] = useState('Home');
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editAction, setEditAction] = useState<'single' | 'group' | 'disable' | 'enable' | 'manual' | null>(null);
+  const dispatch = useAppDispatch();
+  const { userType, userCode } = useAppSelector(state => state.auth);
+  const { selectedLot, isEditMode, editAction } = useAppSelector(state => state.parking);
+  const isControlPanelActive = isEditMode;
 
   if (userType === 'student')
   {
@@ -56,7 +43,7 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
       </div>
     );
   }
-
+  
   const containerStyle =
   {
     display: 'flex',
@@ -96,14 +83,16 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
   };
 
   const controlPanelStyle = {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: isControlPanelActive ? 'rgba(255, 255, 255, 0.2)' : 'rgba(180, 180, 180, 0.2)',
     borderRadius: '15px',
     padding: '10px',
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '5px',
     boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
-    border: '1px solid rgba(255,255,255,0.3)'
+    border: '1px solid rgba(255,255,255,0.3)',
+    opacity: isControlPanelActive ? 1 : 0.55,
+    pointerEvents: isControlPanelActive ? 'auto' as const : 'none' as const
   };
 
   const controlHeaderStyle = {
@@ -117,16 +106,17 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
     marginBottom: '5px'
   };
 
-  const sideButtonStyle = (active: boolean) => ({
-    backgroundColor: active ? '#d99' : '#e99',
+  const sideButtonStyle = (active: boolean, disabled: boolean) => ({
+    backgroundColor: disabled ? '#b4b4b4' : active ? '#d99' : '#e99',
     border: '1px solid #844',
     padding: '8px',
     borderRadius: '2px',
     color: '#333',
     fontSize: '0.9rem',
-    cursor: 'pointer',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.4)',
-    textAlign: 'center' as const
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    boxShadow: disabled ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.4)',
+    textAlign: 'center' as const,
+    opacity: disabled ? 0.65 : 1
   });
 
   const accountSectionStyle = {
@@ -278,34 +268,46 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
           <div style={controlPanelStyle}>
             <div style={controlHeaderStyle}>Admin Control Board</div>
             <button
-              style={sideButtonStyle(editAction === 'single')}
-              onClick={() => setEditAction('single')}
+              style={sideButtonStyle(editAction === 'single', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('single'))}
+              disabled={!isControlPanelActive}
             >
               Single Select
             </button>
             <button
-              style={sideButtonStyle(editAction === 'group')}
-              onClick={() => setEditAction('group')}
+              style={sideButtonStyle(editAction === 'group', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('group'))}
+              disabled={!isControlPanelActive}
             >
               Group Select
             </button>
             <button
-              style={sideButtonStyle(editAction === 'disable')}
-              onClick={() => setEditAction('disable')}
+              style={sideButtonStyle(editAction === 'disable', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('disable'))}
+              disabled={!isControlPanelActive}
             >
               Disable
             </button>
             <button
-              style={sideButtonStyle(editAction === 'enable')}
-              onClick={() => setEditAction('enable')}
+              style={sideButtonStyle(editAction === 'enable', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('enable'))}
+              disabled={!isControlPanelActive}
             >
               Enable
             </button>
             <button
-              style={sideButtonStyle(editAction === 'manual')}
-              onClick={() => setEditAction('manual')}
+              style={sideButtonStyle(editAction === 'manual', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('manual'))}
+              disabled={!isControlPanelActive}
             >
               Manual Assign
+            </button>
+            <button
+              style={sideButtonStyle(editAction === 'update', !isControlPanelActive)}
+              onClick={() => dispatch(setEditAction('update'))}
+              disabled={!isControlPanelActive}
+            >
+              Update School Map
             </button>
           </div>
 
@@ -339,7 +341,7 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px'
-                }} onClick={() => setIsEditMode(false)}>
+                }} onClick={() => dispatch(setIsEditMode(false))}>
                   Cancel <span style={{ border: '1px solid white', borderRadius: '2px', padding: '0 2px', fontSize: '0.7rem' }}>X</span>
                 </button>
                 <button style={{
@@ -352,7 +354,7 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px'
-                }} onClick={() => setIsEditMode(false)}>
+                }} onClick={() => dispatch(setIsEditMode(false))}>
                   {editAction === 'disable' ? 'Save' : 'Done'} <span style={{ border: '1px solid white', borderRadius: '2px', padding: '0 2px', fontSize: '0.7rem' }}>✓</span>
                 </button>
               </div>
@@ -367,7 +369,7 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
                 <button
                   key={lot}
                   style={lotButtonStyle(selectedLot === lot)}
-                  onClick={() => setSelectedLot(lot)}
+                  onClick={() => dispatch(setSelectedLot(lot))}
                 >
                   {lot}
                 </button>
@@ -377,7 +379,7 @@ export const ControlBoard = ({ userType, userCode, onLogout }: ControlBoardProps
 
           <div style={editToggleContainerStyle}>
             <span>Edit Mode</span>
-            <div style={toggleStyle} onClick={() => setIsEditMode(!isEditMode)}>
+            <div style={toggleStyle} onClick={() => dispatch(toggleEditMode())}>
               <div style={toggleCircleStyle} />
             </div>
           </div>
