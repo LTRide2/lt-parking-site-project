@@ -1,5 +1,14 @@
+import { useState, useRef, useEffect } from 'react';
 import { useAppSelector, useAppDispatch } from './store';
-import { setSelectedLot, setIsEditMode, setEditAction, toggleEditMode } from './store/parkingSlice';
+import {
+  setSelectedLot,
+  setIsEditMode,
+  setEditAction,
+  toggleEditMode,
+  toggleSpaceSelection,
+  enableSelectedSpaces,
+  disableSelectedSpaces,
+} from './store/parkingSlice';
 
 interface ControlBoardProps
 {
@@ -26,8 +35,77 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
 {
   const dispatch = useAppDispatch();
   const { userType, userCode } = useAppSelector(state => state.auth);
-  const { selectedLot, isEditMode, editAction } = useAppSelector(state => state.parking);
+  const { selectedLot, isEditMode, editAction, selectedSpaces, disabledSpaces } = useAppSelector(state => state.parking);
   const isControlPanelActive = isEditMode;
+
+  const [mapScale, setMapScale] = useState(1);
+  const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, startOX: 0, startOY: 0 });
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  // Mirror of mapScale/mapOffset in a ref so the native wheel handler never reads stale state
+  const mapStateRef = useRef({ scale: 1, x: 0, y: 0 });
+  const fitScaleRef = useRef(1);
+
+  const initMapTransform = () => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || !img.naturalWidth) return;
+    const scale = Math.min(canvas.clientWidth / img.naturalWidth, canvas.clientHeight / img.naturalHeight);
+    const x = (canvas.clientWidth  - img.naturalWidth  * scale) / 2;
+    const y = (canvas.clientHeight - img.naturalHeight * scale) / 2;
+    fitScaleRef.current = scale;
+    mapStateRef.current = { scale, x, y };
+    setMapScale(scale);
+    setMapOffset({ x, y });
+  };
+
+  useEffect(() => {
+    if (selectedLot === 'Home') {
+      initMapTransform();
+    } else {
+      mapStateRef.current = { scale: 1, x: 0, y: 0 };
+      setMapScale(1);
+      setMapOffset({ x: 0, y: 0 });
+    }
+  }, [selectedLot]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || selectedLot !== 'Home') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const { scale: prev, x: px, y: py } = mapStateRef.current;
+      const newScale = Math.min(Math.max(prev * factor, 0.05), 8);
+      const newX = mouseX - (mouseX - px) * (newScale / prev);
+      const newY = mouseY - (mouseY - py) * (newScale / prev);
+      mapStateRef.current = { scale: newScale, x: newX, y: newY };
+      setMapScale(newScale);
+      setMapOffset({ x: newX, y: newY });
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [selectedLot]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startOX: mapOffset.x, startOY: mapOffset.y };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const newX = dragRef.current.startOX + (e.clientX - dragRef.current.startX);
+    const newY = dragRef.current.startOY + (e.clientY - dragRef.current.startY);
+    mapStateRef.current = { ...mapStateRef.current, x: newX, y: newY };
+    setMapOffset({ x: newX, y: newY });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
 
   if (userType === 'student')
   {
@@ -152,7 +230,8 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     boxShadow: 'inset 0 0 20px rgba(0,0,0,0.2)',
-    border: isEditMode ? '4px solid #f09' : 'none'
+    border: isEditMode ? '4px solid #f09' : 'none',
+    overflow: 'hidden' as const,
   };
 
   const lotNavigationStyle = {
@@ -222,39 +301,54 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
     opacity: 0.8
   };
 
+  const isSelecting = editAction === 'single';
+
+  const spaceColor = (id: string) => {
+    if (selectedSpaces.includes(id)) return '#f5c542';
+    if (disabledSpaces.includes(id)) return '#aaa';
+    return 'white';
+  };
+
   const renderParkingLot = () => {
     const columns = [1, 2, 3];
     const spacesPerColumn = 20;
-
     return (
       <div style={{ display: 'flex', gap: '40px' }}>
         {columns.map(col => (
           <div key={col} style={{ display: 'flex', gap: '4px' }}>
-             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '4px' }}>
-               {Array.from({ length: spacesPerColumn }).map((_, i) => (
-                 <div key={i} style={{
-                   width: '30px',
-                   height: '12px',
-                   backgroundColor: 'white',
-                   border: '1px solid #aaa'
-                 }} />
-               ))}
-             </div>
-             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '4px' }}>
-               {Array.from({ length: spacesPerColumn }).map((_, i) => (
-                 <div key={i} style={{
-                   width: '30px',
-                   height: '12px',
-                   backgroundColor: 'white',
-                   border: '1px solid #aaa'
-                 }} />
-               ))}
-             </div>
+            {[0, 1].map(side => (
+              <div key={side} style={{ display: 'flex', flexDirection: 'column' as const, gap: '4px' }}>
+                {Array.from({ length: spacesPerColumn }).map((_, i) => {
+                  const id = `${col}-${side}-${i}`;
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => isSelecting && dispatch(toggleSpaceSelection(id))}
+                      style={{
+                        width: '30px',
+                        height: '12px',
+                        backgroundColor: spaceColor(id),
+                        border: selectedSpaces.includes(id) ? '1px solid #c8a000' : '1px solid #aaa',
+                        cursor: isSelecting ? 'pointer' : 'default',
+                        boxSizing: 'border-box' as const,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
           </div>
         ))}
       </div>
     );
   };
+
+  const noneSelected = selectedSpaces.length === 0;
+  const multiSelected = selectedSpaces.length > 1;
+
+  const enableDisableDisabled = !isControlPanelActive || noneSelected;
+  const manualDisabled = !isControlPanelActive || noneSelected || multiSelected;
+
 
   return (
     <div style={containerStyle}>
@@ -282,23 +376,26 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
               Group Select
             </button>
             <button
-              style={sideButtonStyle(editAction === 'disable', !isControlPanelActive)}
+              style={sideButtonStyle(editAction === 'disable', enableDisableDisabled)}
               onClick={() => dispatch(setEditAction('disable'))}
-              disabled={!isControlPanelActive}
+              disabled={enableDisableDisabled}
             >
               Disable
             </button>
             <button
-              style={sideButtonStyle(editAction === 'enable', !isControlPanelActive)}
-              onClick={() => dispatch(setEditAction('enable'))}
-              disabled={!isControlPanelActive}
+              style={sideButtonStyle(editAction === 'enable', enableDisableDisabled)}
+              onClick={() => {
+                dispatch(enableSelectedSpaces());
+                dispatch(setEditAction('single'));
+              }}
+              disabled={enableDisableDisabled}
             >
               Enable
             </button>
             <button
-              style={sideButtonStyle(editAction === 'manual', !isControlPanelActive)}
+              style={sideButtonStyle(editAction === 'manual', manualDisabled)}
               onClick={() => dispatch(setEditAction('manual'))}
-              disabled={!isControlPanelActive}
+              disabled={manualDisabled}
             >
               Manual Assign
             </button>
@@ -328,7 +425,14 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
         </aside>
 
         <main style={mainContentStyle}>
-          <div style={innerCanvasStyle}>
+          <div
+            ref={canvasRef}
+            style={innerCanvasStyle}
+            onMouseDown={selectedLot === 'Home' ? handleMouseDown : undefined}
+            onMouseMove={selectedLot === 'Home' ? handleMouseMove : undefined}
+            onMouseUp={selectedLot === 'Home' ? handleMouseUp : undefined}
+            onMouseLeave={selectedLot === 'Home' ? handleMouseUp : undefined}
+          >
             {isEditMode && (
               <div style={editControlsStyle}>
                 <button style={{
@@ -354,18 +458,67 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px'
-                }} onClick={() => dispatch(setIsEditMode(false))}>
-                  {editAction === 'disable' ? 'Save' : 'Done'} <span style={{ border: '1px solid white', borderRadius: '2px', padding: '0 2px', fontSize: '0.7rem' }}>✓</span>
+                }} onClick={() => {
+                  if (editAction === 'disable') {
+                    dispatch(disableSelectedSpaces());
+                  } else {
+                    dispatch(setIsEditMode(false));
+                  }
+                }}>
+                  Done <span style={{ border: '1px solid white', borderRadius: '2px', padding: '0 2px', fontSize: '0.7rem' }}>✓</span>
                 </button>
               </div>
             )}
 
-            {selectedLot === 'Home' ? renderParkingLot() : (
-               <div style={{ color: '#333' }}>Map/View for {selectedLot}</div>
+            {selectedLot === 'Home' && (
+              <button
+                onClick={initMapTransform}
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  zIndex: 10,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Reset View
+              </button>
+            )}
+
+            {selectedLot === 'Home' && (
+              <img
+                ref={imgRef}
+                src="/Lake%20Travis%20Parking%20Blank%20(1).jpg"
+                alt="Campus Map"
+                draggable={false}
+                onLoad={initMapTransform}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: 'auto',
+                  height: 'auto',
+                  transformOrigin: '0 0',
+                  transform: `translate(${mapOffset.x}px, ${mapOffset.y}px) scale(${mapScale})`,
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  userSelect: 'none',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            {selectedLot === 'Lot 1' && renderParkingLot()}
+            {selectedLot !== 'Home' && selectedLot !== 'Lot 1' && (
+              <div style={{ color: '#333' }}>Map/View for {selectedLot}</div>
             )}
 
             <div style={lotNavigationStyle}>
-              {['Home', 'Lot 1', 'Lot 2', 'Lot 3', 'Lot 4', 'Lot 5', 'Lot 6'].map(lot => (
+              {['Home', ...Array.from({ length: 17 }, (_, i) => `Lot ${i + 1}`)].map(lot => (
                 <button
                   key={lot}
                   style={lotButtonStyle(selectedLot === lot)}
