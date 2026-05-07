@@ -241,7 +241,8 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
     bottom: '20px',
     backgroundColor: 'rgba(200, 100, 100, 0.5)',
     padding: '5px',
-    borderRadius: '2px'
+    borderRadius: '2px',
+    zIndex: 20
   };
 
   const lotButtonStyle = (active: boolean) => ({
@@ -288,7 +289,8 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
     top: '10px',
     right: '10px',
     display: 'flex',
-    gap: '10px'
+    gap: '10px',
+    zIndex: 20
   };
 
   const logoStyle = {
@@ -509,6 +511,7 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
                   cursor: isDragging ? 'grabbing' : 'grab',
                   userSelect: 'none',
                   pointerEvents: 'none',
+                  zIndex: 1,
                 }}
               />
             )}
