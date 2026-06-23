@@ -1,0 +1,27 @@
+#!/bin/bash
+set -Eeuo pipefail
+set -x
+
+export FLASK_ENV=development
+export FLASK_APP=App
+export FLASK_DEBUG=1
+
+usage() {
+  echo "Usage: $0"
+}
+
+if [ $# -ne 0 ]; then
+  usage
+  exit 1
+fi
+
+
+
+# If var/App.sqlite3 does not exist, print an error and exit non-zero.
+    if [ ! -f var/App.sqlite3 ]; then
+        echo "Error: var/App.sqlite3 does not exist. Run ./bin/db create."
+        exit 1
+    fi
+
+
+flask --app App --debug run --host 0.0.0.0 --port 4000
