@@ -11,5 +11,19 @@ import App
 @App.app.route('/')
 def show_index():
     """Display / route."""
+        # Connect to database
+    connection = App.model.get_db()
+
+    # Query database
+    logname = "John Doe"
+    cur = connection.execute(
+        "SELECT fullname, email, picture "
+        "FROM developer "
+        "WHERE fullname != ?",
+        (logname,)
+    )
+    devs = cur. fetchall()
+
+    
     context = {}
     return flask.render_template("index.html", **context)
