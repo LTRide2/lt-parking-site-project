@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  LTRide database stack — a managed PostgreSQL server (Amazon RDS). Creates the
+  DB password in Secrets Manager (so it is never written in plaintext anywhere),
+  a subnet group telling RDS which subnets it may live in, and the database
+  instance itself. Imports the VPC/subnets/DB-firewall from the network stack.
+
+# -----------------------------------------------------------------------------
+# Parameters (all six declared — see note in 01-network.yaml about why)
+# -----------------------------------------------------------------------------
+Parameters:
+  AdminCidr:
+    Type: String
+    Description: (Unused here)
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: (Unused here)
+  DomainName:
+    Type: String
+    Description: (Unused here)
+  HostedZoneId:
+    Type: String
+    Description: (Unused here)
+  WebInstanceType:
+    Type: String
+    Description: (Unused here)
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS instance size. db.t3.micro is the cheapest burstable class.
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # Generate and store the DB password. We never type it or commit it. The app
+  # server reads it from here at provision time to build DATABASE_URL.
+  #   GenerateSecretString builds JSON like {"username":"ltride","password":"..."}
+  #   ExcludeCharacters keeps out characters that break a URL or shell quoting.
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: ltride/db
+      Description: LTRide RDS master credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"ltride"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"@/\ ''`$'
+
+  # RDS must be told which subnets it may place the database in. It requires at
+  # least two AZs (we hand it both public subnets from the network stack).
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: ltride db subnet group
+      SubnetIds:
+        - !ImportValue ltride-PublicSubnet1
+        - !ImportValue ltride-PublicSubnet2
+      Tags:
+        - { Key: Name, Value: ltride-db-subnets }
+
+  # The PostgreSQL server itself.
+  Database:
+    Type: AWS::RDS::DBInstance
+    # Retain a final snapshot on delete so `deploy.sh down` never silently
+    # destroys data — you can restore from the snapshot later.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: ltride-db
+      DBName: ltride                       # the initial database that gets created
+      Engine: postgres
+      EngineVersion: "16"                  # Postgres 16.x (latest minor auto-picked)
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"               # GB; 20 is the free-tier minimum
+      StorageType: gp3
+      # Pull username/password straight out of Secrets Manager — the resolved
+      # value is wired into RDS but never appears in the template or events log.
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue ltride-DbSecurityGroupId
+      PubliclyAccessible: false            # only reachable from inside the VPC
+      MultiAZ: false                       # single AZ to keep cost down
+      BackupRetentionPeriod: 7             # keep 7 days of automated backups
+      StorageEncrypted: true
+      Tags:
+        - { Key: Name, Value: ltride-db }
+
+# -----------------------------------------------------------------------------
+# Outputs / Exports
+# -----------------------------------------------------------------------------
+Outputs:
+  DbEndpoint:
+    Description: Hostname the app connects to (host part of DATABASE_URL)
+    Value: !GetAtt Database.Endpoint.Address
+    Export: { Name: ltride-DbEndpoint }
+  DbPort:
+    Value: !GetAtt Database.Endpoint.Port
+    Export: { Name: ltride-DbPort }
+  DbSecretArn:
+    Description: Secrets Manager ARN holding the DB username/password
+    Value: !Ref DbSecret
+    Export: { Name: ltride-DbSecretArn }

@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  LTRide DNS stack — points your domain name at the web server's Elastic IP by
+  creating an A record in an existing Route 53 hosted zone. Imports the Elastic
+  IP from the compute stack. See CR D4 in the backend guide for how to create
+  the hosted zone and buy/wire the domain BEFORE running this stack.
+
+# -----------------------------------------------------------------------------
+# Parameters (all six declared — see note in 01-network.yaml)
+# -----------------------------------------------------------------------------
+Parameters:
+  AdminCidr:
+    Type: String
+    Description: (Unused here)
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: (Unused here)
+  WebInstanceType:
+    Type: String
+    Description: (Unused here)
+  DbInstanceClass:
+    Type: String
+    Description: (Unused here)
+  DomainName:
+    Type: String
+    Description: The full hostname to create, e.g. ltride.example.edu
+  HostedZoneId:
+    Type: String
+    Description: >
+      The Route 53 hosted zone ID for your domain (looks like Z0123456789ABC).
+      Leave the placeholder value to SKIP creating the record (lets the rest of
+      the deploy succeed before you own a domain).
+
+# -----------------------------------------------------------------------------
+# Conditions
+# -----------------------------------------------------------------------------
+# Only create the DNS record when HostedZoneId has been set to a real value.
+# The placeholder shipped in params/prod.json is the literal below; while it is
+# still in place this stack creates nothing and the deploy keeps moving.
+Conditions:
+  HasHostedZone: !Not [ !Equals [ !Ref HostedZoneId, "Z0123456789ABCDEFGHIJ" ] ]
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # An "A" record maps a hostname -> an IPv4 address. We point DomainName at the
+  # Elastic IP exported by the compute stack. TTL 300 = caches for 5 minutes, so
+  # changes propagate quickly while you're still setting things up.
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - !ImportValue ltride-ElasticIp
+
+# -----------------------------------------------------------------------------
+# Outputs
+# -----------------------------------------------------------------------------
+Outputs:
+  SiteUrl:
+    Description: Where the app will live once DNS + HTTPS are set up
+    Value: !Sub "https://${DomainName}"
