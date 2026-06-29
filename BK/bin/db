@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -Eeuo pipefail
+set -x
+
+usage() {
+  echo "Usage: $0 (create|destroy|reset|dump)"
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit 1
+fi
+
+if [ "$1" = "create" ]; then
+    mkdir -p var
+    sqlite3 var/app.sqlite3 < sql/schema.sql
+    sqlite3 var/app.sqlite3 < sql/data.sql
+elif [ "$1" = "destroy" ]; then
+    rm -rf var/app.sqlite3 var/
+elif [ "$1" = "reset" ]; then
+    rm -rf var/app.sqlite3 var/
+    mkdir -p var/
+    sqlite3 var/app.sqlite3 < sql/schema.sql
+    sqlite3 var/app.sqlite3 < sql/data.sql
+elif [ "$1" = "dump" ]; then
+    sqlite3 var/app.sqlite3 .dump
+fi
