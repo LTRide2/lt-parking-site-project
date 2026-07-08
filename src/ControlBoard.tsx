@@ -8,7 +8,131 @@ import {
   toggleSpaceSelection,
   enableSelectedSpaces,
   disableSelectedSpaces,
+  assignSpace,
+  unassignSpace,
 } from './store/parkingSlice';
+
+const LOT_CONFIGS: Record<string, { sections: number; sides: number; spaces: number; orientation: 'horizontal' | 'vertical' }> = {
+  'Lot 1':  { sections: 4, sides: 2, spaces: 20, orientation: 'horizontal' },
+  'Lot 2':  { sections: 4, sides: 2, spaces: 25, orientation: 'horizontal' },
+  'Lot 3':  { sections: 4, sides: 1, spaces: 15, orientation: 'horizontal' },
+  'Lot 4':  { sections: 3, sides: 2, spaces: 20, orientation: 'vertical'   },
+  'Lot 5':  { sections: 1, sides: 2, spaces: 40, orientation: 'horizontal' },
+  'Lot 6':  { sections: 5, sides: 2, spaces: 12, orientation: 'horizontal' },
+  'Lot 7':  { sections: 2, sides: 2, spaces: 20, orientation: 'vertical'   },
+  'Lot 8':  { sections: 2, sides: 1, spaces: 30, orientation: 'horizontal' },
+  'Lot 9':  { sections: 4, sides: 2, spaces: 18, orientation: 'horizontal' },
+  'Lot 10': { sections: 3, sides: 2, spaces: 10, orientation: 'vertical'   },
+  'Lot 11': { sections: 1, sides: 1, spaces: 50, orientation: 'horizontal' },
+  'Lot 12': { sections: 6, sides: 2, spaces: 8,  orientation: 'horizontal' },
+  'Lot 13': { sections: 2, sides: 2, spaces: 30, orientation: 'vertical'   },
+  'Lot 14': { sections: 3, sides: 1, spaces: 20, orientation: 'horizontal' },
+  'Lot 15': { sections: 4, sides: 2, spaces: 22, orientation: 'horizontal' },
+  'Lot 16': { sections: 2, sides: 2, spaces: 16, orientation: 'vertical'   },
+  'Lot 17': { sections: 5, sides: 1, spaces: 18, orientation: 'horizontal' },
+};
+
+// Crops of the campus site map, tightly framed around each lot's real-world location.
+// Lots 8 and 16 have no label anywhere on the source map, so they're intentionally omitted here.
+// Lots 1, 2, 6, 9, 12 are curved/radial in reality and use LOT_FAN_CONFIGS below instead, where
+// each row gets its own rotation rather than being forced into one rigid rotated rectangle.
+const LOT_MAP_CONFIGS: Record<string, {
+  image: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  box: { x: number; y: number; w: number; h: number };
+  rotate: number;
+}> = {
+  'Lot 4':  { image: '/lots/lot4.jpg',  naturalWidth: 550,  naturalHeight: 950,  box: { x: 0,   y: 140, w: 340,  h: 430 }, rotate: 0 },
+  'Lot 5':  { image: '/lots/lot5.jpg',  naturalWidth: 750,  naturalHeight: 850,  box: { x: 200, y: 165, w: 135,  h: 395 }, rotate: 0 },
+  'Lot 11': { image: '/lots/lot11.jpg', naturalWidth: 1700, naturalHeight: 800,  box: { x: 900, y: 270, w: 350,  h: 110 }, rotate: -12 },
+  'Lot 13': { image: '/lots/lot13.jpg', naturalWidth: 1000, naturalHeight: 800,  box: { x: 140, y: 380, w: 340,  h: 300 }, rotate: -10 },
+  'Lot 14': { image: '/lots/lot14.jpg', naturalWidth: 1200, naturalHeight: 1000, box: { x: 320, y: 120, w: 300,  h: 420 }, rotate: -35 },
+  'Lot 15': { image: '/lots/lot15.jpg', naturalWidth: 1050, naturalHeight: 900,  box: { x: 150, y: 280, w: 450,  h: 230 }, rotate: 0 },
+  'Lot 17': { image: '/lots/lot17.jpg', naturalWidth: 1600, naturalHeight: 850,  box: { x: 100, y: 80,  w: 1050, h: 570 }, rotate: -8 },
+};
+
+// Curved/radial lots: one entry per LOT_CONFIGS section, each independently anchored and rotated
+// so a row of spaces can follow a real curved aisle or radiate out from a drop-off loop's center,
+// instead of the whole lot being forced through a single rotation.
+const LOT_FAN_CONFIGS: Record<string, {
+  image: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  sections: Array<{ ax: number; ay: number; boxW: number; boxH: number; rotate: number }>;
+}> = {
+  'Lot 1': {
+    image: '/lots/lot1.jpg', naturalWidth: 1180, naturalHeight: 1200,
+    sections: [
+      { ax: 230, ay: 50,  boxW: 110, boxH: 433, rotate: -71.2 },
+      { ax: 110, ay: 175, boxW: 110, boxH: 625, rotate: -75.7 },
+      { ax: 110, ay: 295, boxW: 110, boxH: 613, rotate: -74.4 },
+      { ax: 110, ay: 415, boxW: 110, boxH: 530, rotate: -70.7 },
+    ],
+  },
+  'Lot 2': {
+    image: '/lots/lot2.jpg', naturalWidth: 1000, naturalHeight: 850,
+    sections: [
+      { ax: 100, ay: 95,  boxW: 95, boxH: 475, rotate: -73.5 },
+      { ax: 70,  ay: 180, boxW: 95, boxH: 505, rotate: -73.9 },
+      { ax: 60,  ay: 280, boxW: 95, boxH: 462, rotate: -72.4 },
+      { ax: 60,  ay: 380, boxW: 95, boxH: 414, rotate: -70.3 },
+    ],
+  },
+  'Lot 9': {
+    image: '/lots/lot9.jpg', naturalWidth: 1050, naturalHeight: 900,
+    sections: [
+      { ax: 390, ay: 290, boxW: 75, boxH: 155, rotate: 80 },
+      { ax: 390, ay: 290, boxW: 75, boxH: 155, rotate: 140 },
+      { ax: 390, ay: 290, boxW: 75, boxH: 155, rotate: 200 },
+      { ax: 390, ay: 290, boxW: 75, boxH: 155, rotate: 260 },
+    ],
+  },
+  'Lot 12': {
+    image: '/lots/lot12.jpg', naturalWidth: 750, naturalHeight: 900,
+    sections: [
+      { ax: 215, ay: 225, boxW: 70, boxH: 60,  rotate: -48.4 },
+      { ax: 260, ay: 265, boxW: 70, boxH: 65,  rotate: -32.5 },
+      { ax: 295, ay: 320, boxW: 70, boxH: 72,  rotate: -12.1 },
+      { ax: 310, ay: 390, boxW: 70, boxH: 71,  rotate: 8.1 },
+      { ax: 300, ay: 460, boxW: 70, boxH: 76,  rotate: 23.2 },
+      { ax: 270, ay: 530, boxW: 70, boxH: 127, rotate: 18.4 },
+    ],
+  },
+};
+
+const MAP_DISPLAY_SCALE = 0.5;
+
+// Lots where the interactive spot grid is hidden — the map crop is shown on its own.
+const MAP_ONLY_LOTS = new Set([
+  'Lot 4', 'Lot 9', 'Lot 11', 'Lot 12', 'Lot 13', 'Lot 14', 'Lot 15', 'Lot 17',
+]);
+
+// Mirrors the box-model math renderParkingLot uses below, so the overlay can be scaled to fit the real lot's footprint.
+const computeGridSize = (cfg: { sections: number; sides: number; spaces: number; orientation: 'horizontal' | 'vertical' }) => {
+  const { sections, sides, spaces, orientation } = cfg;
+  if (orientation === 'horizontal') {
+    const spaceW = 30, spaceH = 12;
+    const sideH = spaces * spaceH + (spaces - 1) * 4;
+    const sectionW = sides * spaceW + (sides - 1) * 12;
+    return { w: sections * sectionW + (sections - 1) * 40, h: sideH };
+  }
+  const spaceW = 12, spaceH = 30;
+  const sideW = spaces * spaceW + (spaces - 1) * 4;
+  const sectionH = sides * spaceH + (sides - 1) * 12;
+  return { w: sideW, h: sections * sectionH + (sections - 1) * 30 };
+};
+
+// Same math as computeGridSize, but for a single section (used by the fan/radial overlay).
+const computeSectionSize = (cfg: { sides: number; spaces: number; orientation: 'horizontal' | 'vertical' }) => {
+  const { sides, spaces, orientation } = cfg;
+  if (orientation === 'horizontal') {
+    const spaceW = 30, spaceH = 12;
+    return { w: sides * spaceW + (sides - 1) * 12, h: spaces * spaceH + (spaces - 1) * 4 };
+  }
+  const spaceW = 12, spaceH = 30;
+  return { w: spaces * spaceW + (spaces - 1) * 4, h: sides * spaceH + (sides - 1) * 12 };
+};
 
 interface ControlBoardProps
 {
@@ -16,27 +140,26 @@ interface ControlBoardProps
 }
 
 /**
- * Represents the ControlBoard component, which serves as a dashboard for users
- * with varying functionalities based on their user type (e.g., 'student' or 'admin').
- * It provides different UI and interactive features such as parking lot representation,
- * account management, and edit mode controls.
+ * 
+ * Controlboard: for different functionality for diff user type. affects: parking lot rep, acc managment, + edit mode control.
  *
- * @param {Object} props - The properties object for the ControlBoard component.
- * @param {string} props.userType - Specifies the type of the logged-in user (e.g., 'student' or 'admin').
- *                                   This determines the layout and available actions in the UI.
- * @param {string} props.userCode - A unique identifier for the logged-in user, displayed prominently.
- * @param {Function} props.onLogout - A callback function triggered when the user chooses to log out.
+ * @param {Object} props - The properties 
+ * @param {string} props.userType - the type of the logged-in user 
+ * @param {string} props.userCode - identifier for the logged-in user
+ * @param {Function} props.onLogout - when the user chooses to log out.
  *
- * @returns {JSX.Element} The rendered UI for ControlBoard, customized per user type and based
- *                        on various internal state values such as the selected lot, edit mode status,
- *                        and user actions.
+ * @returns {JSX.Element} basically just UI for the control board.
  */
 export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
 {
   const dispatch = useAppDispatch();
   const { userType, userCode } = useAppSelector(state => state.auth);
-  const { selectedLot, isEditMode, editAction, selectedSpaces, disabledSpaces } = useAppSelector(state => state.parking);
+  const { selectedLot, isEditMode, editAction, selectedSpaces, disabledSpaces, assignedSpaces } = useAppSelector(state => state.parking);
   const isControlPanelActive = isEditMode;
+
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignIdInput, setAssignIdInput] = useState('');
+  const [pendingSpaceId, setPendingSpaceId] = useState<string | null>(null);
 
   const [mapScale, setMapScale] = useState(1);
   const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
@@ -44,7 +167,7 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
   const dragRef = useRef({ startX: 0, startY: 0, startOX: 0, startOY: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  // Mirror of mapScale/mapOffset in a ref so the native wheel handler never reads stale state
+  // uh the code kept breaking so lowk had to ask gemini what to do and it said something about stale states(basically making sure it reads the current state and not the old one?) not entirely sure what this means but its working now!
   const mapStateRef = useRef({ scale: 1, x: 0, y: 0 });
   const fitScaleRef = useRef(1);
 
@@ -107,21 +230,11 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
 
   const handleMouseUp = () => setIsDragging(false);
 
-  if (userType === 'student')
-  {
-    return (
-      <div style={{ padding: '20px' }}>
-        <h1>Student Dashboard</h1>
-        <p>Logged in as: {userCode}</p>
-        <div style={{ border: '1px solid #ccc', padding: '10px', margin: '20px 0' }}>
-          <h3>Parking Availability</h3>
-          <p>No spaces available</p>
-        </div>
-        <button onClick={onLogout}>Logout</button>
-      </div>
-    );
-  }
-  
+  const isAdmin = userType === 'admin';
+  const studentClaimedSpot = !isAdmin
+    ? (Object.keys(assignedSpaces).find(id => assignedSpaces[id] === userCode) ?? null)
+    : null;
+
   const containerStyle =
   {
     display: 'flex',
@@ -308,38 +421,82 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
   const spaceColor = (id: string) => {
     if (selectedSpaces.includes(id)) return '#f5c542';
     if (disabledSpaces.includes(id)) return '#aaa';
-    return 'white';
+    if (assignedSpaces[id]) return '#e55';
+    return 'rgba(70,150,255,0.55)';
   };
 
-  const renderParkingLot = () => {
-    const columns = [1, 2, 3];
-    const spacesPerColumn = 20;
+  const renderSection = (lot: string, secIdx: number, cfg: { sides: number; spaces: number; orientation: 'horizontal' | 'vertical' }) => {
+    const { sides, spaces, orientation } = cfg;
+    const horiz = orientation === 'horizontal';
+
     return (
-      <div style={{ display: 'flex', gap: '40px' }}>
-        {columns.map(col => (
-          <div key={col} style={{ display: 'flex', gap: '4px' }}>
-            {[0, 1].map(side => (
-              <div key={side} style={{ display: 'flex', flexDirection: 'column' as const, gap: '4px' }}>
-                {Array.from({ length: spacesPerColumn }).map((_, i) => {
-                  const id = `${col}-${side}-${i}`;
-                  return (
-                    <div
-                      key={i}
-                      onClick={() => isSelecting && dispatch(toggleSpaceSelection(id))}
-                      style={{
-                        width: '30px',
-                        height: '12px',
-                        backgroundColor: spaceColor(id),
-                        border: selectedSpaces.includes(id) ? '1px solid #c8a000' : '1px solid #aaa',
-                        cursor: isSelecting ? 'pointer' : 'default',
-                        boxSizing: 'border-box' as const,
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            ))}
+      <div style={{ display: 'flex', flexDirection: horiz ? 'row' : 'column', gap: '12px' }}>
+        {Array.from({ length: sides }).map((_, sideIdx) => (
+          <div key={sideIdx} style={{ display: 'flex', flexDirection: horiz ? 'column' : 'row', gap: '4px' }}>
+            {Array.from({ length: spaces }).map((_, i) => {
+              const id = `${lot}-${secIdx}-${sideIdx}-${i}`;
+              const isDisabled = disabledSpaces.includes(id);
+              const isTaken = !!assignedSpaces[id];
+              const isMySpot = assignedSpaces[id] === userCode;
+              const showId = isAdmin ? isTaken : isMySpot;
+
+              const studentCanClaim = !isAdmin && !isDisabled && !isTaken && !studentClaimedSpot;
+              const studentCanUnclaim = !isAdmin && isMySpot;
+              const studentCursor = studentCanClaim || studentCanUnclaim ? 'pointer' : 'default';
+
+              const handleClick = () => {
+                if (isAdmin) {
+                  if (isSelecting) dispatch(toggleSpaceSelection(id));
+                } else if (studentCanUnclaim) {
+                  dispatch(unassignSpace(id));
+                } else if (studentCanClaim) {
+                  setPendingSpaceId(id);
+                }
+              };
+
+              const spaceW = horiz ? 30 : 12;
+              const spaceH = horiz ? (showId ? 20 : 12) : 30;
+
+              return (
+                <div
+                  key={i}
+                  onClick={handleClick}
+                  style={{
+                    width: `${spaceW}px`,
+                    height: `${spaceH}px`,
+                    backgroundColor: spaceColor(id),
+                    border: selectedSpaces.includes(id) ? '1px solid #c8a000' : '1px solid #1a3d7a',
+                    cursor: isAdmin ? (isSelecting ? 'pointer' : 'default') : studentCursor,
+                    boxSizing: 'border-box' as const,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {showId && (
+                    <span style={{ fontSize: '7px', color: 'white', fontWeight: 'bold', lineHeight: 1, padding: '0 1px' }}>
+                      {assignedSpaces[id]}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderParkingLot = (lot: string) => {
+    const cfg = LOT_CONFIGS[lot] ?? LOT_CONFIGS['Lot 1'];
+    const { sections, orientation } = cfg;
+    const horiz = orientation === 'horizontal';
+
+    return (
+      <div style={{ display: 'flex', flexDirection: horiz ? 'row' : 'column', gap: horiz ? '40px' : '30px' }}>
+        {Array.from({ length: sections }).map((_, secIdx) => (
+          <div key={secIdx}>{renderSection(lot, secIdx, cfg)}</div>
         ))}
       </div>
     );
@@ -359,56 +516,163 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
         <div style={{ fontSize: '1.5rem', cursor: 'pointer' }}>☰</div>
       </header>
 
+      {pendingSpaceId && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+        }}>
+          <div style={{
+            backgroundColor: 'white', color: '#333', borderRadius: '10px',
+            padding: '24px', width: '300px', display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>Claim Parking Spot?</div>
+            <div style={{ fontSize: '0.85rem', color: '#666' }}>
+              You are about to claim spot <strong>{pendingSpaceId}</strong>. This will be visible to admins under your ID.
+            </div>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setPendingSpaceId(null)}
+                style={{
+                  padding: '6px 16px', borderRadius: '6px', border: '1px solid #ccc',
+                  backgroundColor: '#eee', cursor: 'pointer', fontSize: '0.85rem',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  dispatch(assignSpace({ spaceId: pendingSpaceId, studentId: userCode }));
+                  setPendingSpaceId(null);
+                }}
+                style={{
+                  padding: '6px 16px', borderRadius: '6px', border: 'none',
+                  backgroundColor: '#b33', color: 'white', cursor: 'pointer', fontSize: '0.85rem',
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAssignModal && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+        }}>
+          <div style={{
+            backgroundColor: 'white', color: '#333', borderRadius: '10px',
+            padding: '24px', width: '300px', display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>Manual Assign</div>
+            <div style={{ fontSize: '0.85rem', color: '#666' }}>
+              Space: <strong>{selectedSpaces[0]}</strong>
+            </div>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Enter student ID"
+              value={assignIdInput}
+              onChange={e => setAssignIdInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && assignIdInput.trim()) {
+                  dispatch(assignSpace({ spaceId: selectedSpaces[0], studentId: assignIdInput.trim() }));
+                  setShowAssignModal(false);
+                }
+                if (e.key === 'Escape') setShowAssignModal(false);
+              }}
+              style={{
+                border: '1px solid #ccc', borderRadius: '6px', padding: '8px 10px',
+                fontSize: '0.9rem', outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                style={{
+                  padding: '6px 16px', borderRadius: '6px', border: '1px solid #ccc',
+                  backgroundColor: '#eee', cursor: 'pointer', fontSize: '0.85rem',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (assignIdInput.trim()) {
+                    dispatch(assignSpace({ spaceId: selectedSpaces[0], studentId: assignIdInput.trim() }));
+                    setShowAssignModal(false);
+                  }
+                }}
+                disabled={!assignIdInput.trim()}
+                style={{
+                  padding: '6px 16px', borderRadius: '6px', border: 'none',
+                  backgroundColor: assignIdInput.trim() ? '#b33' : '#ccc',
+                  color: 'white', cursor: assignIdInput.trim() ? 'pointer' : 'not-allowed',
+                  fontSize: '0.85rem',
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={contentWrapperStyle}>
         <aside style={sidebarStyle}>
-          <div style={controlPanelStyle}>
-            <div style={controlHeaderStyle}>Admin Control Board</div>
-            <button
-              style={sideButtonStyle(editAction === 'single', !isControlPanelActive)}
-              onClick={() => dispatch(setEditAction('single'))}
-              disabled={!isControlPanelActive}
-            >
-              Single Select
-            </button>
-            <button
-              style={sideButtonStyle(editAction === 'group', !isControlPanelActive)}
-              onClick={() => dispatch(setEditAction('group'))}
-              disabled={!isControlPanelActive}
-            >
-              Group Select
-            </button>
-            <button
-              style={sideButtonStyle(editAction === 'disable', enableDisableDisabled)}
-              onClick={() => dispatch(setEditAction('disable'))}
-              disabled={enableDisableDisabled}
-            >
-              Disable
-            </button>
-            <button
-              style={sideButtonStyle(editAction === 'enable', enableDisableDisabled)}
-              onClick={() => {
-                dispatch(enableSelectedSpaces());
-                dispatch(setEditAction('single'));
-              }}
-              disabled={enableDisableDisabled}
-            >
-              Enable
-            </button>
-            <button
-              style={sideButtonStyle(editAction === 'manual', manualDisabled)}
-              onClick={() => dispatch(setEditAction('manual'))}
-              disabled={manualDisabled}
-            >
-              Manual Assign
-            </button>
-            <button
-              style={sideButtonStyle(editAction === 'update', !isControlPanelActive)}
-              onClick={() => dispatch(setEditAction('update'))}
-              disabled={!isControlPanelActive}
-            >
-              Update School Map
-            </button>
-          </div>
+          {isAdmin && (
+            <div style={controlPanelStyle}>
+              <div style={controlHeaderStyle}>Admin Control Board</div>
+              <button
+                style={sideButtonStyle(editAction === 'single', !isControlPanelActive)}
+                onClick={() => dispatch(setEditAction('single'))}
+                disabled={!isControlPanelActive}
+              >
+                Single Select
+              </button>
+              <button
+                style={sideButtonStyle(editAction === 'group', !isControlPanelActive)}
+                onClick={() => dispatch(setEditAction('group'))}
+                disabled={!isControlPanelActive}
+              >
+                Group Select
+              </button>
+              <button
+                style={sideButtonStyle(editAction === 'disable', enableDisableDisabled)}
+                onClick={() => dispatch(setEditAction('disable'))}
+                disabled={enableDisableDisabled}
+              >
+                Disable
+              </button>
+              <button
+                style={sideButtonStyle(editAction === 'enable', enableDisableDisabled)}
+                onClick={() => {
+                  dispatch(enableSelectedSpaces());
+                  dispatch(setEditAction('single'));
+                }}
+                disabled={enableDisableDisabled}
+              >
+                Enable
+              </button>
+              <button
+                style={sideButtonStyle(editAction === 'manual', manualDisabled)}
+                onClick={() => { setAssignIdInput(''); setShowAssignModal(true); }}
+                disabled={manualDisabled}
+              >
+                Manual Assign
+              </button>
+              <button
+                style={sideButtonStyle(editAction === 'update', !isControlPanelActive)}
+                onClick={() => dispatch(setEditAction('update'))}
+                disabled={!isControlPanelActive}
+              >
+                Update School Map
+              </button>
+            </div>
+          )}
 
           <div style={accountSectionStyle} onClick={onLogout}>
             <div style={{
@@ -515,10 +779,96 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
                 }}
               />
             )}
-            {selectedLot === 'Lot 1' && renderParkingLot()}
-            {selectedLot !== 'Home' && selectedLot !== 'Lot 1' && (
-              <div style={{ color: '#333' }}>Map/View for {selectedLot}</div>
-            )}
+            {selectedLot !== 'Home' && selectedLot !== 'Lot 3' && (() => {
+              const fanCfg = LOT_FAN_CONFIGS[selectedLot];
+              const mapCfg = LOT_MAP_CONFIGS[selectedLot];
+              const cfg = LOT_CONFIGS[selectedLot] ?? LOT_CONFIGS['Lot 1'];
+              const showBoxes = !MAP_ONLY_LOTS.has(selectedLot);
+
+              if (!fanCfg && !mapCfg) {
+                return renderParkingLot(selectedLot);
+              }
+
+              if (fanCfg) {
+                const imgW = fanCfg.naturalWidth * MAP_DISPLAY_SCALE;
+                const imgH = fanCfg.naturalHeight * MAP_DISPLAY_SCALE;
+                const sectionSize = computeSectionSize(cfg);
+
+                return (
+                  <div style={{ position: 'relative', width: `${imgW}px`, height: `${imgH}px` }}>
+                    <img
+                      src={fanCfg.image}
+                      alt={`${selectedLot} campus map crop`}
+                      draggable={false}
+                      style={{ width: `${imgW}px`, height: `${imgH}px`, display: 'block', userSelect: 'none' }}
+                    />
+                    {showBoxes && fanCfg.sections.map((sec, secIdx) => {
+                      const boxW = sec.boxW * MAP_DISPLAY_SCALE;
+                      const boxH = sec.boxH * MAP_DISPLAY_SCALE;
+                      const scaleX = boxW / sectionSize.w;
+                      const scaleY = boxH / sectionSize.h;
+                      return (
+                        <div
+                          key={secIdx}
+                          style={{
+                            position: 'absolute',
+                            left: `${sec.ax * MAP_DISPLAY_SCALE - boxW / 2}px`,
+                            top: `${sec.ay * MAP_DISPLAY_SCALE}px`,
+                            width: `${boxW}px`,
+                            height: `${boxH}px`,
+                            transform: `rotate(${sec.rotate}deg)`,
+                            transformOrigin: '50% 0%',
+                          }}
+                        >
+                          <div style={{ transform: `scale(${scaleX}, ${scaleY})`, transformOrigin: 'top left' }}>
+                            {renderSection(selectedLot, secIdx, cfg)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              const mc = mapCfg!;
+              const gridSize = computeGridSize(cfg);
+              const imgW = mc.naturalWidth * MAP_DISPLAY_SCALE;
+              const imgH = mc.naturalHeight * MAP_DISPLAY_SCALE;
+              const boxLeft = mc.box.x * MAP_DISPLAY_SCALE;
+              const boxTop = mc.box.y * MAP_DISPLAY_SCALE;
+              const boxW = mc.box.w * MAP_DISPLAY_SCALE;
+              const boxH = mc.box.h * MAP_DISPLAY_SCALE;
+              const scaleX = boxW / gridSize.w;
+              const scaleY = boxH / gridSize.h;
+
+              return (
+                <div style={{ position: 'relative', width: `${imgW}px`, height: `${imgH}px` }}>
+                  <img
+                    src={mc.image}
+                    alt={`${selectedLot} campus map crop`}
+                    draggable={false}
+                    style={{ width: `${imgW}px`, height: `${imgH}px`, display: 'block', userSelect: 'none' }}
+                  />
+                  {showBoxes && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${boxLeft}px`,
+                        top: `${boxTop}px`,
+                        width: `${boxW}px`,
+                        height: `${boxH}px`,
+                        transform: `rotate(${mc.rotate}deg)`,
+                        transformOrigin: 'center center',
+                      }}
+                    >
+                      <div style={{ transform: `scale(${scaleX}, ${scaleY})`, transformOrigin: 'top left' }}>
+                        {renderParkingLot(selectedLot)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div style={lotNavigationStyle}>
               {['Home', ...Array.from({ length: 17 }, (_, i) => `Lot ${i + 1}`)].map(lot => (
@@ -533,12 +883,14 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) =>
             </div>
           </div>
 
-          <div style={editToggleContainerStyle}>
-            <span>Edit Mode</span>
-            <div style={toggleStyle} onClick={() => dispatch(toggleEditMode())}>
-              <div style={toggleCircleStyle} />
+          {isAdmin && (
+            <div style={editToggleContainerStyle}>
+              <span>Edit Mode</span>
+              <div style={toggleStyle} onClick={() => dispatch(toggleEditMode())}>
+                <div style={toggleCircleStyle} />
+              </div>
             </div>
-          </div>
+          )}
 
           <div style={logoStyle}>LT</div>
         </main>

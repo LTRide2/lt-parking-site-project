@@ -8,6 +8,7 @@ interface ParkingState {
   editAction: EditAction;
   selectedSpaces: string[];
   disabledSpaces: string[];
+  assignedSpaces: Record<string, string>;
 }
 
 const initialState: ParkingState = {
@@ -16,6 +17,7 @@ const initialState: ParkingState = {
   editAction: null,
   selectedSpaces: [],
   disabledSpaces: [],
+  assignedSpaces: {},
 };
 
 const parkingSlice = createSlice({
@@ -62,6 +64,7 @@ const parkingSlice = createSlice({
         if (!state.disabledSpaces.includes(id)) {
           state.disabledSpaces.push(id);
         }
+        delete state.assignedSpaces[id];
       }
       state.selectedSpaces = [];
       state.editAction = null;
@@ -69,6 +72,14 @@ const parkingSlice = createSlice({
     },
     clearSelectedSpaces(state) {
       state.selectedSpaces = [];
+    },
+    assignSpace(state, action: PayloadAction<{ spaceId: string; studentId: string }>) {
+      state.assignedSpaces[action.payload.spaceId] = action.payload.studentId;
+      state.selectedSpaces = [];
+      state.editAction = null;
+    },
+    unassignSpace(state, action: PayloadAction<string>) {
+      delete state.assignedSpaces[action.payload];
     },
   },
 });
@@ -82,5 +93,7 @@ export const {
   enableSelectedSpaces,
   disableSelectedSpaces,
   clearSelectedSpaces,
+  assignSpace,
+  unassignSpace,
 } = parkingSlice.actions;
 export default parkingSlice.reducer;
