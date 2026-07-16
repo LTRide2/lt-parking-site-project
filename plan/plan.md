@@ -33,10 +33,10 @@ There are **three documents** in this `plan/` folder. They work together:
 
 | Repo | Path | Stack | State |
 |---|---|---|---|
-| Frontend (UI) | `lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~35% |
+| Frontend (UI) | `lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~45% |
 | Backend | `LTR-Backend` (`github.com/LTRide2/LTR-Backend`) | Python / Flask + SQLite | Untouched course scaffold, ~5% |
 
-**Overall completion ≈ 20%.**
+**Overall completion ≈ 25%.**
 
 ---
 
@@ -49,20 +49,23 @@ The frontend is a working **client-only prototype** — all state lives in Redux
   - Selection between **Student** and **Admin**.
   - Student form: enter a **code**. Admin form: username + password fields.
 - **Auth state** (`src/store/authSlice.ts`): `loginAsStudent(code)`, `loginAsAdmin()`, `logout()`.
-- **Admin Control Board** (`src/ControlBoard.tsx`) — the most developed piece:
+- **Control Board** (`src/ControlBoard.tsx`) — the most developed piece; it is now the shared screen **both** admins and students land on (the view changes with `userType`):
   - Campus map view ("Home") with **pan + zoom** (wheel zoom-to-cursor, drag to pan, "Reset View").
   - Lot navigation bar for **Home + Lot 1–17**.
-  - **Lot 1** renders a parking-space grid (3 columns × 2 sides × 20 spaces).
-  - **Edit Mode** toggle that gates the Admin Control Board.
-  - Control actions: **Single Select, Group Select, Disable, Enable, Manual Assign, Update School Map** (UI wired; only select/enable/disable mutate local state).
-  - Space states: selected (yellow), disabled (grey), available (white).
-- **Parking state** (`src/store/parkingSlice.ts`): `selectedLot`, `isEditMode`, `editAction`, `selectedSpaces[]`, `disabledSpaces[]` + reducers.
+  - **All 17 lots** now draw their own parking-space grid — sizes/shapes come from a per-lot `LOT_CONFIGS` table (sections × sides × spaces × orientation), no longer just Lot 1.
+  - Three drawing modes per lot: a **plain grid**; a **map-crop overlay** (`LOT_MAP_CONFIGS`) that positions the grid on a cropped photo of the real lot; and a **curved/radial "fan" layout** (`LOT_FAN_CONFIGS`) for lots whose aisles curve. Some lots are **map-only** (`MAP_ONLY_LOTS`) — photo shown, no clickable grid yet.
+  - **Edit Mode** toggle (admins only) that gates the Admin Control Board.
+  - Admin control actions: **Single Select, Group Select, Disable, Enable, Manual Assign, Update School Map**. Select/enable/disable **and now Manual Assign** mutate local state (Manual Assign = pick one space → type a student ID in a modal → assign). *Update School Map* is still a no-op button.
+  - **Student self-claim:** a logged-in student can click an open spot to **claim** it (a "Claim Parking Spot?" confirmation modal pops up first), is limited to **one spot at a time**, and can click their own spot again to **unclaim** it. Students see only their own spot's ID; admins see every taken spot's ID.
+  - Space states: selected (yellow), disabled (grey), available (blue), **assigned/claimed (red, showing the student ID)**.
+- **Parking state** (`src/store/parkingSlice.ts`): `selectedLot`, `isEditMode`, `editAction`, `selectedSpaces[]`, `disabledSpaces[]`, **`assignedSpaces` (a `{spaceId: studentId}` map)** + reducers, including `assignSpace` / `unassignSpace`.
 - **Redux store** with typed hooks (`useAppDispatch`, `useAppSelector`).
 
 ### Partial / Stub
-- **Student dashboard** — hard-coded "No spaces available"; no interest registration.
-- **Admin actions** — *Manual Assign* / *Update School Map* are buttons with no behavior; enable/disable only mutate local state.
-- **Lots 2–17** — placeholders; space layout hard-coded, not data-driven.
+- **Student experience** — lives inside `ControlBoard` (no separate dashboard yet); a student can claim/unclaim a spot but there is no "register interest / see availability list" screen.
+- **Assignment & claim are local-only** — `assignedSpaces` lives in Redux and **resets on refresh**; nothing is saved to a server.
+- **Admin actions** — *Update School Map* is a button with no behavior; enable/disable/assign only mutate local state.
+- **Map-only lots** — several lots (`MAP_ONLY_LOTS`) show a photo crop but have no interactive grid yet.
 
 ### Missing (UI)
 Real authentication, API client layer, loading/error/empty states, routing (`react-router`), persistence, tests.
@@ -478,7 +481,7 @@ LTR-Backend/
 - **API client** (`src/api/client.ts`): fetch wrapper, base URL from `import.meta.env.VITE_API_URL`, attaches Bearer token, normalizes errors.
 - **State:** convert slices to use **`createAsyncThunk`** for server calls; keep `selectedLot`/`isEditMode`/`selectedSpaces` as UI-only state. Add `interestSlice`.
 - **Routing:** `react-router-dom` — `/login`, `/student`, `/admin`; `ProtectedRoute` reads `auth.token` + `role`.
-- **Data-driven map:** replace hard-coded Lot 1 grid with spaces fetched from `/api/lots/:id/spaces`; render `label`/`status` from data; keep existing pan/zoom for the "Home" campus map.
+- **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (with photo crops + curved/radial layouts) — replace the **space data** with spaces fetched from `/api/lots/:id/spaces`, rendering `label`/`status` from the server (keep the layout/photo code); keep existing pan/zoom for the "Home" campus map.
 - **UX states:** loading spinners, empty ("No spaces available" only when truly empty), error toasts, optimistic updates with refetch on failure.
 
 ### 7.3 Cross-cutting

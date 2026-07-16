@@ -1,3 +1,11 @@
+# --- LTRide project dependencies (added in CR B0) ---
+flask-cors>=4.0
+psycopg[binary]>=3.1
+PyJWT>=2.8
+python-dotenv>=1.0
+gunicorn>=21.2
+
+# --- course-template scaffold (existing) ---
 arrow==1.2.3
 astroid==2.15.0
 attrs==22.2.0

@@ -1259,6 +1259,10 @@ git add -A && git commit -m "B6: student interest register + list (self/admin)" 
 
 Both admin-only. We do all the writes inside **one database transaction** so they either *all* succeed or *all* roll back — you can never end up with a space marked assigned but no assignment row.
 
+> **📸 Note — the frontend prototype also has a "student self-claim".** The UI prototype currently lets a *student* click an open spot and claim it directly (see the UI guide's U6 note). **That's not what this CR builds** — B7 is the planned flow: a student *registers interest* (B6), then an *admin* assigns the spot. `POST /api/assignments` here is **admin-only** on purpose.
+>
+> If the team later decides students should be able to self-claim for real (not just in the browser), that's a **separate future backend CR**, not part of B7. It would need its own student-facing endpoint — e.g. `POST /api/claims` — with its own rules: the caller must be a `student`, the space must be `available` (not disabled/assigned), and a student may hold **at most one** active claim (enforce it with a partial unique index, the same trick B6 uses for interest). Don't loosen this B7 endpoint to allow students — keep admin-assign and student-claim as distinct paths so each keeps its own authorization.
+
 **Branch:**
 ```bash
 git checkout cr/b6-interest
