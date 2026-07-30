@@ -124,10 +124,10 @@ The current app is a **prototype** — it looks right but has no real data and f
 | `src/main.tsx` | Starts the app, connects Redux store. |
 | `src/App.tsx` | Top-level component; just renders `<Login />`. |
 | `src/Login.tsx` | Login screen (Student / Admin), fake login. |
-| `src/ControlBoard.tsx` | The admin dashboard with the map, lots, edit mode. |
+| `src/ControlBoard.tsx` | The shared screen for **both** roles: campus map + all 17 lots + edit mode. Admins get the control panel; students can click a spot to claim/unclaim it. |
 | `src/store/index.ts` | The Redux "store" (central data) + typed hooks. |
 | `src/store/authSlice.ts` | Login/logout state (currently fake). |
-| `src/store/parkingSlice.ts` | Selected lot, edit mode, selected/disabled spaces. |
+| `src/store/parkingSlice.ts` | Selected lot, edit mode, selected/disabled spaces, and `assignedSpaces` (which student claimed/was-assigned each spot). All local-only — it resets on refresh. |
 
 > **Redux in one sentence:** it's a single shared box of data (`state`) that any component can read with `useAppSelector`, and change by `dispatch`-ing an action. Don't worry about mastering it — you'll copy the existing patterns.
 
@@ -144,15 +144,19 @@ The left side is what's in `src/` today; the right side is where you're heading.
 **Today (a click-only prototype):**
 ```
 lt-parking-site-project/
+├── public/
+│   └── lots/              # cropped photos of each real lot (lot1.jpg … lot17.jpg)
 └── src/
     ├── main.tsx           # boots React, wraps app in the Redux <Provider>
     ├── App.tsx            # just renders <Login />
     ├── Login.tsx          # login screen; fakes login; gates <ControlBoard>
-    ├── ControlBoard.tsx   # admin dashboard: map, lots, edit mode (local-only)
+    ├── ControlBoard.tsx   # shared screen for both roles: map, 17 lots, edit mode,
+    │                      #   student claim/unclaim, admin manual-assign (all local-only)
     └── store/
         ├── index.ts       # the Redux store + typed hooks
         ├── authSlice.ts   # {isLoggedIn, userType, userCode} — fake login
-        └── parkingSlice.ts# selectedLot, isEditMode, selectedSpaces, disabledSpaces
+        └── parkingSlice.ts# selectedLot, isEditMode, selectedSpaces, disabledSpaces,
+                           #   assignedSpaces {spaceId: studentId}
 ```
 
 **The target (filled in, each file tagged by the CR that adds it):**
@@ -174,6 +178,12 @@ src/
 ```
 
 > **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in **plan.md §7.1**.
+
+> **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
+> - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
+> - `ControlBoard.tsx` now (a) draws **all 17 lots** from a `LOT_CONFIGS` table over cropped lot photos, (b) lets a **student click an open spot to claim it** (with a confirmation pop-up, one spot max), and (c) makes the admin's **Manual Assign** button work locally by typing a student ID.
+>
+> This all lives **only in the browser and resets on refresh** — there's still no backend behind it. The CRs below (especially **U3, U4, U6**) are the plan to make it *real* (data-driven + saved on the server). Where a CR says "replace the whole file" or shows a "BEFORE", expect the file on your screen to have these extra `assignedSpaces` bits — that's fine, the CR's new version intentionally supersedes them. Each affected CR has a short **"📸 What's already in the prototype"** note so you're not surprised.
 
 ---
 
@@ -742,6 +752,8 @@ PR base = `cr/u1-real-auth`.
 
 > **Big idea / what changes:** the old slice tracked spaces as strings (`selectedSpaces: string[]`, `disabledSpaces: string[]`). The backend gives every space a **numeric `id`** and a **`status`** (`available` / `disabled` / `assigned`). So in this CR selection becomes `number[]`, and "disabled" is no longer a separate list — it's just `status === "disabled"` coming from the server. U4 then makes changes *save*.
 
+> **📸 What's already in the prototype:** the file on your screen has grown since this CR was written. `parkingSlice.ts` has an extra `assignedSpaces: Record<string, string>` field with `assignSpace`/`unassignSpace` reducers, and `ControlBoard.tsx` already draws **all 17 lots** from a `LOT_CONFIGS` table over photos in `public/lots/`. **That's expected.** The "replace the whole file" step below throws away the *string-based, browser-only* version on purpose — the server (`status: "assigned"`) becomes the single source of truth for who has which spot. Keep the 17-lot `LOT_CONFIGS` / photo-drawing code; only the **data source** (strings → server ids + status) changes. The claim/assign *behaviour* gets rebuilt properly against the backend in **U6**.
+
 **Branch:**
 ```bash
 git checkout cr/u2-routing
@@ -1244,6 +1256,10 @@ PR base = `cr/u4-save-status`.
 **Depends on:** U5 and backend **B7**. **Branch off U5.**
 
 **Goal:** the admin sees the list of pending student interest and **assigns** a space to a student. The space flips to `assigned` (blue) and the student's request flips to `fulfilled`.
+
+> **📸 What's already in the prototype:** `ControlBoard.tsx` already has a **local** Manual Assign (select a space → a modal asks you to type a student ID → it writes to `assignedSpaces`) **and** a **student self-claim** flow (a student clicks an open spot, confirms a pop-up, and claims it). Both are browser-only and vanish on refresh. This CR **replaces the local Manual Assign** with the real server-backed one below: instead of *typing* a student ID, the admin picks a **pending interest request** (which already knows the student) and clicks a space. The old `assignSpace`/`unassignSpace` reducers and the type-in-ID modal can be deleted once this is wired.
+>
+> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see plan.md §6). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
 
 **Branch:**
 ```bash

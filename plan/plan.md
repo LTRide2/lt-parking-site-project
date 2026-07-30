@@ -33,10 +33,10 @@ There are **three documents** in this `plan/` folder. They work together:
 
 | Repo | Path | Stack | State |
 |---|---|---|---|
-| Frontend (UI) | `lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~35% |
+| Frontend (UI) | `lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~45% |
 | Backend | `LTR-Backend` (`github.com/LTRide2/LTR-Backend`) | Python / Flask + SQLite | Untouched course scaffold, ~5% |
 
-**Overall completion ≈ 20%.**
+**Overall completion ≈ 25%.**
 
 ---
 
@@ -49,20 +49,23 @@ The frontend is a working **client-only prototype** — all state lives in Redux
   - Selection between **Student** and **Admin**.
   - Student form: enter a **code**. Admin form: username + password fields.
 - **Auth state** (`src/store/authSlice.ts`): `loginAsStudent(code)`, `loginAsAdmin()`, `logout()`.
-- **Admin Control Board** (`src/ControlBoard.tsx`) — the most developed piece:
+- **Control Board** (`src/ControlBoard.tsx`) — the most developed piece; it is now the shared screen **both** admins and students land on (the view changes with `userType`):
   - Campus map view ("Home") with **pan + zoom** (wheel zoom-to-cursor, drag to pan, "Reset View").
   - Lot navigation bar for **Home + Lot 1–17**.
-  - **Lot 1** renders a parking-space grid (3 columns × 2 sides × 20 spaces).
-  - **Edit Mode** toggle that gates the Admin Control Board.
-  - Control actions: **Single Select, Group Select, Disable, Enable, Manual Assign, Update School Map** (UI wired; only select/enable/disable mutate local state).
-  - Space states: selected (yellow), disabled (grey), available (white).
-- **Parking state** (`src/store/parkingSlice.ts`): `selectedLot`, `isEditMode`, `editAction`, `selectedSpaces[]`, `disabledSpaces[]` + reducers.
+  - **All 17 lots** now draw their own parking-space grid — sizes/shapes come from a per-lot `LOT_CONFIGS` table (sections × sides × spaces × orientation), no longer just Lot 1.
+  - Three drawing modes per lot: a **plain grid**; a **map-crop overlay** (`LOT_MAP_CONFIGS`) that positions the grid on a cropped photo of the real lot; and a **curved/radial "fan" layout** (`LOT_FAN_CONFIGS`) for lots whose aisles curve. Some lots are **map-only** (`MAP_ONLY_LOTS`) — photo shown, no clickable grid yet.
+  - **Edit Mode** toggle (admins only) that gates the Admin Control Board.
+  - Admin control actions: **Single Select, Group Select, Disable, Enable, Manual Assign, Update School Map**. Select/enable/disable **and now Manual Assign** mutate local state (Manual Assign = pick one space → type a student ID in a modal → assign). *Update School Map* is still a no-op button.
+  - **Student self-claim:** a logged-in student can click an open spot to **claim** it (a "Claim Parking Spot?" confirmation modal pops up first), is limited to **one spot at a time**, and can click their own spot again to **unclaim** it. Students see only their own spot's ID; admins see every taken spot's ID.
+  - Space states: selected (yellow), disabled (grey), available (blue), **assigned/claimed (red, showing the student ID)**.
+- **Parking state** (`src/store/parkingSlice.ts`): `selectedLot`, `isEditMode`, `editAction`, `selectedSpaces[]`, `disabledSpaces[]`, **`assignedSpaces` (a `{spaceId: studentId}` map)** + reducers, including `assignSpace` / `unassignSpace`.
 - **Redux store** with typed hooks (`useAppDispatch`, `useAppSelector`).
 
 ### Partial / Stub
-- **Student dashboard** — hard-coded "No spaces available"; no interest registration.
-- **Admin actions** — *Manual Assign* / *Update School Map* are buttons with no behavior; enable/disable only mutate local state.
-- **Lots 2–17** — placeholders; space layout hard-coded, not data-driven.
+- **Student experience** — lives inside `ControlBoard` (no separate dashboard yet); a student can claim/unclaim a spot but there is no "register interest / see availability list" screen.
+- **Assignment & claim are local-only** — `assignedSpaces` lives in Redux and **resets on refresh**; nothing is saved to a server.
+- **Admin actions** — *Update School Map* is a button with no behavior; enable/disable/assign only mutate local state.
+- **Map-only lots** — several lots (`MAP_ONLY_LOTS`) show a photo crop but have no interactive grid yet.
 
 ### Missing (UI)
 Real authentication, API client layer, loading/error/empty states, routing (`react-router`), persistence, tests.
@@ -478,7 +481,7 @@ LTR-Backend/
 - **API client** (`src/api/client.ts`): fetch wrapper, base URL from `import.meta.env.VITE_API_URL`, attaches Bearer token, normalizes errors.
 - **State:** convert slices to use **`createAsyncThunk`** for server calls; keep `selectedLot`/`isEditMode`/`selectedSpaces` as UI-only state. Add `interestSlice`.
 - **Routing:** `react-router-dom` — `/login`, `/student`, `/admin`; `ProtectedRoute` reads `auth.token` + `role`.
-- **Data-driven map:** replace hard-coded Lot 1 grid with spaces fetched from `/api/lots/:id/spaces`; render `label`/`status` from data; keep existing pan/zoom for the "Home" campus map.
+- **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (with photo crops + curved/radial layouts) — replace the **space data** with spaces fetched from `/api/lots/:id/spaces`, rendering `label`/`status` from the server (keep the layout/photo code); keep existing pan/zoom for the "Home" campus map.
 - **UX states:** loading spinners, empty ("No spaces available" only when truly empty), error toasts, optimistic updates with refetch on failure.
 
 ### 7.3 Cross-cutting
@@ -616,7 +619,7 @@ Demoable after **U5** (students register interest, admins manage spaces); featur
 **Architecture:** Flask served by **gunicorn** behind **nginx** on a single **EC2** instance; **PostgreSQL on RDS**; the React static bundle served from the same nginx (simplest) or from **S3 + CloudFront**. HTTPS via **Let's Encrypt (certbot)** on a domain managed in **Route 53**. **All infrastructure is provisioned and managed with AWS CloudFormation (IaC)** — no manual console clicks for the resources below.
 
 ```
-                 ┌──────────────── EC2 (Ubuntu 22.04) ────────────────┐
+                 ┌──────── EC2 c6g.4xlarge (Ubuntu 22.04, arm64) ──────┐
  Internet ──443──┤ nginx (TLS, reverse proxy, serves React build)      │
    (Route 53)    │   │                                                  │
                  │   └─ proxy /api ─▶ gunicorn (systemd) ─▶ Flask app   │
@@ -716,8 +719,8 @@ Provisions an Elastic IP, an IAM instance role (read the DB secret + write Cloud
   WebServer:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref UbuntuAmiId          # SSM-resolved Ubuntu 22.04 AMI
-      InstanceType: !Ref WebInstanceType  # t3.micro
+      ImageId: !Ref UbuntuAmiId          # SSM-resolved Ubuntu 22.04 AMI (arm64 — c6g is Graviton2)
+      InstanceType: !Ref WebInstanceType  # c6g.4xlarge (16 vCPU, 32 GiB, arm64/Graviton2)
       KeyName: !Ref KeyName
       IamInstanceProfile: !Ref WebInstanceProfile
       SubnetId: !ImportValue ltride-network-PublicSubnet1Id
@@ -865,7 +868,191 @@ sudo systemctl restart ltride
 - **Monitoring:** add `AWS::CloudWatch::Alarm` resources (EC2 CPU, RDS free storage/connections) to the relevant stacks so alarms are version-controlled too.
 - **Security:** SSH (`22`) restricted to `AdminCidr` in the template; secrets live only in Secrets Manager; `.env` is generated on-box (never in git); run `unattended-upgrades`.
 - **Teardown:** `aws cloudformation delete-stack` in reverse order (dns → compute → database → network) cleanly removes everything (DB leaves a final snapshot).
-- **Cost (free-tier):** 1× `t3.micro` EC2 + 1× `db.t3.micro` RDS ≈ $0 within free-tier limits, then low single-digit $/mo afterward. Elastic IP is free while associated with a running instance.
+- **Cost:** the web tier runs on **c6g.4xlarge** (16 vCPU / 32 GiB, Graviton2) — **not** free-tier; see the full monthly estimate in §10.13. RDS stays on `db.t3.micro`. Elastic IP is free while associated with a running instance.
+
+### 10.12 Deployment diagram — all AWS services
+
+Every AWS resource the plan provisions, grouped by CloudFormation stack. Solid arrows are the request/data path; dashed arrows are provisioning/read-at-deploy dependencies. The **S3 + CloudFront** path is the optional alternative to nginx-served static files (§10.7).
+
+```mermaid
+flowchart TB
+    user([Student / Admin browser])
+
+    subgraph AWS["AWS Account (region)"]
+        cfn[["CloudFormation<br/>(IaC — provisions all stacks)"]]
+
+        subgraph dnsStack["04-dns stack"]
+            r53["Route 53<br/>Hosted Zone + A record"]
+        end
+
+        subgraph optCDN["Optional frontend path (S3 + CloudFront)"]
+            cf["CloudFront<br/>distribution"]
+            s3["S3 bucket<br/>(React dist/ build)"]
+        end
+
+        subgraph vpc["01-network stack — VPC 10.0.0.0/16"]
+            igw["Internet Gateway"]
+
+            subgraph pub["Public subnets (2 AZs)"]
+                eip["Elastic IP"]
+                subgraph ec2box["03-compute stack — EC2 c6g.4xlarge<br/>(Ubuntu 22.04, arm64/Graviton2)"]
+                    nginx["nginx<br/>(TLS via certbot, reverse proxy,<br/>serves React build)"]
+                    gunicorn["gunicorn + Flask API<br/>(systemd service)"]
+                end
+            end
+
+            subgraph priv["Private subnets (2 AZs)"]
+                rds[("02-database stack<br/>RDS PostgreSQL<br/>db.t3.micro")]
+            end
+
+            websg{{"WebSecurityGroup<br/>80/443 from 0.0.0.0/0<br/>22 from AdminCidr"}}
+            dbsg{{"DbSecurityGroup<br/>5432 from WebSecurityGroup only"}}
+        end
+
+        secrets["Secrets Manager<br/>ltride/rds/master"]
+        iamrole["IAM instance role<br/>+ instance profile"]
+        cwlogs["CloudWatch Logs<br/>(+ optional Alarms)"]
+    end
+
+    user -->|HTTPS 443| r53
+    r53 --> eip
+    eip --> igw
+    igw --> nginx
+    nginx -->|proxy /api| gunicorn
+    gunicorn -->|5432| rds
+
+    user -.->|static assets<br/>optional| cf
+    cf --> s3
+
+    websg -.->|guards| ec2box
+    dbsg -.->|guards| rds
+    ec2box -->|assumes| iamrole
+    iamrole -->|GetSecretValue| secrets
+    gunicorn -.->|reads DB creds at boot| secrets
+    ec2box -->|ships logs| cwlogs
+    rds -.->|master password| secrets
+
+    cfn -.->|provisions| vpc
+    cfn -.->|provisions| dnsStack
+    cfn -.->|provisions| ec2box
+    cfn -.->|provisions| rds
+    cfn -.->|provisions| secrets
+```
+
+**AWS services inventory**
+
+| Service | Stack | Role in the system |
+|---|---|---|
+| CloudFormation | (all) | IaC engine that provisions/updates every resource below |
+| VPC, subnets, Internet Gateway, route tables | `01-network` | Network isolation: 2 public + 2 private subnets across 2 AZs |
+| Security Groups (Web, Db) | `01-network` | Firewall: web tier open on 80/443 (22 from AdminCidr); DB reachable only from the web SG |
+| EC2 (c6g.4xlarge, 16 vCPU/32 GiB, Ubuntu 22.04 arm64) | `03-compute` | Runs nginx + gunicorn/Flask; bootstrapped via UserData |
+| Elastic IP | `03-compute` | Stable public address bound to the EC2 instance |
+| IAM role + instance profile | `03-compute` | Grants EC2 `secretsmanager:GetSecretValue` + CloudWatch Logs write |
+| RDS PostgreSQL (db.t3.micro) | `02-database` | Managed database in private subnets; 7-day backups, Snapshot on delete |
+| Secrets Manager | `02-database` | Auto-generated RDS master password; read by EC2 at boot |
+| Route 53 | `04-dns` | Hosted zone + A record → Elastic IP |
+| CloudWatch Logs (+ Alarms) | `03-compute` / ops | App/web log shipping; optional EC2/RDS alarms |
+| S3 + CloudFront *(optional)* | future stack | Alternative static hosting for the React build instead of nginx |
+
+### 10.13 Monthly cost estimate (c6g.4xlarge)
+
+**Assumptions:** region **us-east-1**, **on-demand** list prices, **730 hrs/month** (24×7), single-AZ RDS. Prices are AWS list rates and exclude taxes; actual bills vary by region, usage, and any Savings Plans/Reserved Instances.
+
+> ⚠️ **This overrides the free-tier cost note in §10.11.** The plan's baseline assumed `t3.micro` (free tier); switching the web tier to **c6g.4xlarge** (16 vCPU / 32 GiB, Graviton2) makes EC2 the dominant cost — this is **not** a free-tier configuration.
+
+| Line item | Spec | Unit price | Qty / month | Monthly cost |
+|---|---|---|---|---|
+| EC2 web server | c6g.4xlarge (16 vCPU, 32 GiB) | $0.544 / hr | 730 hrs | **$397.12** |
+| EC2 root volume | EBS gp3, ~30 GB (assumed) | $0.08 / GB-mo | 30 GB | $2.40 |
+| RDS instance | db.t3.micro PostgreSQL, single-AZ | $0.017 / hr | 730 hrs | $12.41 |
+| RDS storage | gp2, 20 GB | $0.115 / GB-mo | 20 GB | $2.30 |
+| RDS backups | 7-day retention (≤ DB size) | included | — | ~$0.00 |
+| Secrets Manager | 1 secret (`ltride/rds/master`) | $0.40 / secret-mo | 1 | $0.40 |
+| Route 53 | 1 hosted zone | $0.50 / zone-mo | 1 | $0.50 |
+| CloudWatch Logs | low-volume app/web logs (est.) | $0.50 / GB ingest | ~1–2 GB | ~$1.00 |
+| Elastic IP | attached to running instance | free while attached | 1 | $0.00 |
+| Data transfer out | first 100 GB/mo free | $0.09 / GB after | < 100 GB | $0.00 |
+| Domain registration | `.com` via Route 53, ~$13/yr amortized | $13 / yr | 1/12 | $1.08 |
+| **Total** | | | | **≈ $417.21 / month** |
+
+*(The table above is the **mid**-range scenario as specced: c6g.4xlarge on-demand + single-AZ db.t3.micro.)*
+
+#### Minimum / mid / maximum monthly scenarios — sized for ~1000 concurrent users
+
+**Load assumption: ~1000 concurrent users.** This is real production traffic, and it changes what each tier means: the total swings mostly with **EC2 size + count**, **RDS tier + HA**, **egress traffic** (1000 users pull real data), and whether a **load balancer** fronts the app. Three planning scenarios (all us-east-1, on-demand unless noted, 730 hrs/mo):
+
+| Cost driver | **Minimum** (demo only) | **Mid** (as specced, sized for load) | **Maximum** (HA production) |
+|---|---|---|---|
+| Load balancer (ALB) | — (none) | — (single instance, specced) | ALB + LCUs — $22.00 |
+| EC2 web tier | t4g.small (2 vCPU/2 GiB) — $12.26 | **c6g.4xlarge (16 vCPU/32 GiB) — $397.12** | 2× c6g.4xlarge — $794.24 |
+| EC2 root volume | gp3 20 GB — $1.60 | gp3 30 GB — $2.40 | 2× gp3 30 GB — $4.80 |
+| RDS instance | db.t3.micro single-AZ — $12.41 | db.t3.medium single-AZ — $49.64 | db.t3.large Multi-AZ — $198.56 |
+| RDS storage | gp2 20 GB — $2.30 | gp2 50 GB — $5.75 | gp2 100 GB — $11.50 |
+| Secrets Manager | $0.40 | $0.40 | $0.40 |
+| Route 53 (zone + queries) | $0.50 | $1.00 | $2.00 |
+| CloudWatch Logs (+ Alarms) | $0.50 | $5.00 | $15.00 |
+| S3 + CloudFront (frontend) | — (nginx-served) | — (nginx-served) | ~$10.00 |
+| Data transfer out | $0.00 (demo, < 100 GB free) | ~$18.00 (≈300 GB) | ~$70.00 (≈900 GB, via CloudFront) |
+| Domain registration (amortized) | $1.08 | $1.08 | $1.08 |
+| **AWS monthly total** | **≈ $31.05** | **≈ $480.39** | **≈ $1,127.58** |
+
+**Why each tier costs what it does:**
+
+- **Minimum — ≈ $31/mo (DEMO ONLY, does *not* serve 1000 concurrent users).** This is the cheapest way to stand the system up: a single small `t4g.small` instance, a free-tier-class `db.t3.micro`, nginx serving the static files, and near-zero traffic (under the 100 GB/mo free egress). It is deliberately under-provisioned — a `t4g.small` and a `db.t3.micro` would saturate CPU and exhaust DB connections well before 1000 concurrent users, and with a single instance any reboot is downtime. **Use this figure only for a demo, dev, or class-presentation environment, not for the stated 1000-user load.** It's included as the floor so you can see how cheaply the stack runs when it isn't carrying real traffic.
+
+- **Mid — ≈ $480/mo (the specced architecture, sized to actually carry 1000 users).** This is the plan's single `c6g.4xlarge` (16 vCPU / 32 GiB) — its 16 cores run enough gunicorn workers to handle 1000 concurrent users of a lightweight API, and EC2 is by far the dominant line ($397). The DB is bumped from `db.t3.micro` to **`db.t3.medium`** because a micro can't hold the connection pool 1000 users generate. Real egress (~300 GB) now costs ~$18 since the free 100 GB is exceeded, and logging rises with traffic. The trade-off: **one instance = one point of failure** — a crash or reboot is an outage until it restarts.
+
+- **Maximum — ≈ $1,128/mo (highly-available production).** This removes the single point of failure and adds headroom: an **ALB** spreads traffic across **two `c6g.4xlarge` instances** (so one can fail or be redeployed with no downtime), and RDS moves to a **Multi-AZ `db.t3.large`** with a hot standby in a second AZ. Static assets move to **S3 + CloudFront** (cheaper, faster egress at scale), egress rises to ~900 GB (~$70), and CloudWatch alarms/logs are fully on. This is what you'd run if the parking system were business-critical during a rush (e.g. start-of-semester).
+
+> **Reserved capacity discount:** committing the `c6g.4xlarge` fleet to a **1-year Compute Savings Plan** (~$0.34/hr vs $0.544 on-demand) cuts each instance ~37% — bringing **mid ≈ $332** and **max ≈ $832**.
+
+**Cost-reduction levers:**
+- **c6g.4xlarge is likely oversized** for this workload (a small Flask API); a `t3.micro`/`t4g.small` would drop the EC2 line to single-digit dollars. Size it to measured load.
+- A **1-year Compute Savings Plan / Reserved Instance** cuts the EC2 rate ~30–60% (≈ $160–280/mo for the c6g.4xlarge line).
+- Optional **S3 + CloudFront** frontend hosting (§10.7) adds a few dollars/month but offloads static traffic from EC2.
+
+### 10.14 Actual professional costs (contractor build + maintenance)
+
+The AWS figures above (§10.13) are **infrastructure only**. This section estimates the **professional software engineering cost** to actually build, deliver, and maintain the system — labor, not cloud bills.
+
+**Assumptions:** US-based independent contractor / small agency, **blended rate $125/hr** (mid–senior full-stack; typical market range $100–160/hr). Effort is scoped from the CR plan in §8 (B0–B10, U0–U9, D1–D4). One-time build is a project fee; maintenance is an ongoing monthly retainer **separate from AWS costs**.
+
+#### One-time build cost
+
+| Work package | Scope (CRs) | Est. hours | Cost @ $125/hr |
+|---|---|---|---|
+| Hygiene & foundations | B0, U0 (secret rotation, cleanup, tooling) | 20 | $2,500 |
+| Backend API | B1–B7 (skeleton, schema/seed, auth, lots/spaces, interest, assignments) | 80 | $10,000 |
+| Frontend wiring | U1–U7 (auth, routing, data-driven map, admin/student flows, map upload) | 90 | $11,250 |
+| Hardening | B8/U8, B9/U9, B10 (validation, tests, Postgres migration) | 50 | $6,250 |
+| Deployment / IaC | D1–D4 (gunicorn, CloudFormation stacks, CI/CD, provisioning) | 40 | $5,000 |
+| PM, QA, code review, docs | cross-cutting (~15% overhead) | 30 | $3,750 |
+| **Total one-time build** | | **310 hrs** | **≈ $38,750** |
+
+> Typical delivery range **$30k–$50k** depending on rate, scope creep, and how much of the existing UI prototype is reused vs. rebuilt.
+
+#### Monthly maintenance (retainer, separate from AWS)
+
+Ongoing engineering support after launch — bug fixes, security patching, dependency upgrades, small feature requests, and monitoring/on-call. Priced as a retainer, independent of the AWS bill in §10.13.
+
+| Maintenance item | Basis | Monthly cost |
+|---|---|---|
+| Support & bug fixes | ~8 hrs/mo @ $125/hr | $1,000 |
+| Security & dependency patching | ~2 hrs/mo @ $125/hr | $250 |
+| Monitoring / on-call availability | flat standby fee | $500 |
+| Minor enhancements | ~2 hrs/mo @ $125/hr | $250 |
+| **Total monthly maintenance (labor)** | ~12 hrs/mo | **≈ $2,000 / month** |
+
+#### Combined monthly run-rate
+
+| Component | Monthly cost |
+|---|---|
+| AWS infrastructure (§10.13, mid tier sized for 1000 users, incl. domain) | ≈ $480 |
+| Professional maintenance (labor, above) | ≈ $2,000 |
+| **Total monthly run-rate** | **≈ $2,480 / month** |
+
+> **Year-one total of ownership** (one-time build + 12× combined run-rate) ≈ **$38,750 + $29,760 ≈ $68,510**. These are planning estimates at a $125/hr blended rate and the mid AWS tier — adjust for the actual contractor rate, region, chosen AWS tier, and negotiated scope.
 
 ---
 
