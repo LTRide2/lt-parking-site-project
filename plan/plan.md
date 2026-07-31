@@ -16,6 +16,7 @@ There are **three documents** in this `plan/` folder. They work together:
 | Document | What it is | Read it when |
 |---|---|---|
 | **`plan.md`** (this file) | The **master reference**: architecture, data model, diagrams, full API contracts, every CR listed, and the deep CloudFormation deployment detail (§10). | You want the big picture or the *precise* spec for any piece. |
+| **`ui-plan.md`** | The **frontend design** (architecture view): module structure, state/routing layers, per-screen behavior — references this file for the exact API/data specs. | You want to understand *how the SPA is designed* before or while building it. |
 | **`ui-development-guide.md`** | A **beginner, step-by-step guide to building the website (frontend)**, including every git command and a local test for each CR (U0–U7). | You're sitting down to write frontend code. |
 | **`backend-development-guide.md`** | A **beginner, step-by-step guide to building the server + database (backend) and deploying to AWS**, with every git command and a local test for each CR (B0–B7, D1–D4). | You're sitting down to write backend code or push it live. |
 
@@ -38,9 +39,13 @@ There are **three documents** in this `plan/` folder. They work together:
 
 **Overall completion ≈ 25%.**
 
+> **Progress snapshot (verified against the frontend code on 2026-07-30).** The UI is still the **client-only prototype** described in §2 — no CR from the delivery plan (§8) has been started yet. The codebase confirms: **no** `react-router-dom` dependency, **no** `src/api/` client module, **no** `.env` handling, **no** `createAsyncThunk`, and **no** `fetch`/network calls anywhere in `src/`. `authSlice` is still the fake login (`loginAsStudent`/`loginAsAdmin`/`logout`); `parkingSlice` still keys spaces by string and holds a local-only `assignedSpaces` map; the store registers only `auth` + `parking`. See the **CR status board** in §8 for the per-CR breakdown.
+
 ---
 
 ## 2. What We Have in the UI (today)
+
+> **Code-verified current as of 2026-07-30** — this section equals what is on `main` right now; none of the §8 CRs have modified it yet.
 
 The frontend is a working **client-only prototype** — all state lives in Redux and resets on refresh. There are **no API calls and no persistence yet**.
 
@@ -496,6 +501,38 @@ LTR-Backend/
 Small, reviewable change requests. **B#** = backend, **U#** = frontend/UI. Ordered so each CR is shippable and unblocks the next.
 
 Each CR lists a **Local test** — how to verify it on your machine before review. Backend assumes a venv + `flask run` (or `bin/run`) on `http://localhost:8000`; frontend assumes `npm run dev` on `http://localhost:5173` with `VITE_API_URL=http://localhost:8000`.
+
+### CR status board (verified against code on 2026-07-30)
+
+**Every CR below is `Not started`.** The frontend is still the §2 prototype and the backend is still the untouched scaffold — no branch from this plan has been cut. Update a row to `In progress` / `Done` (with its PR link) as work lands. Legend: ⬜ Not started · 🟡 In progress · ✅ Done.
+
+| CR | Title | Status | Evidence / note |
+|---|---|---|---|
+| B0 | Repo cleanup & secret rotation | ⬜ Not started | `aws-tutorial.pem` still committed; duplicated `BK/`+`webapp/` |
+| U0 | Project hygiene (router, api client, `.env`) | ⬜ Not started | no `react-router-dom` dep, no `src/api/`, no `.env` |
+| B1 | App skeleton + health check | ⬜ Not started | no `create_app()` / `/api/health` |
+| B2 | Schema + migrations + seed | ⬜ Not started | only placeholder `developer` table |
+| B3 | Auth endpoints (JWT) | ⬜ Not started | — |
+| B4 | Lots & spaces read API | ⬜ Not started | — |
+| B5 | Admin space management | ⬜ Not started | — |
+| B6 | Interest registration API | ⬜ Not started | — |
+| B7 | Assignment API | ⬜ Not started | — |
+| U1 | Real auth flow | ⬜ Not started | `authSlice` is still fake login (`userType`/`userCode`), no thunks/token |
+| U2 | Routing (`react-router`) | ⬜ Not started | `App.tsx` renders `<Login />` directly; no `<BrowserRouter>` |
+| U3 | Data-driven lots & spaces | ⬜ Not started | `parkingSlice` keys spaces by string; no `fetchLots`/`fetchSpaces` |
+| U4 | Admin enable/disable persisted | ⬜ Not started | disable mutates local `disabledSpaces` only |
+| U5 | Student interest registration | ⬜ Not started | no `interestSlice`; no `StudentDashboard` |
+| U6 | Admin allocation | ⬜ Not started | Manual Assign is local-only (types a student ID) |
+| U7 | Update School Map | ⬜ Not started | *Update School Map* button is a no-op |
+| B8 / U8 | Validation & error handling | ⬜ Not started | — |
+| B9 / U9 | Tests (pytest / Vitest) | ⬜ Not started | no test files either repo |
+| B10 | Postgres migration path | ⬜ Not started | — |
+| D1 | Build artifacts | ⬜ Not started | — |
+| D2 | CloudFormation templates | ⬜ Not started | no `deploy/` dir |
+| D3 | CI/CD | ⬜ Not started | — |
+| D4 | Provision & deploy on AWS | ⬜ Not started | — |
+
+**Prototype-only work already done (not part of the CR plan, resets on refresh):** all-17-lot rendering (`LOT_CONFIGS`/`LOT_MAP_CONFIGS`/`LOT_FAN_CONFIGS`/`MAP_ONLY_LOTS`), student claim/unclaim, local Manual Assign, edit-mode gating, pan/zoom campus map. These are the ~45% of UI counted in §1 and are the surface the U-series CRs make real.
 
 ### CR workflow & branching strategy
 

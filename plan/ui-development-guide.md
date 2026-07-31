@@ -6,9 +6,76 @@
 
 ---
 
+## Progress snapshot (verified against the code on 2026-07-30)
+
+**None of the UI CRs below have been started yet — start at [CR U0](#cr-u0--project-hygiene-foundation-no-visible-change).** The app on `main` is still the click-only prototype described in Part D: no `react-router-dom`, no `src/api/` client, no `.env`, no `createAsyncThunk`, and no network calls anywhere in `src/`. `authSlice` is still the fake login; `parkingSlice` still keys spaces by string with a local-only `assignedSpaces` map.
+
+| CR | What it adds | Status |
+|---|---|---|
+| U0 | Router dep, `src/api/client.ts`, `.env` config | ⬜ Not started |
+| U1 | Real login via API + session restore | ⬜ Not started |
+| U2 | `react-router` routes + role guard | ⬜ Not started |
+| U3 | Data-driven lots/spaces from API | ⬜ Not started |
+| U4 | Persist enable/disable via API | ⬜ Not started |
+| U5 | Student dashboard + register interest | ⬜ Not started |
+| U6 | Admin Manual Assign via API | ⬜ Not started |
+| U7 | Map image upload | ⬜ Not started |
+
+Legend: ⬜ Not started · 🟡 In progress · ✅ Done. Flip a row (and its CR heading below) as each PR merges. **Heads-up:** every U-CR depends on a matching backend CR (U1→B3, U3→B4, U4→B5, U5→B6, U6→B7) — that backend endpoint must exist before the UI CR can be tested. The backend is still the untouched scaffold, so B0–B7 need to land alongside this work.
+
+---
+
+## Prerequisites
+
+Before you build anything, your computer needs these. **Part A** walks you through installing each one; this table is the quick checklist of *what* and *why*.
+
+### System tools (install once, machine-wide)
+
+| Tool | Minimum version | Why you need it | How to check |
+|---|---|---|---|
+| **Node.js** | v20+ (use the LTS) | Runs the website code and the dev server | `node --version` |
+| **npm** | v10+ (ships with Node) | Installs the project's libraries | `npm --version` |
+| **Git** | any recent | Saves versions of your code, pushes to GitHub | `git --version` |
+| **VS Code** | latest | The code editor you'll write in | open the app |
+| A modern browser | latest | Chrome / Edge / Firefox / Safari to view the site | — |
+
+> If any `--version` check fails, go do the matching step in **Part A → A1** before continuing.
+
+### Project libraries (installed *into the project* by `npm install`)
+
+These are listed in `package.json` and installed with a single `npm install` (**A4**) — you do **not** install them one by one. This table is so you know what each one is for.
+
+**Runtime dependencies** (`dependencies` — ship in the app):
+
+| Library | Purpose | Added by |
+|---|---|---|
+| `react`, `react-dom` | The UI framework (React 19) | already present |
+| `@reduxjs/toolkit` | Central app state + `createAsyncThunk` for API calls | already present |
+| `react-redux` | Connects React components to the Redux store | already present |
+| `react-router-dom` | Client-side routing (`/login`, `/student`, `/admin`) | **CR U0** (you'll add it) |
+
+**Build / dev tooling** (`devDependencies` — used only while developing, not shipped): `vite` (dev server + bundler), `typescript` + `typescript-eslint`, `@vitejs/plugin-react`, `eslint` (+ `@eslint/js`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`), `@types/*` type definitions, and `globals`. These are already in `package.json`; `npm install` sets them up.
+
+**How to install everything (the normal path):**
+```bash
+cd ~/workspace/lt-parking-site-project
+npm install          # reads package.json, installs every library above into node_modules/
+```
+
+**Adding a new library later** (you'll do this once, in CR U0, for the router):
+```bash
+npm install react-router-dom      # runtime dependency
+npm install -D <tool>             # -D = dev-only tool (e.g. a test runner)
+```
+> `npm install <name>` records the library in `package.json` and downloads it into `node_modules/`. Commit the changed `package.json` **and** `package-lock.json` so everyone gets the exact same versions.
+
+---
+
 ## Part A — One-time setup (do this once)
 
-### A1. Install the tools
+> **Which section do I follow?** **Part A (A1–A5)** is written for **macOS**. If you're on **Windows**, skip to **[Part A-W](#part-a-w--one-time-setup-on-windows)** below — it covers the same five steps with Windows commands. After setup, the rest of the guide is identical on both (the `git` and `npm` commands are the same); where a terminal command differs, the Windows note calls it out.
+
+### A1. Install the tools (macOS)
 
 You need three programs. Install them in this order.
 
@@ -64,6 +131,88 @@ npm run dev
 You'll see a line like `Local: http://localhost:5173/`. Hold **Cmd** and click it, or paste it into your browser. You should see the LTRide login screen. **Leave this running** in its terminal while you work — it auto-refreshes when you save a file.
 
 To **stop** it later, click that terminal and press **Ctrl + C**.
+
+---
+
+## Part A-W — One-time setup on Windows
+
+> **For Windows 10/11 users.** This is the Windows equivalent of Part A (A1–A5). Do it once. Everywhere the Mac guide says "Terminal," on Windows you use **Windows Terminal** or **PowerShell** (press **Start**, type `powershell`, press Enter). After this section, follow the rest of the guide normally — the `git` and `npm` commands are identical.
+
+### A1-W. Install the tools
+
+You need three programs. There are **two ways** to install them — pick one.
+
+**Option 1 — winget (fastest; built into Windows 10/11).** Open **PowerShell** and run:
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Git.Git -e
+winget install --id Microsoft.VisualStudioCode -e
+```
+> `winget` is Windows' built-in package installer. If it's not found, install "App Installer" from the Microsoft Store, or use Option 2.
+
+**Option 2 — download the installers by hand:**
+1. **Node.js** — go to <https://nodejs.org>, download the **LTS** `.msi`, run it, and **keep every checkbox at its default** (the defaults add Node to your PATH so the terminal can find it).
+2. **Git** — go to <https://git-scm.com/download/win>, run the installer. Accept the defaults; on the "default editor" screen you can pick VS Code if you like. This also installs **Git Bash** (a Unix-style terminal) if you prefer it.
+3. **VS Code** — go to <https://code.visualstudio.com>, download the Windows installer, and during setup **tick "Add to PATH"** so the `code` command works.
+
+**Close and reopen PowerShell** (so it picks up the new PATH), then verify all three:
+```powershell
+node --version
+npm --version
+git --version
+```
+Each should print a version number. `node` should be **v20 or higher**. If a command is "not recognized," reopen the terminal; if it still fails, the tool's PATH entry is missing — re-run its installer and ensure the "Add to PATH" option is selected.
+
+### A2-W. Tell Git who you are (one time)
+
+Same commands as macOS. In PowerShell:
+```powershell
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+> **Recommended on Windows** — keep line endings consistent so files don't show phantom changes:
+> ```powershell
+> git config --global core.autocrlf true
+> ```
+
+### A3-W. Get the project onto your computer
+
+Windows has no `~/workspace`; use your user folder. In PowerShell:
+```powershell
+cd $HOME
+mkdir workspace -Force
+cd workspace
+```
+Then get the project (if you haven't already cloned it):
+```powershell
+git clone https://github.com/LTRide2/lt-parking-site-project.git
+cd lt-parking-site-project
+```
+> **Windows command notes:** use `dir` (or `ls` in PowerShell) to list files, `pwd` to see where you are, and **backslashes or forward slashes** both work in paths. If you cloned the repo somewhere else, just `cd` into that folder instead.
+
+### A4-W. Install the project's building blocks
+
+Identical to macOS — run it inside the project folder:
+```powershell
+npm install
+```
+This reads `package.json` and creates a `node_modules` folder. It can take a minute.
+> **If `npm install` fails with a script-execution error** ("running scripts is disabled on this system"), allow local scripts for your user once:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
+> then re-run `npm install`.
+
+### A5-W. Run the website on your computer
+
+```powershell
+npm run dev
+```
+You'll see a line like `Local: http://localhost:5173/`. **Ctrl + click** it (or copy it into your browser). You should see the LTRide login screen. **Leave this running** while you work — it auto-refreshes when you save a file.
+
+To **stop** it later, click that terminal window and press **Ctrl + C**.
+
+> **From here on, follow the rest of this guide as written.** The only Windows differences to remember: open **PowerShell** wherever it says "Terminal," `Ctrl+click` links instead of `Cmd+click`, and use `dir`/`ls` to list files. All `git …` and `npm …` commands are the same.
 
 ---
 
@@ -235,7 +384,7 @@ cd ~/workspace/LTR-Backend/deploy
 
 ---
 
-### CR U0 — Project hygiene (foundation, no visible change)
+### CR U0 — Project hygiene (foundation, no visible change)  ⬜ Not started · **START HERE**
 
 **Goal:** add the plumbing later CRs need — routing, an API helper, environment config, and code formatting — **without changing what the user sees yet.**
 
@@ -337,7 +486,7 @@ Open a PR with base = `main`.
 
 ---
 
-### CR U1 — Real login (replaces the fake login)
+### CR U1 — Real login (replaces the fake login)  ⬜ Not started
 
 **Depends on:** U0 and backend **B3** (auth endpoints must exist). **Branch off U0.**
 
@@ -604,7 +753,7 @@ PR base = `cr/u0-hygiene`.
 
 ---
 
-### CR U2 — Routing (real pages with URLs)
+### CR U2 — Routing (real pages with URLs)  ⬜ Not started
 
 **Depends on:** U1. **Branch off U1.**
 
@@ -744,7 +893,7 @@ PR base = `cr/u1-real-auth`.
 
 ---
 
-### CR U3 — Show real lots and spaces (data-driven map)
+### CR U3 — Show real lots and spaces (data-driven map)  ⬜ Not started
 
 **Depends on:** U2 and backend **B4**. **Branch off U2.**
 
@@ -976,7 +1125,7 @@ PR base = `cr/u2-routing`.
 
 ---
 
-### CR U4 — Make enable/disable actually save
+### CR U4 — Make enable/disable actually save  ⬜ Not started
 
 **Depends on:** U3 and backend **B5**. **Branch off U3.**
 
@@ -1076,7 +1225,7 @@ PR base = `cr/u3-real-lots`.
 
 ---
 
-### CR U5 — Student registers interest (core feature #1)
+### CR U5 — Student registers interest (core feature #1)  ⬜ Not started
 
 **Depends on:** U2 and backend **B6**. **Branch off U4.**
 
@@ -1251,7 +1400,7 @@ PR base = `cr/u4-save-status`.
 
 ---
 
-### CR U6 — Admin assigns spaces (core feature #2)
+### CR U6 — Admin assigns spaces (core feature #2)  ⬜ Not started
 
 **Depends on:** U5 and backend **B7**. **Branch off U5.**
 
@@ -1383,7 +1532,7 @@ PR base = `cr/u5-student-interest`.
 
 ---
 
-### CR U7 — Update the school map image
+### CR U7 — Update the school map image  ⬜ Not started
 
 **Depends on:** U6 and the backend **map-upload** endpoint (`POST /api/lots/:id/map`). **Branch off U6.**
 
