@@ -2,7 +2,9 @@
 
 > **Who this is for:** someone brand new to coding. Follow it **literally, line by line**. Gray boxes are commands you type into the **Terminal**. Type one line, press Enter, wait, then the next.
 >
-> **What you are building:** the "backend" — a program (written in Python with a framework called **Flask**) that runs on a server, stores data in a **database**, and answers requests from the website over the internet as **JSON**. The website (frontend) has its own guide: `ui-development-guide.md`. Read the [overall plan](plan.md) first.
+> **What you are building:** the "backend" — a program (written in Python with a framework called **Flask**) that runs on a server, stores data in a **database**, and answers requests from the website over the internet as **JSON**. The website (frontend) has its own guide: [`../ui/ui-development-guide.md`](../ui/ui-development-guide.md). Read the [overall plan](../plan.md) first.
+>
+> **Where this doc sits:** this is the **backend design + implementation guide**, one of three docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling frontend guide is `../ui/ui-development-guide.md`.
 >
 > **Two halves of this guide:**
 > - **Part 1 (CRs B0–B7):** build the backend on your own computer, one small CR at a time.
@@ -36,7 +38,10 @@ LTR-Backend/                 # the repo root (you run most commands here)
 │   ├── params/prod.json     # your AWS settings
 │   ├── server/              # nginx + systemd + provision.sh (CR D1b)
 │   └── cfn/                 # 01-network / 02-database / 03-compute / 04-dns (CR D1)
-├── plan/                    # the three docs (this guide, the UI guide, plan.md)
+├── plan/                    # the three docs: plan.md (master) + ui/ + backend/
+│   ├── plan.md              #   the master/orchestrator design doc
+│   ├── backend/backend-development-guide.md   # this guide
+│   └── ui/ui-development-guide.md              # the frontend guide
 └── webapp/var/ , *.pem      # local data & a key file — leave the .pem alone
 ```
 
@@ -69,7 +74,7 @@ webapp/
 └── requirements.txt         # the Python libraries
 ```
 
-> **How to read this:** a **"view" / "blueprint"** is just a Python file holding a group of related endpoints. When the guide says *"add `views/auth.py`"*, you're adding one of these files and then telling `__init__.py` about it. The full per-endpoint request/response spec for every route lives in **plan.md §7.1**.
+> **How to read this:** a **"view" / "blueprint"** is just a Python file holding a group of related endpoints. When the guide says *"add `views/auth.py`"*, you're adding one of these files and then telling `__init__.py` about it. The full per-endpoint request/response spec for every route lives in [**Appendix A — Backend API Reference**](#appendix-a--backend-api-reference-v1) at the end of this guide (moved here from `plan.md §7`).
 
 ---
 
@@ -133,7 +138,7 @@ pip install -r webapp/requirements.txt
 
 ## Part 1 — Build the backend, CR by CR
 
-> **The same Git routine as the frontend** (see `ui-development-guide.md` Part B/C). Each backend CR is `cr/b<N>-<slug>` and **branches off the previous backend CR**. Every PR uses the CR description template and includes a local testing guide.
+> **The same Git routine as the frontend** (see [`../ui/ui-development-guide.md`](../ui/ui-development-guide.md) Part B/C). Each backend CR is `cr/b<N>-<slug>` and **branches off the previous backend CR**. Every PR uses the CR description template and includes a local testing guide. The full stacked-CR strategy and the live [CR status tracker](../plan.md#82-cr-status-tracker) are in [`../plan.md §8`](../plan.md#8-implementation-strategy-stacked-crs).
 >
 > **How you'll test the backend without a browser:** with a tool called `curl` (sends a request from the terminal) and your terminal output. Each CR below gives you the exact `curl` command and what you should see back.
 
@@ -1504,7 +1509,7 @@ brew services stop postgresql@16     # optional
 > - `deploy/deploy.sh` — creates/updates the AWS infrastructure (the server, the database, networking, DNS).
 > - `deploy/release.sh` — ships your latest code (backend + frontend) onto that server.
 >
-> You should have finished at least B1 (a working backend locally) before deploying. The full deep-dive on each CloudFormation stack lives in **plan.md §10** — this guide is the click-by-click version.
+> You should have finished at least B1 (a working backend locally) before deploying. The full deep-dive on each CloudFormation stack lives in [**`../plan.md` §10**](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation) — this guide is the click-by-click version.
 
 ### Deployment vocabulary
 
@@ -1927,7 +1932,7 @@ sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
 - **`502 Bad Gateway` in the browser** — the backend (gunicorn) crashed; check `journalctl -u ltride`. Usually a missing env var or a DB connection error.
 - **Website loads but API calls fail** — the frontend was built with the wrong `VITE_API_URL`; re-run `./release.sh frontend`.
 - **Can't SSH** — your home IP changed; update `AdminCidr` in `params/prod.json` and `./deploy.sh up`.
-- **Database connection refused** — check the RDS endpoint and that the EC2 security group is allowed to reach RDS (plan §10.3–§10.4).
+- **Database connection refused** — check the RDS endpoint and that the EC2 security group is allowed to reach RDS ([`../plan.md` §10.3–§10.4](../plan.md#103-network-stack-01-networkyaml)).
 
 ---
 
@@ -1940,3 +1945,144 @@ sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
 5. Commit often: `git add -A && git commit -m "..."`.
 6. `git push` when the CR is ready → open the PR against the parent branch.
 7. To deploy: `cd deploy && ./release.sh all`.
+
+---
+
+## Appendix A — Backend API Reference (v1)
+
+> **Moved here from `plan.md §7.1`** as part of the doc reorg — this is the backend design contract behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the frontend code that *calls* these endpoints is documented in the UI guide's [Frontend architecture reference](../ui/ui-development-guide.md#appendix--frontend-architecture-reference). The class/layer view is [`../plan.md §5.2`](../plan.md#52-backend-layering-component-classes).
+
+### A.1 Target application structure
+
+The clean target the CRs converge on. *(The repo today has this under `webapp/App/` — see [What it becomes as you finish the CRs](#what-it-becomes-as-you-finish-the-crs-the-target) for the file-by-file mapping to each CR.)*
+```
+LTR-Backend/
+  app/
+    __init__.py        # create_app(), CORS, blueprint + error registration
+    config.py          # env-driven (SECRET_KEY, DATABASE_URL, CORS_ORIGINS)
+    db.py              # get_db(), dict row factory, teardown, init-db CLI
+    auth.py            # JWT issue/verify, @require_role decorator, password hashing
+    blueprints/
+      auth.py          # /api/auth/*
+      lots.py          # /api/lots, /api/lots/<id>/spaces
+      spaces.py        # PATCH /api/spaces, PATCH /api/spaces/<id>
+      interest.py      # /api/interest*
+      assignments.py   # /api/assignments*
+  sql/
+    schema.sql         # tables from plan.md §5.1
+    seed.sql           # lots 1-17 + spaces + one admin
+  tests/               # pytest
+  bin/db, bin/run
+  requirements.txt
+  Dockerfile
+```
+
+### A.2 Conventions
+
+- All endpoints return JSON; consistent envelope: success `{data: ...}`, error `{error: {code, message, details}}`.
+- Auth: **JWT** in `Authorization: Bearer <token>`; `issue_token` signs `{user_id, role, exp}` with `SECRET_KEY`; `@require_role('admin')` guards admin routes (built in **B3**).
+- Passwords: `werkzeug.security.generate_password_hash` / `check_password_hash` (admins only; students use codes).
+- DB access via thin helpers in `db.py` (parametrized SQL); multi-table writes (the assignment flow) run in **one transaction** (**B7**).
+- Validation: per-endpoint payload checks; reject unknown/oversized input; `400` with details.
+- CORS: restrict to the SPA origin via env `CORS_ORIGINS`.
+
+### A.3 Cross-cutting (backend side)
+
+- **Config:** all settings come from env (loaded from `.env` locally, systemd `EnvironmentFile` on the server); never commit secrets (**B0**).
+- **Seed data:** lots, sample spaces, one admin account, and a handful of student codes (**B2**, `seed.sql`).
+- **Observability:** gunicorn `--access-logfile`/`--error-logfile` stream to the systemd journal (`journalctl -u ltride`); each line traces one request (`METHOD /api/... status`), the server end of the trace whose browser end is the UI's console/toast. Blast-radius signal for on-call = the rate of `5xx` and `401/403` lines in the journal.
+
+### A.4 API surface (v1)
+
+| Method | Path | Auth | Purpose | Built in |
+|---|---|---|---|---|
+| GET | `/api/health` | — | liveness | [B1](#cr-b1--health-check-prove-the-server-runs) |
+| POST | `/api/auth/student` | — | login by code | [B3](#cr-b3--authentication-login) |
+| POST | `/api/auth/admin` | — | login by username/password | [B3](#cr-b3--authentication-login) |
+| POST | `/api/auth/logout` | any | invalidate/clear | [B3](#cr-b3--authentication-login) |
+| GET | `/api/auth/me` | any | current user | [B3](#cr-b3--authentication-login) |
+| GET | `/api/lots` | any | list lots | [B4](#cr-b4--read-lots--spaces) |
+| GET | `/api/lots/:id/spaces` | any | spaces + status | [B4](#cr-b4--read-lots--spaces) |
+| PATCH | `/api/spaces/:id` | admin | enable/disable one | [B5](#cr-b5--admin-enablesdisables-spaces) |
+| PATCH | `/api/spaces` | admin | bulk enable/disable | [B5](#cr-b5--admin-enablesdisables-spaces) |
+| POST | `/api/lots/:id/map` | admin | upload/replace map image | (map upload, [U7](../ui/ui-development-guide.md#cr-u7--update-the-school-map-image)) |
+| POST | `/api/interest` | student | register interest | [B6](#cr-b6--student-registers-interest) |
+| GET | `/api/interest` | admin | list all interest | [B6](#cr-b6--student-registers-interest) |
+| GET | `/api/interest/me` | student | own interest | [B6](#cr-b6--student-registers-interest) |
+| POST | `/api/assignments` | admin | assign space → student | [B7](#cr-b7--admin-assigns-a-space) |
+| DELETE | `/api/assignments/:id` | admin | unassign | [B7](#cr-b7--admin-assigns-a-space) |
+
+### A.5 Request / response contracts
+
+All requests/responses are `application/json`. Authenticated calls send `Authorization: Bearer <token>`. Errors use the envelope `{ "error": { "code": string, "message": string, "details"?: object } }` with the listed status codes.
+
+#### `GET /api/health`
+- **Request:** none.
+- **200:** `{ "data": { "status": "ok", "time": "2026-06-29T12:00:00Z" } }`
+
+#### `POST /api/auth/student`
+- **Request:** `{ "code": "ABC123" }`
+- **200:** `{ "data": { "token": "<jwt>", "user": { "id": 1, "role": "student", "name": "Jane Doe" } } }`
+- **400** invalid body · **401** unknown/invalid code.
+
+#### `POST /api/auth/admin`
+- **Request:** `{ "username": "admin", "password": "secret" }`
+- **200:** `{ "data": { "token": "<jwt>", "user": { "id": 9, "role": "admin", "name": "Site Admin" } } }`
+- **400** invalid body · **401** bad credentials.
+
+#### `POST /api/auth/logout`
+- **Request:** none (Bearer token).
+- **204:** no content.
+
+#### `GET /api/auth/me`
+- **Request:** none (Bearer token).
+- **200:** `{ "data": { "id": 1, "role": "student", "name": "Jane Doe", "email": "jane@school.edu" } }`
+- **401** missing/expired token.
+
+#### `GET /api/lots`
+- **Request:** none.
+- **200:** `{ "data": [ { "id": 1, "name": "Lot 1", "displayOrder": 1, "mapImageUrl": "/maps/lot1.jpg", "capacity": 120, "availableCount": 37 } ] }`
+
+#### `GET /api/lots/:id/spaces`
+- **Request:** none. Path param `id` (lot id).
+- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "1-0-3", "status": "available", "assignedUserId": null } ] } }`
+- **404** lot not found.
+
+#### `PATCH /api/spaces/:id` *(admin)*
+- **Request:** `{ "status": "disabled" }` — `status ∈ {available, disabled}`.
+- **200:** `{ "data": { "id": 1001, "label": "1-0-3", "status": "disabled", "assignedUserId": null } }`
+- **400** invalid status · **403** not admin · **404** space not found · **409** space is currently assigned.
+
+#### `PATCH /api/spaces` *(admin, bulk)*
+- **Request:** `{ "ids": [1001, 1002, 1003], "status": "disabled" }`
+- **200:** `{ "data": { "updated": [ { "id": 1001, "status": "disabled" }, { "id": 1002, "status": "disabled" } ], "skipped": [ { "id": 1003, "reason": "assigned" } ] } }`
+- **400** invalid body · **403** not admin.
+
+#### `POST /api/lots/:id/map` *(admin)*
+- **Request:** `multipart/form-data` with field `file` (png/jpg/jpeg/gif, ≤ 16 MB).
+- **201:** `{ "data": { "lotId": 1, "mapImageUrl": "/maps/lot1-<hash>.jpg" } }`
+- **400** missing/invalid file · **403** not admin · **413** too large.
+
+#### `POST /api/interest` *(student)*
+- **Request:** `{ "lotId": 1 }` — `lotId` optional (preferred lot).
+- **201:** `{ "data": { "id": 55, "userId": 1, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } }`
+- **400** invalid body · **403** not student · **409** active request already exists.
+
+#### `GET /api/interest` *(admin)*
+- **Request:** optional query `?status=pending|fulfilled|declined`.
+- **200:** `{ "data": [ { "id": 55, "user": { "id": 1, "name": "Jane Doe", "code": "ABC123" }, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } ] }`
+- **403** not admin.
+
+#### `GET /api/interest/me` *(student)*
+- **Request:** none (Bearer token).
+- **200:** `{ "data": [ { "id": 55, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } ] }`
+
+#### `POST /api/assignments` *(admin)*
+- **Request:** `{ "spaceId": 1001, "userId": 1 }` — optionally `{ "interestId": 55 }` to fulfill a specific request.
+- **201:** `{ "data": { "id": 200, "spaceId": 1001, "userId": 1, "assignedBy": 9, "active": true, "createdAt": "2026-06-29T12:00:00Z" } }` (also sets space → `assigned` and matching interest → `fulfilled`).
+- **400** invalid body · **403** not admin · **404** space/user not found · **409** space not assignable (disabled or already assigned).
+
+#### `DELETE /api/assignments/:id` *(admin)*
+- **Request:** none. Path param `id` (assignment id).
+- **200:** `{ "data": { "id": 200, "active": false, "spaceId": 1001, "spaceStatus": "available" } }` (frees the space).
+- **403** not admin · **404** assignment not found.
