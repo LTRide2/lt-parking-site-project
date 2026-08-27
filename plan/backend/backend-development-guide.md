@@ -1,14 +1,12 @@
-# LTRide — Backend Development & Deployment Guide
+# LTRide — Backend Development Guide
 
 > **Who this is for:** someone brand new to coding. Follow it **literally, line by line**. Gray boxes are commands you type into the **Terminal**. Type one line, press Enter, wait, then the next.
 >
 > **What you are building:** the "backend" — a program (written in Python with a framework called **Flask**) that runs on a server, stores data in a **database**, and answers requests from the website over the internet as **JSON**. The website (frontend) has its own guide: [`../ui/ui-development-guide.md`](../ui/ui-development-guide.md). Read the [overall plan](../plan.md) first.
 >
-> **Where this doc sits:** this is the **backend design + implementation guide**, one of three docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling frontend guide is `../ui/ui-development-guide.md`.
+> **Where this doc sits:** this is the **backend design + implementation guide**, one of the docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling frontend guide is `../ui/ui-development-guide.md`; **deployment now has its own guide** at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
 >
-> **Two halves of this guide:**
-> - **Part 1 (CRs B0–B7):** build the backend on your own computer, one small CR at a time.
-> - **Part 2 (CRs D1–D4):** put it on AWS so it's live on the internet.
+> **This guide builds the backend on your own computer (CRs B0–B7), one small CR at a time.** When it's working locally and you're ready to put it on AWS, switch to the [Deployment Guide](../deploy/deployment-guide.md) (CRs D0–D4).
 
 ---
 
@@ -32,16 +30,17 @@ LTR-Backend/                 # the repo root (you run most commands here)
 │   ├── sql/                 # database SQL files
 │   └── requirements.txt     # the Python libraries to install (§0.5)
 ├── BK/                      # an OLDER duplicate of the app — ignore it
-├── deploy/                  # AWS deployment (scripts + CloudFormation) — Part 2
+├── deploy/                  # AWS deployment artifacts (docs: ../deploy/deployment-guide.md)
 │   ├── deploy.sh            # creates the AWS infrastructure
 │   ├── release.sh           # ships your code to the server
 │   ├── params/prod.json     # your AWS settings
 │   ├── server/              # nginx + systemd + provision.sh (CR D1b)
 │   └── cfn/                 # 01-network / 02-database / 03-compute / 04-dns (CR D1)
-├── plan/                    # the three docs: plan.md (master) + ui/ + backend/
+├── plan/                    # the design docs (master + one per component)
 │   ├── plan.md              #   the master/orchestrator design doc
 │   ├── backend/backend-development-guide.md   # this guide
-│   └── ui/ui-development-guide.md              # the frontend guide
+│   ├── ui/ui-development-guide.md              # the frontend guide
+│   └── deploy/deployment-guide.md             # the deployment guide (D0–D4 + reference)
 └── webapp/var/ , *.pem      # local data & a key file — leave the .pem alone
 ```
 
@@ -1503,436 +1502,16 @@ brew services stop postgresql@16     # optional
 
 ---
 
-## Part 2 — Deploy to AWS (CRs D1–D4)
+## Part 2 — Deploy to AWS → see the Deployment Guide
 
-> **Big picture:** we rent one small Linux computer from Amazon (**EC2**) to run the Flask backend, and one managed database (**RDS PostgreSQL**) for the data. We describe all of this in code (**CloudFormation**, called "IaC" = infrastructure as code) so it's repeatable. Two scripts do the work for you:
-> - `deploy/deploy.sh` — creates/updates the AWS infrastructure (the server, the database, networking, DNS).
-> - `deploy/release.sh` — ships your latest code (backend + frontend) onto that server.
->
-> You should have finished at least B1 (a working backend locally) before deploying. The full deep-dive on each CloudFormation stack lives in [**`../plan.md` §10**](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation) — this guide is the click-by-click version.
+Deployment now lives in its own sibling document: **[`../deploy/deployment-guide.md`](../deploy/deployment-guide.md)**. It holds the full step-by-step deploy tutorial (CRs **D0–D4**), live-server operations & troubleshooting, and the architecture / IaC / cost reference.
 
-### Deployment vocabulary
+- **Deploy the app to AWS (D0–D4):** [Deployment Guide → Part 1](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4)
+- **Operate & troubleshoot the live server:** [Deployment Guide → Part 2](../deploy/deployment-guide.md#part-2--operating--troubleshooting-the-live-server)
+- **Architecture, CloudFormation stacks & cost model:** [Deployment Guide → Part 3](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model)
+- **Runnable templates & scripts:** repo-root [`deploy/`](../../deploy/README.md)
 
-- **EC2** — a virtual computer in Amazon's data center.
-- **RDS** — a database Amazon runs and backs up for you.
-- **CloudFormation / stack** — a YAML file describing AWS resources; a "stack" is one deployed copy of it.
-- **Security group** — a firewall: which ports/IPs may connect.
-- **Elastic IP** — a fixed public address for your server.
-- **SSH** — a secure way to log into the server from your terminal.
-- **Secrets Manager** — where AWS stores the database password safely.
-
----
-
-### D0 — One-time AWS account setup (not a code CR, but do it once)
-
-1. **Create an AWS account** at <https://aws.amazon.com> (a credit card is required; the small instances we use cost a few dollars a month — **remember to run `./deploy.sh down` when you're done experimenting** to stop charges).
-2. **Create an admin IAM user** (don't use the root account day-to-day). In the AWS Console → IAM → Users → create a user with programmatic access and `AdministratorAccess` (for a school project this is acceptable; tighten later). Save the **Access key ID** and **Secret access key**.
-3. **Install & configure the AWS CLI.** Our script installs it for you, but you must give it your keys:
-   ```bash
-   cd ~/workspace/LTR-Backend/deploy
-   ./deploy.sh validate           # this auto-installs awscli via brew if missing
-   aws configure                  # paste your Access key, Secret, region us-east-1, output json
-   ```
-4. **Create an SSH key pair** named `ltride-key` (AWS Console → EC2 → Key Pairs → Create), download `ltride-key.pem`, and move it where the scripts expect:
-   ```bash
-   mv ~/Downloads/ltride-key.pem ~/.ssh/ltride-key.pem
-   chmod 600 ~/.ssh/ltride-key.pem
-   ```
-5. **Fill in `deploy/params/prod.json`** with your real values:
-   - `AdminCidr` — your home IP followed by `/32` (find it at <https://whatismyip.com>); this restricts SSH to you.
-   - `KeyName` — `ltride-key` (must match step 4).
-   - `DomainName` / `HostedZoneId` — only if you own a domain; otherwise you'll use the raw IP and can skip the DNS stack for now.
-
----
-
-### CR D1 — Write the CloudFormation templates (the infrastructure code)
-
-**Depends on:** nothing in the app. **Branch:** `cr/d1-cfn-templates` (off `main`).
-
-**Goal:** have the four template files the scripts expect, in `deploy/cfn/`. These are now **already written and committed** (heavily commented so you can read what every resource does); your job in this CR is to understand them and confirm they validate. The four files:
-
-- `deploy/cfn/01-network.yaml` — VPC, two public subnets (RDS needs two AZs), internet gateway, and the web + database security groups (firewalls).
-- `deploy/cfn/02-database.yaml` — RDS PostgreSQL + a Secrets-Manager-generated password (so the DB password is never written in plaintext).
-- `deploy/cfn/03-compute.yaml` — the EC2 instance + Elastic IP + an IAM role that may read only the DB secret + UserData that installs Python/nginx/gunicorn and writes `.env` from the secret on first boot.
-- `deploy/cfn/04-dns.yaml` — Route 53 A record (domain → Elastic IP). It is guarded by a `HasHostedZone` condition: while `HostedZoneId` is still the placeholder in `params/prod.json`, the stack creates nothing, so the deploy succeeds even before you own a domain.
-
-> **Two non-obvious rules these templates follow** (worth knowing if you edit them):
-> 1. `deploy.sh` passes the *entire* `params/prod.json` to *every* stack, and CloudFormation rejects an override for a parameter a template doesn't declare. So **every template declares all six keys** (`AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`, `WebInstanceType`, `DbInstanceClass`) — the unused ones are simply never referenced, which is allowed.
-> 2. There is no output→param wiring between stacks, so cross-stack values travel via **`Export` / `Fn::ImportValue`** (e.g. the network stack exports `ltride-VpcId`, the compute stack imports `ltride-DbEndpoint`). Rename an export → update its importers.
-
-**One thing you MUST change before deploying:** in `03-compute.yaml`, the `RepoUrl` near the bottom of the UserData block is `https://github.com/YOUR_ORG/LTR-Backend.git` — set it to your repo's real clone URL, or the instance can't fetch the code on boot.
-
-**Local testing guide:**
-1. Setup: AWS CLI configured (D0); `cd deploy`.
-2. Steps:
-   ```bash
-   ./deploy.sh validate
-   ```
-3. Expected: prints `valid: 01-network.yaml` … through all four. No template errors. **No AWS resources are created by `validate`** — it's a dry check that just asks AWS "is this template well-formed?".
-
----
-
-### CR D1b — Server configuration files (nginx, gunicorn/systemd, provisioning)
-
-**Depends on:** D1. **Branch off D1** (`cr/d1b-server-config`).
-
-**Goal:** create the files that turn a bare Ubuntu box into a working LTRide server. The CloudFormation compute stack (D1's `03-compute.yaml`) runs these at first boot via **UserData**; they also let you re-provision or fix a server by hand. They live in `deploy/server/`:
-
-| File | Goes on the server at | Job |
-|---|---|---|
-| `nginx-ltride.conf` | `/etc/nginx/sites-available/ltride` | Serve the React build **and** reverse-proxy `/api` to gunicorn |
-| `ltride.service` | `/etc/systemd/system/ltride.service` | Keep gunicorn (Flask) running & restart on crash/reboot |
-| `provision.sh` | run once as root | Install packages, create the user, build the venv, wire the two files above, start everything |
-
-> **The request journey (why we need all three):**
-> ```
-> Browser ──HTTP(S)──▶ nginx :80/:443 ──┬─ /…       → serve files from /var/www/ltride (the React app)
->                                        └─ /api/…   → proxy to gunicorn 127.0.0.1:8000 → Flask → RDS
-> ```
-> nginx is the only thing exposed to the internet. gunicorn listens on localhost only, so the API can't be reached except *through* nginx — one hardened front door.
-
-#### File 1 — `deploy/server/nginx-ltride.conf` (the web server / reverse proxy)
-
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name _;                 # matches any hostname (until a domain + certbot set a real one)
-
-    client_max_body_size 10M;      # allow map-image uploads (nginx default is 1M → 413 errors)
-
-    root /var/www/ltride;          # where release.sh puts the built React files
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;   # SPA fallback: refresh of /admin serves index.html
-    }
-
-    location /assets/ {            # Vite's hashed bundles — safe to cache forever
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;                    # forward to gunicorn
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 30s;
-    }
-}
-```
-**Line-by-line, the parts that matter most:**
-- **`server_name _;`** — `_` is nginx's "match any hostname." Fine when you only reach the box by IP. When you add a domain, `certbot` edits this to your real name so it can issue a certificate for it.
-- **`client_max_body_size 10M;`** — nginx rejects request bodies over **1 MB by default** with `413 Request Entity Too Large`. Map uploads (U7) need more, so we raise it. This is the single most common "works locally, 413 in the cloud" gotcha.
-- **`root` + `index`** — where the static React files live and the default file to serve.
-- **`location / { try_files $uri $uri/ /index.html; }`** — the **SPA fallback**. React Router invents URLs like `/admin` that aren't files on disk. `try_files` tries the literal file, then a folder, and **falls back to `index.html`** so the React app boots and routes the URL itself. Without this, refreshing `/admin` returns a 404. (This is exactly the "deep-link 404" warning in UI CR **U2**.)
-- **`location /assets/ { expires 1y; immutable }`** — Vite fingerprints bundle filenames with a hash, so a new deploy = a new filename. That makes it safe to tell browsers to cache them forever; users still get new code instantly because the filename changed.
-- **`location /api/ { proxy_pass … }`** — the **reverse proxy**. Everything under `/api/` is forwarded to gunicorn on `127.0.0.1:8000`. The `proxy_set_header` lines pass the *real* visitor's host/IP/scheme through to Flask (otherwise your logs would just show `127.0.0.1`, i.e. nginx talking to itself). `X-Forwarded-Proto` tells Flask whether the original request was http or https.
-
-#### File 2 — `deploy/server/ltride.service` (gunicorn under systemd)
-
-```ini
-[Unit]
-Description=LTRide backend (gunicorn)
-After=network.target
-
-[Service]
-User=ltride
-Group=ltride
-WorkingDirectory=/home/ltride/app
-EnvironmentFile=/home/ltride/app/.env
-ExecStart=/home/ltride/app/.venv/bin/gunicorn \
-    --workers 3 \
-    --bind 127.0.0.1:8000 \
-    --access-logfile - \
-    --error-logfile - \
-    webapp.App:app
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-**What each line buys you:**
-- **`After=network.target`** — don't start before networking is up (we connect to RDS over the network).
-- **`User=ltride` / `Group=ltride`** — run as an unprivileged service account, **never root**. If the app is compromised, the damage is limited to this one account.
-- **`EnvironmentFile=…/.env`** — the production secrets (`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`). This is the server's equivalent of your local `.env` — it lives only on the box, readable only by `ltride`, never committed.
-- **`ExecStart=…/gunicorn …`** — the actual command. Uses the **venv's** gunicorn (not system Python). `--workers 3` runs 3 processes for concurrency (rule of thumb: `2 × CPU + 1`). `--bind 127.0.0.1:8000` = listen on localhost only (nginx is the public door). `webapp.App:app` = import module `webapp.App`, use the object `app` (the `app = create_app()` from B1). The `-` logfiles send logs to the journal so `journalctl` can show them.
-- **`Restart=always` / `RestartSec=3`** — if gunicorn dies, systemd restarts it after 3s. Survives crashes and reboots.
-- **`WantedBy=multi-user.target`** — lets `systemctl enable ltride` make it start automatically on every boot.
-
-**Operating it** (on the server):
-```bash
-sudo systemctl status ltride        # active (running)?
-sudo journalctl -u ltride -n 50     # last 50 log lines (your #1 debugging tool)
-sudo systemctl restart ltride       # apply a config/code change
-sudo systemctl daemon-reload        # after EDITING the .service file itself
-```
-
-#### File 3 — `deploy/server/provision.sh` (first-boot setup)
-
-This is what `03-compute.yaml`'s UserData runs (roughly) on a fresh instance, and what you can run by hand to (re)build a box. In order, it: ① `apt-get install` python/nginx/git/`postgresql-client`; ② create the system user `ltride`; ③ clone the repo and build the `.venv`; ④ write a `.env` template (real secrets come from Secrets Manager in the CFN flow); ⑤ install File 2 into systemd and File 1 into nginx (symlinking it into `sites-enabled` and removing nginx's default welcome page); ⑥ run the SQL migrations against RDS; ⑦ start `ltride` and reload nginx.
-
-> **Set `REPO_URL`** at the top of `provision.sh` to your repo before first use. The script installs only the postgres **client** (`psql`) — the database itself is RDS, managed by AWS, not on this box.
-
-**Local testing guide:**
-1. Setup: `cd deploy/server`.
-2. Steps:
-   ```bash
-   # config files are static — validate them without a server:
-   bash -n provision.sh                 # shell-syntax check (no execution)
-   # if you have nginx locally (brew install nginx), you can sanity-test the config:
-   nginx -t -c "$PWD/nginx-ltride.conf" 2>&1 | head    # may warn about paths off-server; syntax is what matters
-   ```
-3. Expected: `bash -n` prints nothing (valid). The real proof is on the server: after D2/D3, SSH in and run `sudo nginx -t` (→ "syntax is ok, test is successful") and `systemctl status ltride` (→ active).
-
-**Commit & push:**
-```bash
-git add deploy/server/
-git commit -m "D1b: nginx + systemd + provisioning config for the server"
-git push -u origin cr/d1b-server-config
-```
-PR base = `cr/d1-cfn-templates`.
-
----
-
-### CR D2 — Stand up the infrastructure
-
-**Depends on:** D1. **Branch off D1** (`cr/d2-provision`). *(This CR is mostly running commands and recording outputs; the "code" is any small fixes you make to the templates.)*
-
-**Goal:** actually create the network, database, and server in AWS.
-
-**Steps:**
-```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh up            # validates, then creates all stacks in order
-./deploy.sh status        # watch until each says CREATE_COMPLETE
-./deploy.sh outputs       # note the EC2 public IP / Elastic IP
-```
-This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the AWS Console → CloudFormation → click the stack → **Events** tab to see the red error, fix the template, and re-run `./deploy.sh up` (it updates in place).
-
-**Local testing guide:**
-1. Setup: D0 complete; templates valid (D1).
-2. Steps: run the three commands above; then SSH in to confirm:
-   ```bash
-   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp-from-outputs>
-   ```
-3. Expected: all stacks reach `CREATE_COMPLETE`; `outputs` shows a public IP; you can SSH into the server. Type `exit` to leave.
-
-> 💸 **Cost control:** when you're done for the day and don't need it live, `./deploy.sh down` deletes everything (RDS keeps a final snapshot). Re-create anytime with `./deploy.sh up`.
-
----
-
-### CR D3 — Release the application code
-
-**Depends on:** D2, and backend through at least B1 (ideally B7) merged. **Branch off D2** (`cr/d3-release`).
-
-**Goal:** put your actual backend + frontend onto the running server using `release.sh`.
-
-**Steps:**
-```bash
-cd ~/workspace/LTR-Backend/deploy
-./release.sh all          # builds the UI, ships both, migrates DB, restarts services
-# or one at a time:
-./release.sh backend
-./release.sh frontend
-```
-What it does (so you understand it, from `release.sh`):
-- **Backend:** SSHes in, `git pull`, installs requirements, runs any `sql/migrations/*.sql`, restarts the `ltride` service (gunicorn), and curls `/api/health`.
-- **Frontend:** runs `npm run build` with the production API URL, then copies `dist/` into nginx's web root and reloads nginx.
-
-**Local testing guide:**
-1. Setup: D2 done (`./deploy.sh outputs` shows an IP); your code committed and pushed.
-2. Steps:
-   ```bash
-   ./release.sh all
-   curl http://<ElasticIp>/api/health
-   ```
-   Then open `http://<ElasticIp>` (or your domain) in a browser and log in as a seeded student.
-3. Expected: the health curl returns `{"data":{"status":"ok"}}`; the website loads; login works against the real server.
-
----
-
-### CR D4 — Buy a domain, wire it to Route 53, and turn on HTTPS
-
-**Depends on:** D3 (a working site reachable at `http://<ElasticIp>`). **Branch off D3** (`cr/d4-dns-tls`).
-
-**Goal:** replace the bare IP with a real address like `https://ltride.example.com`, with a padlock (TLS).
-
-> **The mental model — three separate things that must all line up:**
-> 1. **Registrar** — the company you *buy* the domain name from (it's a yearly rental, ~$10–15/yr). Examples: Amazon Route 53, Namecheap, Cloudflare, Google Domains/Squarespace.
-> 2. **DNS hosting (the "hosted zone")** — the phone book that maps your name → your server's IP. We use **AWS Route 53** for this so it lives next to the rest of our infrastructure.
-> 3. **Nameservers (NS)** — the pointer that tells the *internet* "ask Route 53 for this domain's records." You set these **at the registrar**, pointing them at the Route 53 hosted zone. This is the step beginners miss.
->
-> If you buy the domain **at Route 53**, steps 2 & 3 are automatic. If you buy it **elsewhere**, you must manually copy Route 53's nameservers back to the registrar. Both paths are below — **pick ONE**.
-
----
-
-#### Step 0 — Choose where to buy the domain
-
-| Option | When to pick it | Trade-off |
-|---|---|---|
-| **Buy at Route 53** (recommended here) | You want the simplest wiring; everything in AWS | Slightly pricier; pay via AWS bill |
-| **Buy at a 3rd-party registrar** (Namecheap, Cloudflare, etc.) | You already have one, or want the cheapest price | You must hand-copy nameservers to Route 53 (Step 2B) |
-
-Either way the **DNS records live in Route 53** — only *where you bought the name* differs.
-
----
-
-#### Step 1 — Create a Route 53 hosted zone (both paths do this)
-
-A "hosted zone" is the container in Route 53 that holds your domain's DNS records.
-
-**Console way (easiest to see what's happening):**
-1. AWS Console → **Route 53** → **Hosted zones** → **Create hosted zone**.
-2. **Domain name:** your domain, e.g. `example.com` (use the *root* domain, even if your site will live at `ltride.example.com`).
-3. **Type:** Public hosted zone → **Create**.
-4. AWS immediately shows an **NS record** with **4 nameservers** like:
-   ```
-   ns-123.awsdns-45.com
-   ns-678.awsdns-90.net
-   ns-901.awsdns-12.org
-   ns-234.awsdns-56.co.uk
-   ```
-   **Copy these four** — you need them in Step 2. Also copy the **Hosted zone ID** (looks like `Z0123456789ABCDEFGHIJ`).
-
-**CLI way (equivalent):**
-```bash
-aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(date +%s)"
-# then read the nameservers + zone id back:
-aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
-```
-
-Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `release.sh` can find it:
-```json
-[
-  "DomainName=ltride.example.com",
-  "HostedZoneId=Z0123456789ABCDEFGHIJ",
-  ...
-]
-```
-
----
-
-#### Step 2A — If you bought the domain AT Route 53
-
-Buying through Route 53 (**Route 53 → Registered domains → Register domains**) **auto-creates the hosted zone and auto-sets the nameservers** for you. There's nothing to copy — skip to Step 3. (If you did Step 1 manually *and* registered separately, make sure the registered domain points at the hosted zone you created; delete the duplicate zone if AWS made one.)
-
----
-
-#### Step 2B — If you bought the domain ELSEWHERE (the nameserver hand-off)
-
-This is the step that actually "connects" your purchased name to Route 53. You're telling your registrar: *"don't use your own DNS — delegate to these AWS nameservers."*
-
-1. Log into your **registrar** (Namecheap / Cloudflare / GoDaddy / etc.).
-2. Find the domain's **Nameservers** setting (often under "Domain" → "Nameservers" or "DNS"). Choose **Custom nameservers**.
-3. **Delete** the registrar's default nameservers and **paste the 4 from Step 1** (no trailing dots needed; one per field):
-   ```
-   ns-123.awsdns-45.com
-   ns-678.awsdns-90.net
-   ns-901.awsdns-12.org
-   ns-234.awsdns-56.co.uk
-   ```
-4. **Save.** Propagation usually takes minutes but can take **up to 24–48 hours**. Check progress:
-   ```bash
-   dig NS example.com +short        # should eventually list the 4 awsdns nameservers
-   ```
-   When `dig` shows the AWS nameservers, the hand-off is done — the internet now asks Route 53 for your domain.
-
-> **Common mistake:** people add an "A record" at the registrar AND set Route 53 nameservers. Don't. Once you delegate nameservers to Route 53, the registrar's own DNS records are ignored — **all records go in Route 53** from now on (Step 3).
-
----
-
-#### Step 3 — Point the domain at your server (A record in Route 53)
-
-Now create the record that maps your name → your server's Elastic IP. Our `04-dns.yaml` stack does this from `params/prod.json`:
-```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh up            # picks up 04-dns.yaml using DomainName + HostedZoneId
-```
-`04-dns.yaml` creates an **A record** `ltride.example.com → <ElasticIp>` (the Elastic IP from the compute stack, so it's stable across restarts).
-
-**Or do it by hand** in the Console: Route 53 → your hosted zone → **Create record** → Record name `ltride` (or leave blank for the root), Type **A**, Value = your Elastic IP, TTL 300 → Create.
-
-Verify:
-```bash
-dig ltride.example.com +short    # should print your Elastic IP
-curl -I http://ltride.example.com/api/health   # should reach your server (200)
-```
-
----
-
-#### Step 4 — Update the app for the new hostname, then add HTTPS
-
-1. **Tell the backend to trust the new origin.** Edit the server's `.env` `CORS_ORIGINS` to include `https://ltride.example.com`, then `sudo systemctl restart ltride`. (Locally you set this in `params`/`.env`; on the server it's in `/home/ltride/app/.env`.)
-2. **Rebuild the frontend** so it calls the domain, not the IP: `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` when `DomainName` is set in `params/prod.json`. Re-run:
-   ```bash
-   ./release.sh frontend
-   ```
-3. **Get a free TLS certificate** with certbot (Let's Encrypt). SSH in and run:
-   ```bash
-   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
-   sudo apt-get install -y certbot python3-certbot-nginx
-   sudo certbot --nginx -d ltride.example.com
-   ```
-   certbot edits the nginx config (File 1 from D1b): it adds a `listen 443 ssl` block, fills in `server_name ltride.example.com`, wires the certificate, and adds an **HTTP→HTTPS redirect**. It also installs a cron/timer to auto-renew every 90 days. Answer its prompts (email, agree to terms, choose "redirect").
-
----
-
-**Local testing guide:**
-1. Setup: hosted zone created (Step 1); nameservers delegated (Step 2, if 3rd-party) and `dig NS` shows AWS; A record live (Step 3); certbot run (Step 4).
-2. Steps:
-   ```bash
-   dig ltride.example.com +short                 # → your Elastic IP
-   curl -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
-   curl -I http://ltride.example.com             # → 301 redirect to https
-   ```
-   Then open `https://ltride.example.com` in a browser and log in.
-3. Expected:
-   - `dig` resolves to your IP; the browser shows a **padlock** (valid Let's Encrypt cert).
-   - Plain `http://` **redirects** to `https://`.
-   - Login and the full app work over HTTPS (no CORS errors — because you added the https origin in Step 4.1).
-
-**If something's wrong:**
-- **`dig NS` doesn't show AWS nameservers** — Step 2B not done, or still propagating (wait; can take up to 48h). Until this resolves, nothing else will work.
-- **`dig` shows the IP but the browser can't connect** — security group isn't allowing port 80/443 (check `01-network.yaml`), or nginx isn't running.
-- **certbot fails "challenge failed"** — the domain must already resolve to this server over **port 80** before certbot can verify it. Finish Step 3 (and open port 80) first.
-- **Padlock works but API calls fail with CORS** — you forgot Step 4.1 (`CORS_ORIGINS` must include the `https://` domain) or didn't restart the backend.
-
-**Commit & push:**
-```bash
-git add deploy/params/prod.json deploy/cfn/04-dns.yaml
-git commit -m "D4: Route 53 hosted zone + A record + HTTPS via certbot"
-git push -u origin cr/d4-dns-tls
-```
-PR base = `cr/d3-release`.
-
----
-
-## Part 3 — Operating & troubleshooting the live server
-
-**Log into the server:**
-```bash
-ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
-```
-
-**Useful commands once you're on the server:**
-```bash
-sudo systemctl status ltride       # is the backend running?
-sudo journalctl -u ltride -n 50    # last 50 lines of backend logs
-sudo systemctl restart ltride      # restart the backend
-sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
-```
-
-> **Where the config lives on the server** (created in **D1b**): nginx site at `/etc/nginx/sites-available/ltride` (→ symlinked into `sites-enabled/`), gunicorn service at `/etc/systemd/system/ltride.service`, app secrets at `/home/ltride/app/.env`. After editing the nginx file run `sudo nginx -t && sudo systemctl reload nginx`; after editing the `.service` file run `sudo systemctl daemon-reload && sudo systemctl restart ltride`; after editing `.env` just `sudo systemctl restart ltride`.
-
-**Common problems:**
-- **`502 Bad Gateway` in the browser** — the backend (gunicorn) crashed; check `journalctl -u ltride`. Usually a missing env var or a DB connection error.
-- **Website loads but API calls fail** — the frontend was built with the wrong `VITE_API_URL`; re-run `./release.sh frontend`.
-- **Can't SSH** — your home IP changed; update `AdminCidr` in `params/prod.json` and `./deploy.sh up`.
-- **Database connection refused** — check the RDS endpoint and that the EC2 security group is allowed to reach RDS ([`../plan.md` §10.3–§10.4](../plan.md#103-network-stack-01-networkyaml)).
+> You should have a working backend locally (through **B1**) before deploying.
 
 ---
 
@@ -2086,3 +1665,9 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 - **Request:** none. Path param `id` (assignment id).
 - **200:** `{ "data": { "id": 200, "active": false, "spaceId": 1001, "spaceStatus": "available" } }` (frees the space).
 - **403** not admin · **404** assignment not found.
+
+---
+
+## Appendix B — AWS Deployment Reference → moved
+
+The AWS deployment reference (architecture, IaC layout, per-stack CloudFormation snippets, the AWS-services inventory + diagram, and the monthly + professional cost model) moved to the Deployment Guide: **[`../deploy/deployment-guide.md` → Part 3 (Reference)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model)**.

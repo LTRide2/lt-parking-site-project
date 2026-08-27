@@ -1566,6 +1566,63 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 
 ---
 
+## Part F3 — Deployment (frontend)
+
+> **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable scripts/templates live in the repo-root [`deploy/`](../../deploy/README.md) folder.
+
+### F3.1 What "deploying the frontend" means
+
+The frontend is **static files**. `npm run build` compiles the app into a `dist/` folder (HTML + hashed JS/CSS + assets); there is no Node server in production. Those files are copied onto the same EC2 box and **nginx serves them directly**, while `/api/*` requests are proxied to the Flask backend. There's nothing to "restart" for a frontend release — you just replace the files.
+
+```
+npm run build ──▶ dist/ ──(rsync / release.sh)──▶ /var/www/ltride on EC2 ──▶ nginx serves it
+                                                                    └─ /api/* ─▶ gunicorn (Flask)
+```
+
+### F3.2 Build for production
+
+```bash
+cd ~/workspace/lt-parking-site-project
+# Point the build at the PUBLIC API URL (NOT localhost) — baked in at build time:
+VITE_API_URL=https://<your-domain> npm run build
+# output: dist/  (this is the entire deployable artifact)
+npm run preview        # optional: serve dist/ locally to sanity-check the prod build
+```
+
+- **`VITE_API_URL` is baked in at build time**, not read at runtime. If the API URL changes, you must **rebuild**. Use `https://<your-domain>` for production (never `http://localhost:8000`).
+- Keep prod values in `.env.production` (committed without secrets — Vite only exposes `VITE_*`) so `npm run build` picks them up automatically.
+
+### F3.3 How it gets onto the server
+
+You normally don't copy files by hand — the repo-root [`deploy/release.sh`](../../deploy/release.sh) does the frontend release for you:
+
+```bash
+./deploy/release.sh frontend    # builds with the prod VITE_API_URL, rsyncs dist/ to nginx
+./deploy/release.sh all         # backend + frontend together
+```
+
+The equivalent manual step (for debugging) is an `rsync` of `dist/` to `/var/www/ltride` on the box — see [deployment guide §B.7](../deploy/deployment-guide.md#b7-build--place-the-frontend).
+
+### F3.4 nginx: static files + SPA fallback + API proxy
+
+Two rules matter for a React SPA, both already in the shipped nginx config ([`deploy/server/nginx-ltride.conf`](../../deploy/server/nginx-ltride.conf)):
+
+- **SPA fallback** — unknown paths must return `index.html` so client-side routing (React Router from [U2](#cr-u2--routing-real-pages-with-urls)) works on deep links / refresh: `try_files $uri /index.html;`. Without this, refreshing `/admin` returns a 404.
+- **API proxy** — `location /api/ { proxy_pass http://127.0.0.1:8000; ... }` keeps the SPA and API on the **same origin** in production, so there are no CORS issues and no `VITE_API_URL` cross-origin config needed (you can even build with a relative `/api`).
+
+### F3.5 Cache busting
+
+Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely cache them forever; only `index.html` must not be cached (it references the new hashes). If you add cache headers, set `Cache-Control: no-cache` for `index.html` and long-lived immutable caching for the hashed assets.
+
+### F3.6 Frontend deployment checklist
+
+1. `VITE_API_URL` points at the **production** URL (or a relative `/api`), not localhost.
+2. `npm run build` succeeds; `npm run preview` renders and can log in against the prod API.
+3. Deep-link + refresh on a protected route works (SPA fallback in nginx).
+4. After `release.sh frontend`, hard-refresh the site and confirm the new build loads (check a changed string / the network tab hashes).
+
+---
+
 ## Part G — When something goes wrong
 
 - **Red text in the terminal running `npm run dev`** — read the top line; it usually names the file and line number. Fix and save; it reloads.
