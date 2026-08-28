@@ -2,6 +2,8 @@
 
 This folder turns the [UI Development Guide](../ui-development-guide.md) into **8 self-contained, ~1-hour lessons**, one per CR (U0 → U7). Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
 
+> **The code you'll edit:** the frontend is its own repo — **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)** (locally `~/workspace/LT_Proj/lt-parking-site-project`, branch `main`). Stack: Vite + React 19 + Redux Toolkit + TypeScript. Clone/setup is [UI guide → A3–A5](../ui-development-guide.md#a3-get-the-project-onto-your-computer). Note this is a **different repo** from the backend (`LTR-Backend`), which is where these lesson docs live.
+>
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../ui-development-guide.md) is the source of truth.
 >
 > **Build the backend first (or in parallel):** several UI lessons call real API endpoints, so the matching backend CR should be running. Check the shared ordering in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).

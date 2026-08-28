@@ -73,10 +73,10 @@ flowchart TB
 
 ## 1. Repositories
 
-l| Repo | Path | Stack | State |
+| Repo | Path | Stack | State |
 |---|---|---|---|
-| Frontend (UI) | `lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~45% |
-| Backend | `LTR-Backend` (`github.com/LTRide2/LTR-Backend`) | Python / Flask + SQLite | Untouched course scaffold, ~5% |
+| Frontend (UI) | `lt-parking-site-project` ([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)) · local `~/workspace/LT_Proj/lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~45% |
+| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | Course scaffold being built out per CRs |
 
 **Overall completion ≈ 25%.**
 

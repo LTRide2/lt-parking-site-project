@@ -57,9 +57,12 @@ This lesson is intentionally invisible — nothing on screen changes. That's the
 
 **Time budget for the hour:** setup & branch (5 min) → install the router (5) → environment config (10) → build the API client (25) → verify it compiles (5) → test & commit (10).
 
+**Get the code.** The frontend is its own repo: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)** (locally `~/workspace/LT_Proj/lt-parking-site-project`). If you haven't cloned it yet, do the [UI guide → A3](../ui-development-guide.md#a3-get-the-project-onto-your-computer) step first. This is a *different* repo from the backend (`LTR-Backend`, which also holds these lesson docs).
+
 **Open your terminal, move into the project folder, and make your branch.** In the stacked-CR workflow each lesson lives on its own branch; U0 starts from `main`.
 
 ```bash
+cd ~/workspace/LT_Proj/lt-parking-site-project   # the frontend repo
 git checkout main
 git pull
 git checkout -b cr/u0-hygiene

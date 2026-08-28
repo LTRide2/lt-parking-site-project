@@ -4,7 +4,9 @@
 >
 > **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](../backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
 >
-> **Where this doc sits:** this is the **frontend design + implementation guide**, one of three docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`.
+> **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
+>
+> **The code you're editing lives in its own repo:** [`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project) (locally `~/workspace/LT_Proj/lt-parking-site-project`). This `plan/` folder lives in the **backend** repo (`LTR-Backend`); the guides describe the frontend, but the frontend source is cloned separately — see [A3](#a3-get-the-project-onto-your-computer) below.
 
 ---
 
@@ -39,16 +41,20 @@ git config --global user.email "you@example.com"
 
 ### A3. Get the project onto your computer
 
-`cd` means "change directory" (move into a folder). `~` means your home folder.
+The frontend lives in its own GitHub repository: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)**. `cd` means "change directory" (move into a folder); `~` means your home folder.
+
+**If you don't have the project yet, clone it** (downloads a copy from GitHub):
 ```bash
-cd ~
-cd workspace
-```
-The frontend project is the folder `lt-parking-site-project`. Move into it:
-```bash
+cd ~/workspace/LT_Proj                 # the folder that holds both repos (make it with: mkdir -p ~/workspace/LT_Proj)
+git clone https://github.com/LTRide2/lt-parking-site-project.git
 cd lt-parking-site-project
 ```
-> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`.
+
+**If you already have it,** just move into it:
+```bash
+cd ~/workspace/LT_Proj/lt-parking-site-project
+```
+> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`. This is a **different repo** from the backend (`~/workspace/LT_Proj/LTR-Backend`, which also holds these `plan/` docs) — keep the two terminals/folders straight.
 
 ### A4. Install the project's building blocks
 
@@ -1526,9 +1532,9 @@ curl -s http://localhost:8000/api/health
 
 ### Step 2 — Start the frontend (Terminal 2)
 
-In the **frontend** repo (`~/workspace/lt-parking-site-project`):
+In the **frontend** repo (`~/workspace/LT_Proj/lt-parking-site-project`):
 ```bash
-cd ~/workspace/lt-parking-site-project
+cd ~/workspace/LT_Proj/lt-parking-site-project
 # .env must point at the backend you just started:
 #   VITE_API_URL=http://localhost:8000
 npm run dev
@@ -1582,7 +1588,7 @@ npm run build ──▶ dist/ ──(rsync / release.sh)──▶ /var/www/ltrid
 ### F3.2 Build for production
 
 ```bash
-cd ~/workspace/lt-parking-site-project
+cd ~/workspace/LT_Proj/lt-parking-site-project
 # Point the build at the PUBLIC API URL (NOT localhost) — baked in at build time:
 VITE_API_URL=https://<your-domain> npm run build
 # output: dist/  (this is the entire deployable artifact)
@@ -1636,7 +1642,7 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 
 ## Part H — Daily checklist
 
-1. `cd ~/workspace/lt-parking-site-project`
+1. `cd ~/workspace/LT_Proj/lt-parking-site-project`
 2. `git status` (am I on the right branch? any leftover changes?)
 3. `npm run dev` (start the site)
 4. Make small changes → save → check the browser.
