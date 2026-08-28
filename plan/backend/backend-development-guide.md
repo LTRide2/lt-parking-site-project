@@ -61,12 +61,13 @@ webapp/
 │       ├── health.py        # GET /api/health                                          (B1)
 │       ├── auth.py          # POST /api/auth/student | /admin , GET /api/auth/me        (B3)
 │       ├── lots.py          # GET /api/lots , GET /api/lots/<id>/spaces                 (B4)
+│       │                    # + PUT /api/lots/<id>/layout (B8) , POST /api/lots (B9)
 │       ├── spaces.py        # PATCH /api/spaces , PATCH /api/spaces/<id>                (B5)
 │       ├── interest.py      # POST/GET /api/interest , GET /api/interest/me             (B6)
 │       └── assignments.py   # POST /api/assignments , DELETE /api/assignments/<id>      (B7)
 ├── sql/
 │   ├── migrations/
-│   │   └── 001_init.sql     # creates the tables (users, lots, spaces, ...)             (B2)
+│   │   └── 001_init.sql     # all tables incl. spaces.pos_x/pos_y/rotation (B2; used by B8)
 │   └── seed.sql             # sample lots, spaces, an admin, a few students            (B2)
 ├── .env                     # your local secrets — never committed                     (B0)
 ├── .env.example             # a template of .env — safe to commit                      (B0)
@@ -495,6 +496,11 @@ CREATE TABLE lots (
 );
 
 -- SPACES: one parking space, belongs to a lot.
+--   pos_x / pos_y / rotation are where the space sits on the lot's map image.
+--   They are NORMALIZED fractions (0..1 of the image), not pixels, so the layout
+--   survives zoom/resize on any screen. NULL = "no authored position yet" (the UI
+--   falls back to its config-table layout). An admin sets them with the drag-and-drop
+--   editor via PUT /api/lots/:id/layout (built in B8) — the column is here from day one.
 CREATE TABLE spaces (
     id               SERIAL PRIMARY KEY,
     lot_id           INTEGER NOT NULL REFERENCES lots(id) ON DELETE CASCADE,
@@ -502,6 +508,9 @@ CREATE TABLE spaces (
     status           TEXT NOT NULL DEFAULT 'available'
                      CHECK (status IN ('available', 'disabled', 'assigned')),
     assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    pos_x            DOUBLE PRECISION CHECK (pos_x IS NULL OR (pos_x >= 0 AND pos_x <= 1)),
+    pos_y            DOUBLE PRECISION CHECK (pos_y IS NULL OR (pos_y >= 0 AND pos_y <= 1)),
+    rotation         DOUBLE PRECISION,         -- degrees; NULL treated as 0
     UNIQUE (lot_id, label)                     -- no two spaces share a label in a lot
 );
 
@@ -540,6 +549,8 @@ COMMIT;
 ```
 
 > **Why the partial unique indexes?** They let the *database itself* enforce the rules ("one pending request per student", "one active assignment per space") so you can't get into a bad state even if there's a bug in the Python code. The `WHERE` clause means the rule only applies to the rows that matter (e.g. only `pending` interest).
+
+> **Why `pos_x/pos_y/rotation` are here from the start.** These columns aren't used until [CR B8](#cr-b8--save-lot-layout-spot-positions) (the drag-and-drop layout editor, frontend [U8](../ui/ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor)) — but this is a fresh schema that hasn't shipped anywhere, so we **design them in now** rather than bolt them on with a later migration. A column can exist before the feature that fills it; that's normal, and it keeps the data model honest (spot placement is a real property of a space, per plan.md §5.1). Migrations earn their keep once `001_init.sql` has actually run on a live database — from that point on you add new migration files instead of editing this one.
 
 #### Step 3 — Make the admin password hash
 
@@ -1400,6 +1411,236 @@ git add -A && git commit -m "B7: transactional assign + unassign" && git push -u
 
 ---
 
+### CR B8 — Save lot layout (spot positions)
+
+**Depends on:** B7. **Branch off B7.** **Unblocks frontend U8.**
+
+**Goal:**
+- `PUT /api/lots/:id/layout` — admin-only, **full-replace** of a lot's spot set inside **one transaction**: upsert the spaces in the payload, delete the ones the payload omits. It **refuses (409)** to delete a space that is currently `assigned`, so re-arranging can never orphan a student's spot.
+
+The columns this writes — `spaces.pos_x`, `pos_y`, `rotation` — are **already in the schema from B2** (they were designed in from the start; see the `spaces` table in CR B2), so B8 adds **no migration** — just the endpoint. Why normalized coordinates? Storing a fraction (`0.42`) instead of a pixel (`537px`) means the layout still lines up when the map is zoomed, resized, or shown on a phone; the front end multiplies by the rendered image size at paint time. This is the data that replaces the prototype's hard-coded `LOT_CONFIGS`/`LOT_MAP_CONFIGS` position tables.
+
+> **Why `PUT` (full-replace) and not a pile of `POST`/`PATCH`/`DELETE`s?** The admin edits the whole lot on one canvas and hits **Save Layout** once. Sending the complete desired set and letting the server reconcile (add / move / remove) is **idempotent** — saving the same layout twice is a no-op — and it keeps the client simple: it doesn't have to track which individual spots it created, moved, or deleted. → [MDN: PUT](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PUT).
+
+**Branch:**
+```bash
+git checkout cr/b7-assignments
+git checkout -b cr/b8-layout
+```
+
+**Step 1 — Add the endpoint to `webapp/App/views/lots.py`** (the blueprint you created in B4 — reuse its `bp`, `_err`, and imports):
+```python
+# add to webapp/App/views/lots.py
+from ..db import query, query_one, get_db   # extend the existing import
+from ..auth import require_role
+
+@bp.put("/api/lots/<int:lot_id>/layout")
+@require_role("admin")
+def save_layout(lot_id):
+    if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
+        return _err("not_found", "Lot not found", 404)
+
+    body = request.get_json(silent=True) or {}
+    incoming = body.get("spaces")
+    if not isinstance(incoming, list):
+        return _err("bad_request", "spaces (array) is required", 400)
+
+    # Validate every entry BEFORE opening the transaction (fail fast).
+    clean = []
+    for s in incoming:
+        label = s.get("label")
+        x, y, rot = s.get("x"), s.get("y"), s.get("rotation")
+        if not isinstance(label, str) or not label.strip():
+            return _err("bad_request", "each space needs a non-empty label", 400)
+        if not _is_frac(x) or not _is_frac(y):
+            return _err("bad_request", "x and y must be numbers in 0..1", 400)
+        clean.append({
+            "id": s.get("id"),                       # None => new space
+            "label": label.strip(),
+            "x": float(x), "y": float(y),
+            "rotation": float(rot) if isinstance(rot, (int, float)) else 0.0,
+        })
+
+    keep_ids = {c["id"] for c in clean if isinstance(c["id"], int)}
+    existing = query("SELECT id, status FROM spaces WHERE lot_id = %s", (lot_id,))
+    to_delete = [row["id"] for row in existing if row["id"] not in keep_ids]
+    # Refuse to delete a space that's currently assigned to a student.
+    blocked = [row["id"] for row in existing
+               if row["id"] in to_delete and row["status"] == "assigned"]
+    if blocked:
+        return _err("conflict",
+                    f"cannot delete assigned space(s): {blocked}", 409)
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            for c in clean:
+                if isinstance(c["id"], int):
+                    cur.execute(
+                        "UPDATE spaces SET label=%s, pos_x=%s, pos_y=%s, rotation=%s "
+                        "WHERE id=%s AND lot_id=%s",
+                        (c["label"], c["x"], c["y"], c["rotation"], c["id"], lot_id))
+                else:
+                    cur.execute(
+                        "INSERT INTO spaces (lot_id, label, pos_x, pos_y, rotation) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (lot_id, c["label"], c["x"], c["y"], c["rotation"]))
+            if to_delete:
+                cur.execute("DELETE FROM spaces WHERE id = ANY(%s)", (to_delete,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    rows = query(
+        "SELECT id, label, status, assigned_user_id, pos_x, pos_y, rotation "
+        "FROM spaces WHERE lot_id = %s ORDER BY id", (lot_id,))
+    return jsonify({"data": {"lotId": lot_id, "spaces": [
+        {"id": r["id"], "label": r["label"], "status": r["status"],
+         "assignedUserId": r["assigned_user_id"],
+         "x": r["pos_x"], "y": r["pos_y"], "rotation": r["rotation"]}
+        for r in rows]}})
+
+
+def _is_frac(v):
+    return isinstance(v, (int, float)) and 0 <= v <= 1
+```
+
+**Explanation, piece by piece:**
+- **Validate before the transaction.** Every label/coordinate check runs on plain reads first, so the transaction only ever contains writes already known to be valid — the same fail-fast shape as B7. The `CHECK (pos_x/pos_y in 0..1)` constraint on the `spaces` table (from B2) is the database-level backstop if a bad value ever slips past the Python check.
+- **Full-replace by reconciliation.** `keep_ids` are the spaces the client still wants; anything in the lot *not* in that set is `to_delete`. Payload entries **with** an `id` are `UPDATE`d (a move/relabel), entries **without** one are `INSERT`ed (a newly placed spot). → [PostgreSQL: UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
+- **The 409 guard is the safety rule.** Before deleting anything, we check whether any to-be-deleted space is `assigned`; if so we bail with `409` and write nothing (this is [R8](../plan.md#12-risks--mitigations) in the plan). An admin can't accidentally delete a space a student is parked in — they'd have to unassign it first (B7's `DELETE`).
+- **One transaction.** All the upserts and the delete run inside a single `with db.cursor()` block and one `db.commit()`, so a mid-save failure rolls the whole layout back — you never get half a saved map. Same transactional pattern as B7.
+- **`= ANY(%s)`** lets one statement delete a whole list of ids; psycopg adapts a Python list to a Postgres array. → [psycopg: lists/arrays](https://www.psycopg.org/psycopg3/docs/basic/adapt.html#lists-adaptation).
+
+**Local testing guide:**
+1. Setup: server running; `$A` = admin token; `$S` = student token; pick a lot id (e.g. `1`).
+2. Steps:
+   ```bash
+   # save a two-spot layout (no ids => both are new spaces)
+   curl -i -X PUT http://localhost:8000/api/lots/1/layout \
+     -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+     -d '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"rotation":0},
+                     {"label":"A2","x":0.6,"y":0.4,"rotation":90}]}'
+   # re-read: positions persisted
+   curl -s http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $A"
+   # a student may not save a layout -> 403
+   curl -i -X PUT http://localhost:8000/api/lots/1/layout \
+     -H "Authorization: Bearer $S" -H 'Content-Type: application/json' -d '{"spaces":[]}'
+   # out-of-range coordinate -> 400
+   curl -i -X PUT http://localhost:8000/api/lots/1/layout \
+     -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+     -d '{"spaces":[{"label":"X","x":9,"y":0.1}]}'
+   ```
+3. Expected:
+   - PUT with valid spaces → `200`; re-GET shows the saved `x`/`y`/`rotation`.
+   - Omitting a previously-saved space's id deletes it — **unless** it's `assigned`, which returns `409` and changes nothing.
+   - Student token → `403`; `x`/`y` outside `0..1` → `400`.
+
+**☁️ Cloud check (optional):** after `./release.sh backend`, save a layout for a lot on the live server, then re-read it — positions persist in RDS. Best done end-to-end with the U8 editor once it's built (`./release.sh all`).
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "B8: save lot layout (positions) + spaces.pos_x/pos_y/rotation" && git push -u origin cr/b8-layout
+```
+
+---
+
+### CR B9 — Create a parking lot
+
+**Depends on:** B8. **Branch off B8.** **Unblocks frontend U9.**
+
+**Goal:**
+- `POST /api/lots` — admin-only. Body `{ "name", "capacity"?, "display_order"? }`. Inserts the lot and, if `capacity` is given, that many positionless `available` spaces (the admin places them later with B8's layout editor). Rejects a blank name (`400`) or a duplicate name (`409`).
+
+This is the first endpoint that **creates a brand-new top-level resource** from the UI — it's what frees the app from the hard-coded "17 lots" seed loop and lets the school add lot 18 without a code change.
+
+**Branch:**
+```bash
+git checkout cr/b8-layout
+git checkout -b cr/b9-create-lot
+```
+
+**Step 1 — Add the endpoint to `webapp/App/views/lots.py`:**
+```python
+# add to webapp/App/views/lots.py
+@bp.post("/api/lots")
+@require_role("admin")
+def create_lot():
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    capacity = body.get("capacity")
+    display_order = body.get("display_order")
+    if not name:
+        return _err("bad_request", "name is required", 400)
+    if capacity is not None and (not isinstance(capacity, int) or capacity < 0):
+        return _err("bad_request", "capacity must be a non-negative integer", 400)
+    # Case-insensitive duplicate check (app-level; see note below).
+    if query_one("SELECT id FROM lots WHERE lower(name) = lower(%s)", (name,)):
+        return _err("conflict", "A lot with that name already exists", 409)
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO lots (name, display_order) VALUES (%s, "
+                "  COALESCE(%s, (SELECT COALESCE(MAX(display_order), 0) + 1 FROM lots))) "
+                "RETURNING id, name, display_order, map_image_url",
+                (name, display_order))
+            lot = cur.fetchone()
+            for i in range(1, (capacity or 0) + 1):
+                cur.execute(
+                    "INSERT INTO spaces (lot_id, label) VALUES (%s, %s)",
+                    (lot["id"], f"{lot['id']}-{i}"))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return jsonify({"data": {
+        "id": lot["id"], "name": lot["name"],
+        "displayOrder": lot["display_order"],
+        "mapImageUrl": lot["map_image_url"],
+        "capacity": capacity or 0, "availableCount": capacity or 0,
+    }}), 201
+```
+
+**Explanation:**
+- **Name required, then de-duplicated.** A blank name is `400`; a name that already exists (case-insensitive) is `409` — the client blocks blanks for UX, but the server is the real boundary. → [OWASP: Input validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html).
+- **`display_order` auto-appends.** If the caller doesn't pass one, `COALESCE(..., MAX+1)` puts the new lot at the end of the nav order.
+- **Optional capacity seeds blank spaces.** When `capacity` is given, the loop inserts that many `available` spaces with **no** position (`pos_x/pos_y` stay `NULL`) — the admin arranges them in U8. The lot-plus-spaces insert is one transaction, so a failure creates neither.
+
+> **Note — race-proofing the unique name.** The app-level `SELECT` check has a tiny time-of-check/time-of-use gap (two admins creating "North Lot" at the same instant). For a school-scale app that's acceptable; to make the database enforce it, add `CREATE UNIQUE INDEX lots_name_lower ON lots (lower(name));` in a migration and catch `psycopg.errors.UniqueViolation` → `409` (the same trick B7 uses for assignments). Deferred to the hardening CRs unless you want it now.
+
+**Local testing guide:**
+1. Setup: server running; `$A` = admin token; `$S` = student token.
+2. Steps:
+   ```bash
+   curl -i -X POST http://localhost:8000/api/lots \
+     -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+     -d '{"name":"North Lot","capacity":10}'
+   curl -s http://localhost:8000/api/lots -H "Authorization: Bearer $A"   # new lot listed
+   # blank name -> 400 ; duplicate name -> 409 ; student -> 403
+   curl -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $A" \
+     -H 'Content-Type: application/json' -d '{"name":"   "}'
+   curl -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $A" \
+     -H 'Content-Type: application/json' -d '{"name":"North Lot"}'
+   curl -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $S" \
+     -H 'Content-Type: application/json' -d '{"name":"Sneaky"}'
+   ```
+3. Expected:
+   - First POST → `201` with the new lot; `GET /api/lots` now lists it and `GET /api/lots/<newId>/spaces` returns 10 positionless spaces.
+   - Blank name → `400`; duplicate name → `409`; student token → `403`.
+
+**☁️ Cloud check (optional):** after `./release.sh backend`, create a lot on the live server and re-list — it persists in RDS. Full loop with the UI: create a lot (U9) → upload its map (U7) → arrange its spots (U8).
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "B9: create a parking lot (POST /api/lots)" && git push -u origin cr/b9-create-lot
+```
+
+---
+
 ### How the backend CRs and frontend CRs line up
 
 | Build this backend CR | …then this frontend CR can be done |
@@ -1409,8 +1650,10 @@ git add -A && git commit -m "B7: transactional assign + unassign" && git push -u
 | B5 (enable/disable) | U4 (persisted disable) |
 | B6 (interest) | U5 (student registers interest) |
 | B7 (assignments) | U6 (admin assigns) |
+| B8 (save layout) | U8 (drag-and-drop arrange spots) |
+| B9 (create lot) | U9 (add a lot from the UI) |
 
-Build the backend CR first (or at least open its PR), because the frontend needs the endpoint to exist to test against.
+Build the backend CR first (or at least open its PR), because the frontend needs the endpoint to exist to test against. *(U7 — map upload — has no dedicated backend CR here; its `POST /api/lots/:id/map` endpoint is listed in the API surface and can be built alongside B8.)*
 
 ---
 
@@ -1581,7 +1824,9 @@ LTR-Backend/
 | POST | `/api/auth/logout` | any | invalidate/clear | [B3](#cr-b3--authentication-login) |
 | GET | `/api/auth/me` | any | current user | [B3](#cr-b3--authentication-login) |
 | GET | `/api/lots` | any | list lots | [B4](#cr-b4--read-lots--spaces) |
-| GET | `/api/lots/:id/spaces` | any | spaces + status | [B4](#cr-b4--read-lots--spaces) |
+| GET | `/api/lots/:id/spaces` | any | spaces + status (+ positions) | [B4](#cr-b4--read-lots--spaces) |
+| POST | `/api/lots` | admin | create a lot (+ optional blank spaces) | [B9](#cr-b9--create-a-parking-lot) |
+| PUT | `/api/lots/:id/layout` | admin | save spot positions (full-replace) | [B8](#cr-b8--save-lot-layout-spot-positions) |
 | PATCH | `/api/spaces/:id` | admin | enable/disable one | [B5](#cr-b5--admin-enablesdisables-spaces) |
 | PATCH | `/api/spaces` | admin | bulk enable/disable | [B5](#cr-b5--admin-enablesdisables-spaces) |
 | POST | `/api/lots/:id/map` | admin | upload/replace map image | (map upload, [U7](../ui/ui-development-guide.md#cr-u7--update-the-school-map-image)) |
@@ -1624,8 +1869,18 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 
 #### `GET /api/lots/:id/spaces`
 - **Request:** none. Path param `id` (lot id).
-- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "1-0-3", "status": "available", "assignedUserId": null } ] } }`
+- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "1-0-3", "status": "available", "assignedUserId": null, "x": 0.25, "y": 0.4, "rotation": 0 } ] } }` — `x`/`y`/`rotation` are `null` for spaces with no authored position (the UI falls back to its config-table layout).
 - **404** lot not found.
+
+#### `POST /api/lots` *(admin)*
+- **Request:** `{ "name": "North Lot", "capacity"?: 10, "display_order"?: 5 }` — `name` required (non-blank, unique, case-insensitive); `capacity` optional (≥ 0, seeds that many positionless `available` spaces); `display_order` optional (defaults to end).
+- **201:** `{ "data": { "id": 18, "name": "North Lot", "displayOrder": 18, "mapImageUrl": null, "capacity": 10, "availableCount": 10 } }`
+- **400** blank/invalid name or bad capacity · **403** not admin · **409** duplicate name.
+
+#### `PUT /api/lots/:id/layout` *(admin)*
+- **Request:** `{ "spaces": [ { "id"?: 1001, "label": "A1", "x": 0.25, "y": 0.4, "rotation"?: 0 } ] }` — full desired set. Entries **with** `id` are moved/relabeled; entries **without** `id` are created; existing spaces **omitted** from the array are deleted. `x`/`y` are normalized fractions in `0..1`; `rotation` is degrees (defaults to 0).
+- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "A1", "status": "available", "assignedUserId": null, "x": 0.25, "y": 0.4, "rotation": 0 } ] } }` (the full saved set).
+- **400** missing `spaces` array / label / out-of-range coordinate · **403** not admin · **404** lot not found · **409** an omitted (to-be-deleted) space is currently `assigned` (nothing is written).
 
 #### `PATCH /api/spaces/:id` *(admin)*
 - **Request:** `{ "status": "disabled" }` — `status ∈ {available, disabled}`.

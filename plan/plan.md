@@ -37,7 +37,7 @@ LTR-Backend/
 | Document | What it is | Read it when |
 |---|---|---|
 | **`plan.md`** (this file) | The **master reference / orchestrator**: architecture, data model, diagrams, cross-cutting contracts, the stacked-CR plan + [status tracker](#82-cr-status-tracker), and the deployment map (§10 → the detail lives in the deployment guide). | You want the big picture, the CR ordering, or how the halves fit together. |
-| **[`ui/ui-development-guide.md`](ui/ui-development-guide.md)** | A **beginner, step-by-step guide to building the website (frontend)**, including every git command and a local test for each CR (U0–U7). Its [Frontend architecture reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference) holds the frontend design detail (moved from this file's old §7.2). | You're sitting down to write frontend code. |
+| **[`ui/ui-development-guide.md`](ui/ui-development-guide.md)** | A **beginner, step-by-step guide to building the website (frontend)**, including every git command and a local test for each CR (U0–U9). Its [Frontend architecture reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference) holds the frontend design detail (moved from this file's old §7.2). | You're sitting down to write frontend code. |
 | **[`backend/backend-development-guide.md`](backend/backend-development-guide.md)** | A **beginner, step-by-step guide to building the server + database (backend)**, with every git command and a local test for each CR (B0–B7). Its [API Reference](backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) holds the full endpoint contracts (moved from this file's old §7.1). | You're sitting down to write backend code. |
 | **[`deploy/deployment-guide.md`](deploy/deployment-guide.md)** | A **step-by-step guide to putting the app on AWS** (CRs D0–D4), plus live-server operations and the full architecture / IaC / [cost reference](deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). | You're ready to deploy, operate, or price the live system. |
 
@@ -46,7 +46,7 @@ LTR-Backend/
 ```mermaid
 flowchart TB
     plan["<b>plan.md</b> (master / orchestrator)<br/>architecture · data model · diagrams<br/>cross-cutting contracts · stacked-CR tracker"]
-    ui["<b>ui/ui-development-guide.md</b><br/>frontend CRs U0–U7<br/>+ Frontend architecture reference"]
+    ui["<b>ui/ui-development-guide.md</b><br/>frontend CRs U0–U9<br/>+ Frontend architecture reference"]
     be["<b>backend/backend-development-guide.md</b><br/>backend CRs B0–B7<br/>+ API Reference (endpoint contracts)"]
     dep["<b>deploy/deployment-guide.md</b><br/>deploy CRs D0–D4 · live-server ops<br/>+ AWS architecture / IaC / cost reference"]
 
@@ -111,6 +111,9 @@ The frontend is a working **client-only prototype** — all state lives in Redux
 
 ### Missing (UI)
 Real authentication, API client layer, loading/error/empty states, routing (`react-router`), persistence, tests.
+
+- **Spot positions are hard-coded, not authorable.** Where each space sits on a lot's map comes from three developer-edited tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`); there is **no UI to place a spot or drag it into position**, which is why several lots are stuck as photo-only (`MAP_ONLY_LOTS`). Addressed by **U8** (positions become normalized `x`/`y`/`rotation` data an admin edits and saves).
+- **The lot set is fixed at 17.** The lot list is a hard-coded `Home + Lot 1..17` loop; there is **no UI to add a new parking lot** (and no create-lot endpoint). Addressed by **U9** (admin `POST /api/lots` from the control board).
 
 ---
 
@@ -183,6 +186,9 @@ classDiagram
         +string label
         +SpaceStatus status
         +int assigned_user_id
+        +float pos_x
+        +float pos_y
+        +float rotation
     }
 
     class Interest {
@@ -211,6 +217,8 @@ classDiagram
 ```
 
 **Enums:** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, declined}`.
+
+**Space geometry (part of the base schema):** `pos_x`, `pos_y` are **normalized** positions (`0..1` of the lot's map image) and `rotation` is in degrees — nullable, so a space with no authored position falls back to the front-end's config-table layout. These columns are **designed into the initial schema (B2)** from the start — spot placement is a real property of a space — not bolted on by a later migration; nothing *writes* them until the drag-and-drop editor ships, which does so via `PUT /api/lots/:id/layout` (backend **B8**). New lots are created via `POST /api/lots` (backend **B9**) — see [§8.4 Phase 3](#84-the-crs-phase-by-phase-narrative--local-test-seed).
 
 ### 5.2 Backend layering (component classes)
 
@@ -289,6 +297,8 @@ classDiagram
         +fetchLots(thunk)
         +fetchSpaces(thunk)
         +updateSpaces(thunk)
+        +saveLayout(thunk)
+        +createLot(thunk)
     }
     class interestSlice {
         +registerInterest(thunk)
@@ -388,6 +398,35 @@ sequenceDiagram
     UI-->>A: space shows assigned, request fulfilled
 ```
 
+### 6.4 Admin creates a lot, then arranges its spots (authoring)
+
+```mermaid
+sequenceDiagram
+    actor A as Admin
+    participant UI as Control Board
+    participant API as Flask API
+    participant DB as Database
+
+    A->>UI: click Add Lot, enter name and capacity
+    UI->>API: POST /api/lots with name and optional capacity (Bearer)
+    API->>API: require_role admin, then validate name is non-blank and unique
+    API->>DB: INSERT lot plus capacity blank spaces (no position yet)
+    API-->>UI: 201 with the new lot
+    UI->>UI: refetch lots, auto-select the new lot
+
+    A->>UI: Arrange Spots then add or drag or rotate or delete on the map
+    Note over UI: positions held locally as normalized x and y (0 to 1)
+    A->>UI: Save Layout
+    UI->>API: PUT /api/lots/{id}/layout with the spaces array (Bearer)
+    API->>API: require_role admin
+    API->>DB: BEGIN
+    API->>DB: upsert listed spaces, then delete any missing ids
+    API->>DB: 409 if a deleted space is currently assigned
+    API->>DB: COMMIT
+    API-->>UI: 200 with the saved spaces
+    UI->>UI: optimistic update, then refetch lot spaces
+```
+
 ---
 
 ## 7. Implementation Details (live in the two guides)
@@ -460,6 +499,8 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | 📋 |
 | B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | 📋 |
 | B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | 📋 |
+| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `pos_x/pos_y/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
+| B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
 
 **Frontend (`U#`) — build in `ui/ui-development-guide.md`:**
 
@@ -473,6 +514,8 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | U5 | Student dashboard + register interest | `cr/u5-student-interest` | U4 | **B6** | [U5](ui/ui-development-guide.md#cr-u5--student-registers-interest-core-feature-1) | — | 📋 |
 | U6 | Admin interest panel + Manual Assign | `cr/u6-admin-assign` | U5 | **B7** | [U6](ui/ui-development-guide.md#cr-u6--admin-assigns-spaces-core-feature-2) | — | 📋 |
 | U7 | Update school map image (multipart upload) | `cr/u7-map-upload` | U6 | map endpoint | [U7](ui/ui-development-guide.md#cr-u7--update-the-school-map-image) | — | 📋 |
+| U8 | Place & arrange spots (drag-and-drop layout editor) | `cr/u8-arrange-spots` | U7 | **B8** | [U8](ui/ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) | — | 📋 |
+| U9 | Add a new parking lot from the admin UI | `cr/u9-add-lot` | U8 | **B9** | [U9](ui/ui-development-guide.md#cr-u9--add-a-new-parking-lot-from-the-admin-ui) | — | 📋 |
 
 **Deployment (`D#`) — run in `deploy/deployment-guide.md`:**
 
@@ -485,9 +528,9 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | D3 | Release the application code (`release.sh`) | `cr/d3-release` | D2 | [D3](deploy/deployment-guide.md#cr-d3--release-the-application-code) | — | 📋 |
 | D4 | Domain + Route 53 + HTTPS (certbot) | `cr/d4-dns-tls` | D3 | [D4](deploy/deployment-guide.md#cr-d4--buy-a-domain-wire-it-to-route-53-and-turn-on-https) | — | 📋 |
 
-**Hardening (`B8/U8`, `B9/U9`, `B10`) — planned, not yet expanded into guide sections.** Validation/error-envelope polish (B8/U8), automated tests — pytest + Vitest (B9/U9), and the SQLite→Postgres path (B10). *Note:* the guides already build directly on **PostgreSQL** from B2 onward, so B10 is largely satisfied by design; it remains listed for the explicit "run the suite against a second Postgres" check. These get their own guide sections + tracker rows when scheduled.
+**Hardening (`B10/U10`, `B11/U11`, `B12`) — planned, not yet expanded into guide sections.** Validation/error-envelope polish (B10/U10), automated tests — pytest + Vitest (B11/U11), and the SQLite→Postgres path (B12). *Note:* the guides already build directly on **PostgreSQL** from B2 onward, so B12 is largely satisfied by design; it remains listed for the explicit "run the suite against a second Postgres" check. These get their own guide sections + tracker rows when scheduled. *(Renumbered from B8/B9/B10 when the layout-save and create-lot features claimed B8/B9 · U8/U9.)*
 
-> **Ordering — the one hard cross-layer rule.** A frontend CR in the "Also needs" column **cannot be tested to green until its backend CR is merged (or at least deployed to a branch/staging instance)** — U1→B3, U3→B4, U4→B5, U5→B6, U6→B7. Build/open the backend CR first. Within a layer, the `Parent` column is a strict stack: rebase children when a parent changes (§8.1). The critical path that respects both is in §9.
+> **Ordering — the one hard cross-layer rule.** A frontend CR in the "Also needs" column **cannot be tested to green until its backend CR is merged (or at least deployed to a branch/staging instance)** — U1→B3, U3→B4, U4→B5, U5→B6, U6→B7, U8→B8, U9→B9. Build/open the backend CR first. Within a layer, the `Parent` column is a strict stack: rebase children when a parent changes (§8.1). The critical path that respects both is in §9.
 
 ### 8.3 CR description template (every CR uses this)
 
@@ -541,6 +584,10 @@ Every CR — backend and frontend — ships with a PR description in this shape.
   - **Local test:** student token `POST /api/interest {"lotId":1}` → 201 `pending`; `GET /api/interest/me` shows it; admin `GET /api/interest?status=pending` lists it; duplicate active request → 409.
 - **B7 — Assignment API.** `POST /api/assignments`, `DELETE /api/assignments/:id`, mark interest fulfilled (transactional, per §6.3).
   - **Local test:** admin `POST /api/assignments {"spaceId":1001,"userId":1,"interestId":55}` → 201; verify space is now `assigned` and interest `fulfilled`; assigning an already-assigned space → 409; `DELETE` frees the space (`available`).
+- **B8 — Save lot layout (spot positions).** `PUT /api/lots/:id/layout` (admin-only) full-replaces a lot's spot set — upsert listed spaces, delete omitted ids — inside one transaction (per §6.4). It writes the `pos_x/pos_y/rotation` columns that are **already defined on `spaces` in the B2 schema** (designed in from the start — no migration in B8). Positions are normalized fractions (0–1), so they survive zoom/resize.
+  - **Local test:** admin `PUT /api/lots/1/layout` with a spaces array → 200 and re-GET `/api/lots/1/spaces` shows the saved `pos_x/pos_y/rotation`; a student token → 403; deleting a space that is currently `assigned` → 409 (no partial write); out-of-range coordinate → 400.
+- **B9 — Create a parking lot.** `POST /api/lots` (admin-only) inserts a lot and, if `capacity` is given, that many positionless `available` spaces; rejects blank/duplicate name.
+  - **Local test:** admin `POST /api/lots {"name":"North Lot","capacity":10}` → 201 with the new lot; `GET /api/lots` now lists it and it has 10 spaces; a blank name → 400; a duplicate name → 409; a student token → 403.
 
 #### Phase 3 — Wire the UI to the API
 - **U1 — Real auth flow.** Replace fake login with B3; token storage, auth guard, real logout, error states.
@@ -557,13 +604,17 @@ Every CR — backend and frontend — ships with a PR description in this shape.
   - **Local test:** admin opens interest list, assigns a space to a student → space shows `assigned` on the map and the request flips to `fulfilled`; the assigned student sees their spot.
 - **U7 — Update School Map.** Admin uploads/replaces a lot's map image (`POST /api/lots/:id/map`).
   - **Local test:** upload a PNG/JPG for a lot → the new image renders after refresh; a non-image or >16 MB file is rejected with a visible error.
+- **U8 — Place & arrange spots.** Drag-and-drop layout editor: in an "Arrange" edit mode, add/drag/rotate/delete spots on the lot map; positions held locally as normalized coordinates, saved via B8's `PUT /api/lots/:id/layout`.
+  - **Local test:** as admin, drag a spot to a new position and **Save Layout** → **refresh** and it stays put; rotate/delete persist too; zooming the map keeps spots aligned (normalized coords); a save that hits a 409 (assigned space deleted) shows an error and leaves the server unchanged.
+- **U9 — Add a new parking lot.** Admin **➕ Add Lot** button + Create Lot modal (`POST /api/lots`, B9); auto-selects the new lot and hands off to U7 (map) + U8 (arrange).
+  - **Local test:** create a lot → it appears in the nav **without refresh** and is selected; blank name is blocked client-side; a duplicate name shows the server's red error; after refresh the lot persists; a student never sees the control.
 
-#### Phase 4 — Hardening *(planned; tracker rows B8/U8, B9/U9, B10)*
-- **B8 / U8 — Validation & error handling.** Server validation, consistent error envelope, UI toasts/empty/loading states.
+#### Phase 4 — Hardening *(planned; tracker rows B10/U10, B11/U11, B12)*
+- **B10 / U10 — Validation & error handling.** Server validation, consistent error envelope, UI toasts/empty/loading states.
   - **Local test:** malformed/oversized payloads return 400 with the `{error:{code,message}}` envelope; the UI surfaces a toast instead of crashing; empty lists show an empty state.
-- **B9 / U9 — Tests.** Backend: pytest (API + auth). Frontend: Vitest + Testing Library.
+- **B11 / U11 — Tests.** Backend: pytest (API + auth). Frontend: Vitest + Testing Library.
   - **Local test:** `pytest` is green (auth + each endpoint, incl. 401/403/409 paths); `npm run test` green for login, routing guard, and interest/assign flows.
-- **B10 — Second-Postgres check** (run schema + suite against a fresh Postgres via `DATABASE_URL`). *The app is already Postgres-native from B2, so this is a portability check, not a migration.*
+- **B12 — Second-Postgres check** (run schema + suite against a fresh Postgres via `DATABASE_URL`). *The app is already Postgres-native from B2, so this is a portability check, not a migration.*
   - **Local test:** run a local Postgres (e.g. `docker run -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres`), point `DATABASE_URL` at it, run the migration + seed, and re-run `pytest` green against it.
 
 #### Phase 5 — Deployment (EC2 + RDS via CloudFormation, see §10)
@@ -588,10 +639,10 @@ Deployment CRs are **D0–D4** in the [tracker](#82-cr-status-tracker); the full
 
 ```
 B0 → B1 → B2 → B3 → U0/U1/U2  →  B4 → U3  →  B5 → U4  →  B6 → U5  →  B7 → U6  →  U7
-                                                   → (Phase 4 hardening) → (Phase 5 deploy)
+      →  B8 → U8  →  B9 → U9  →  (Phase 4 hardening) → (Phase 5 deploy)
 ```
 
-Demoable after **U5** (students register interest, admins manage spaces); feature-complete after **U7**.
+Demoable after **U5** (students register interest, admins manage spaces); feature-complete after **U9** (admins can create lots and author each lot's spot layout).
 
 ---
 
@@ -649,6 +700,7 @@ Deployment is delivered as CRs **D0–D4** in the [CR status tracker](#82-cr-sta
 | R5 | **Assignment race** — two admins assign the same space. | Medium — double-booking. | Transactional assign with a conditional update (per §6.3); 409 on conflict. | [§6.3](#63-admin-assigns-a-space-to-a-student-allocation) |
 | R6 | **Single-EC2 SPOF / no backups.** | Medium — downtime, data loss. | RDS automated backups; CloudFormation makes the box reproducible; documented restore. Scale-out is out of scope (§Executive Summary). | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
 | R7 | **Cost overrun** — the sized instance is far larger than a school parking app needs. | Low/Medium — budget. | The [cost model (deployment guide §B.13)](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) is an explicit planning decision to revisit; right-size before provisioning. | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
+| R8 | **Layout save destroys assigned spots** — the full-replace `PUT /api/lots/:id/layout` (B8/U8) deletes spaces omitted from the payload. | Medium — an admin re-arranging could wipe a space a student is assigned to. | Transactional save that **refuses (409)** to delete any space that is currently `assigned`; positions stored as normalized 0–1 fractions so they don't break on zoom/resize. | [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring) |
 
 ---
 
@@ -677,6 +729,8 @@ This is a single-box Flask + React deployment on EC2 — **not** a fleet with a 
 | **`@require_role`** | Backend decorator enforcing that a valid JWT with the required role (`student`/`admin`) is present. |
 | **Interest** | A student's request for parking in a lot (`pending` → `fulfilled`/`withdrawn`). Core feature 1. |
 | **Assignment** | An admin binding a student to a specific space (transactional; flips space→`assigned`, interest→`fulfilled`). Core feature 2. |
+| **Normalized coordinates** | A spot's position stored as fractions of the map image (`pos_x`,`pos_y` in 0–1) plus a `rotation` in degrees, so the layout survives zoom/resize on any screen. The columns live on `spaces` from the initial schema (B2); they're first *written* by the arrange-spots feature (§6.4, B8/U8). |
+| **Layout (authored)** | A lot's set of spot positions saved as data via `PUT /api/lots/:id/layout`, replacing the hard-coded config-table positions in the prototype. Full-replace + transactional (§6.4). |
 | **IaC** | Infrastructure as Code — all AWS resources defined in CloudFormation templates, no manual console clicks (§10). |
 | **SPA** | Single-Page Application — the React frontend, served as a static build and talking to the API over JSON. |
 | **B#/U#/D#** | CR id prefixes: **B**ackend, **U**I/frontend, **D**eployment. Full list in the [tracker](#82-cr-status-tracker). |
@@ -692,6 +746,7 @@ The decisions that shaped this plan, each linking to the section that justifies 
 3. **Stacked CRs, backend-before-frontend on shared features.** Small PRs review faster and the "Also needs" dependency makes the one hard cross-layer rule explicit. → [§8.1](#81-cr-workflow--branching-strategy), [§8.2](#82-cr-status-tracker)
 4. **Uniform response envelope + JWT/`@require_role`.** One success/error shape and one auth mechanism the whole app agrees on, defined authoritatively in the orchestrator. → [§7.1](#71-the-contract-that-binds-the-two-halves-authoritative-here)
 5. **Transactional assignment with conditional update.** Prevents two admins double-booking one space. → [§6.3](#63-admin-assigns-a-space-to-a-student-allocation), [R5](#12-risks--mitigations)
-6. **PostgreSQL from the first schema CR (B2 onward).** Avoids a late SQLite→Postgres migration; the "second-Postgres" item (B10) becomes a portability check, not a migration. → [§8.2](#82-cr-status-tracker), [§10](#10-aws-deployment--ec2--rds-via-cloudformation)
+6. **PostgreSQL from the first schema CR (B2 onward).** Avoids a late SQLite→Postgres migration; the "second-Postgres" item (B12) becomes a portability check, not a migration. → [§8.2](#82-cr-status-tracker), [§10](#10-aws-deployment--ec2--rds-via-cloudformation)
 7. **All AWS resources as CloudFormation (IaC), single EC2 + RDS.** Reproducible infra sized for a school-scale app; scale-out explicitly out of scope. → [§10](#10-aws-deployment--ec2--rds-via-cloudformation), [R6](#12-risks--mitigations)
 8. **Lightweight, single-box observability.** Structured journal logs + a correlation id across the process boundary, no external APM — matched to the deployment, not a fleet. → [§13](#13-observability-scoped-to-this-deployment)
+9. **Spot positions are authored data, not hard-coded config.** Layouts are stored as normalized coordinates on `spaces` and edited via a drag-and-drop editor (U8) saved through a transactional full-replace endpoint (B8) that refuses to delete assigned spaces; lots are created from the UI (U9/B9) instead of a fixed seed loop. Lets the school grow and rearrange lots without a code change. → [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring), [§8.2](#82-cr-status-tracker), [R8](#12-risks--mitigations)

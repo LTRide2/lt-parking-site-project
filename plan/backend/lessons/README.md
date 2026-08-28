@@ -1,6 +1,6 @@
 # Backend lessons — build the server one hour at a time
 
-This folder turns the [Backend Development Guide](../backend-development-guide.md) into **8 self-contained, ~1-hour lessons**, one per CR (B0 → B7). Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
+This folder turns the [Backend Development Guide](../backend-development-guide.md) into **10 self-contained, ~1-hour lessons**, one per CR (B0 → B9). Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
 
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../backend-development-guide.md) is the source of truth.
 
@@ -18,6 +18,8 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 | 6 | [B5 — Admin enables/disables spaces](B5-admin-enable-disable-spaces.md) | Admin-only `PATCH /api/spaces` | [CR B5](../backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) |
 | 7 | [B6 — Student registers interest](B6-student-registers-interest.md) | `POST/GET /api/interest` | [CR B6](../backend-development-guide.md#cr-b6--student-registers-interest) |
 | 8 | [B7 — Admin assigns a space](B7-admin-assigns-a-space.md) | `POST/DELETE /api/assignments` (a real DB transaction) | [CR B7](../backend-development-guide.md#cr-b7--admin-assigns-a-space) |
+| 9 | [B8 — Save a lot's spot layout](B8-save-lot-layout.md) | `PUT /api/lots/<id>/layout` — transactional full-replace of spot positions | [CR B8](../backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) |
+| 10 | [B9 — Create a parking lot](B9-create-a-lot.md) | `POST /api/lots` — add a new lot (+ optional blank spaces) | [CR B9](../backend-development-guide.md#cr-b9--create-a-parking-lot) |
 
 ## What each lesson contains
 
@@ -25,4 +27,4 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 ## After the backend
 
-When B7 passes, either build the website in the [**UI lessons**](../../ui/lessons/README.md) or put your server online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).
+When B9 passes, either build the website in the [**UI lessons**](../../ui/lessons/README.md) or put your server online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).

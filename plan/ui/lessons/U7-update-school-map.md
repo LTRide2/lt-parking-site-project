@@ -1,6 +1,6 @@
 # Lesson U7 — Update the school map image
 
-> **Track:** Frontend · **Lesson 8 of 8**
+> **Track:** Frontend · **Lesson 8 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first request that isn't JSON — file uploads work differently)
 > **🧩 Prerequisites:** you've done [Lesson U6 — Admin assigns spaces](U6-admin-assigns-spaces.md); the backend's map-upload endpoint (`POST /api/lots/:id/map`) running.
 > **🌿 CR branch:** `cr/u7-map-upload` (off `cr/u6-admin-assign`) · **📄 Source CR:** [ui guide → CR U7](../ui-development-guide.md#cr-u7--update-the-school-map-image) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -240,4 +240,4 @@ Then open a Pull Request on GitHub with **base = `cr/u6-admin-assign`**. Use the
 
 ## ➡️ Next lesson
 
-This was the **last frontend lesson** — the student and admin flows, and now the map image, are all wired to the real backend. Next, put the whole app online: the **[Deploy track, starting with Lesson D0 — AWS account setup](../../deploy/lessons/D0-aws-account-setup.md)**.
+Next: **[U8 — Place & arrange parking spots](U8-place-and-arrange-spots.md)** — a drag-and-drop editor that lets an admin position each lot's spaces on the map you just uploaded (backed by `PUT /api/lots/:id/layout`, backend B8).

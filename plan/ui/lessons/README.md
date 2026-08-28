@@ -1,6 +1,6 @@
 # Frontend lessons — build the website one hour at a time
 
-This folder turns the [UI Development Guide](../ui-development-guide.md) into **8 self-contained, ~1-hour lessons**, one per CR (U0 → U7). Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
+This folder turns the [UI Development Guide](../ui-development-guide.md) into **10 self-contained, ~1-hour lessons**, one per CR (U0 → U9). Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
 
 > **The code you'll edit:** the frontend is its own repo — **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)** (locally `~/workspace/LT_Proj/lt-parking-site-project`, branch `main`). Stack: Vite + React 19 + Redux Toolkit + TypeScript. Clone/setup is [UI guide → A3–A5](../ui-development-guide.md#a3-get-the-project-onto-your-computer). Note this is a **different repo** from the backend (`LTR-Backend`), which is where these lesson docs live.
 >
@@ -22,6 +22,8 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 | 6 | [U5 — Student registers interest](U5-student-registers-interest.md) | The student "request a space" flow (core feature #1) | B6 | [CR U5](../ui-development-guide.md#cr-u5--student-registers-interest-core-feature-1) |
 | 7 | [U6 — Admin assigns spaces](U6-admin-assigns-spaces.md) | The admin "assign a space" flow (core feature #2) | B7 | [CR U6](../ui-development-guide.md#cr-u6--admin-assigns-spaces-core-feature-2) |
 | 8 | [U7 — Update the school map image](U7-update-school-map.md) | The real school map in place of the placeholder | — | [CR U7](../ui-development-guide.md#cr-u7--update-the-school-map-image) |
+| 9 | [U8 — Place & arrange parking spots](U8-place-and-arrange-spots.md) | A drag-and-drop editor that saves each lot's spot layout | B8 | [CR U8](../ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) |
+| 10 | [U9 — Add a new parking lot](U9-add-a-parking-lot.md) | Admins create new lots from the UI (no longer fixed at 17) | B9 | [CR U9](../ui-development-guide.md#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
 
 ## What each lesson contains
 
@@ -29,4 +31,4 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 ## After the frontend
 
-When U7 passes, put the whole app online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).
+When U9 passes, put the whole app online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).

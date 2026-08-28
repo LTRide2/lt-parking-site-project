@@ -175,13 +175,15 @@ src/
 ├── ProtectedRoute.tsx    # blocks pages you're not allowed to see              (U2)
 ├── Login.tsx             # real login form, shows errors                       (U1)
 ├── StudentDashboard.tsx  # student: see availability, register interest        (U5)
-├── ControlBoard.tsx      # admin: data-driven map, disable, assign             (U3,U4,U6,U7)
+├── ControlBoard.tsx      # admin: data-driven map, disable, assign,
+│                         #        arrange spots (drag-drop), add lot           (U3,U4,U6,U7,U8,U9)
 ├── api/
 │   └── client.ts         # the ONE place that talks to the backend            (U0)
 └── store/
     ├── index.ts          # registers the slices below
     ├── authSlice.ts      # real login thunks + token                           (U1)
-    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces thunks       (U3,U4)
+    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces /
+    │                     #   saveLayout / createLot thunks                     (U3,U4,U8,U9)
     └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
 ```
 
@@ -1502,6 +1504,133 @@ PR base = `cr/u6-admin-assign`.
 
 ---
 
+### CR U8 — Place & arrange parking spots (drag-and-drop layout editor)
+
+**Depends on:** U7 and backend **B8** (`PUT /api/lots/:id/layout` — persist a lot's spot layout). **Branch off U7.**
+
+**Goal:** today a spot's position on the map is **source code** — three hand-tuned tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`) that only a developer can change. Make positions **data an admin authors in the browser**: add a spot by clicking the map, drag it to place, rotate/delete it, and **Save Layout** to the server so it survives refresh and shows for everyone.
+
+> **Big idea / what changes:** a spot's position becomes **normalized** coordinates — `x`/`y` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing config tables — no regression.
+
+> **📸 What's already in the prototype:** the three hard-coded position tables and the `MAP_ONLY_LOTS` set stay exactly as-is — they become the *fallback*. This CR adds a higher-priority path that draws from server `x`/`y` when present. Nothing from U3–U7 is removed.
+
+**Backend contract (B8):**
+- `GET /api/lots/:id/spaces` gains optional `x`, `y` (floats `0..1`) and `rotation` (degrees) per space; legacy spaces send `null`.
+- `PUT /api/lots/:id/layout` — admin only. Body `{ spaces: [{ id?, label, x, y, rotation? }] }`. **Replaces** the lot's spot set in one transaction (entries with `id` updated, without `id` created, missing existing ids deleted); refuses to delete an `assigned` space (`409`). Returns the updated `Space[]`.
+
+**Branch:**
+```bash
+git checkout cr/u7-map-upload
+git checkout -b cr/u8-arrange-spots
+```
+
+**Step 1 — Extend the `Space` type and add a `saveLayout` thunk in `parkingSlice.ts`.** Add `x?`, `y?`, `rotation?` to `Space`, add an `"arrange"` value to the `EditAction` union, and (if missing) a `put` method to `client.ts`. Then:
+```ts
+// PUT /api/lots/:id/layout  body { spaces:[{id?,label,x,y,rotation?}] } -> Space[]
+export const saveLayout = createAsyncThunk(
+  "parking/saveLayout",
+  async (args: { lotId: number; spaces: Array<Pick<Space, "id" | "label" | "x" | "y" | "rotation">> }, { dispatch }) => {
+    await api.put(`/api/lots/${args.lotId}/layout`, { spaces: args.spaces });
+    await dispatch(fetchSpaces(args.lotId));   // reload the server's truth
+    return args.lotId;
+  }
+);
+```
+Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
+
+**Step 2 — Add an "Arrange Spots" edit action + an editable canvas in `ControlBoard.tsx`.** A new sidebar button dispatches `setEditAction('arrange')`. While arranging, hold the working layout in local state (`draft`, seeded from `spacesByLot[selectedLotId]`) and measure the map wrapper with a `ref`. Convert a mouse point to a fraction, render each draft spot absolutely-positioned, and wire click-to-add + pointer-capture drag. (Full code — the `toNorm` helper, `renderArrangeCanvas`, and pointer handlers — is in [Lesson U8](lessons/U8-place-and-arrange-spots.md#step-2--add-the-arrange-spots-mode-and-an-editable-canvas-25-min).)
+
+**Step 3 — Add rotate, delete, and Save Layout; render saved layouts in normal view.** A small toolbar (shown only while arranging) rotates/deletes the picked spot and, on **Save Layout**, maps the draft to the PUT body (dropping temporary negative ids so the server creates those spaces) and dispatches `saveLayout`. Update `renderParkingLot` to prefer a saved layout (`spaces.some(s => s.x != null)`) — a read-only version of the arrange canvas — and otherwise fall through to the existing config/fan rendering.
+
+**UI mock (after this phase):** the selected lot's map becomes an editable canvas — click to add, drag to move, a picked spot outlined in gold, a toolbar to rotate/delete/save.
+```
+┌──────────────────────────────────────────────────────────┐
+│ LTRide                                       [Cancel][Done]│
+├───────────────┬──────────────────────────────────────────┤
+│ ┌───────────┐ │   ┌───────────── lot map ──────────────┐  │
+│ │Admin Ctrl │ │   │   ▭   ▭   ▭        ▭   ▭            │  │  ▭ spot
+│ │ Arrange ▣ │ │   │     ▧◀picked (drag me)   ▭          │  │  ▧ picked
+│ └───────────┘ │   │   ▭     click empty map = add ↑     │  │
+│ ┌───────────┐ │   └────────────────────────────────────┘  │
+│ │ Rotate15° │ │                                            │
+│ │ Delete    │ │   [Home][Lot A][Lot B][North Lot]          │
+│ │ [Save Lay]│ │   Edit Mode ●——                            │
+│ └───────────┘ │                                       LT   │
+└───────────────┴──────────────────────────────────────────┘
+```
+
+**Local testing guide:**
+1. Setup: backend running through **B8** (seeded); `npm run dev`; admin logged in; a lot selected.
+2. Steps: **Edit Mode** → **Arrange Spots** → click the map to add spots → drag one → pick it, **Rotate 15°**, **Delete** another → **Save Layout**; then **refresh** and **resize the window**.
+3. Expected:
+   - Click-to-add drops a spot where you clicked; drag moves it and it stays on release; rotate/delete work.
+   - After **Save Layout** the spots render in place; after **refresh** they're unchanged (persisted); after **resize** they stay put relative to the map (normalized coords).
+   - Deleting an **assigned** spot and saving surfaces a red error (`409`) — nothing lost.
+   - A never-arranged lot still draws via the old config tables.
+
+**☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS; a second browser sees the same arrangement (it's server data now).
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "U8: drag-and-drop spot layout editor + saved layouts (PUT /api/lots/:id/layout)" && git push -u origin cr/u8-arrange-spots
+```
+PR base = `cr/u7-map-upload`.
+
+---
+
+### CR U9 — Add a new parking lot from the admin UI
+
+**Depends on:** U8 and backend **B9** (`POST /api/lots` — create a lot). **Branch off U8.**
+
+**Goal:** today the lot list is a hard-coded `Home + Lot 1..17` loop — there's no way to add lot 18 without editing code. Let an admin click **➕ Add Lot**, name it (optional capacity), and get a real new lot that appears in the nav immediately and is auto-selected, ready to receive its map (U7) and arranged spots (U8).
+
+> **📸 What's already in the prototype:** since **U3** the bottom nav is `lots.map(...)` fed by `fetchLots()`, not the hard-coded list. So a newly created lot appears for free once `fetchLots()` re-runs; this CR just adds the create path.
+
+**Backend contract (B9):** `POST /api/lots` — admin only. Body `{ name, capacity?, display_order? }`. Creates the lot (and, if `capacity` given, that many positionless `available` spaces to place in U8). Returns the new `Lot`. Rejects blank/duplicate `name` with `400`/`409` and the standard error envelope.
+
+**Branch:**
+```bash
+git checkout cr/u8-arrange-spots
+git checkout -b cr/u9-add-lot
+```
+
+**Step 1 — Add a `createLot` thunk to `parkingSlice.ts`** (next to `fetchLots`): POST the body, `await dispatch(fetchLots())` to refresh the nav, and return the new `Lot`. In `extraReducers`, set `state.selectedLotId = action.payload.id` on `createLot.fulfilled` (land on the new lot) and write the message to `state.error` on `rejected`.
+
+**Step 2 — Add the button + Create Lot modal in `ControlBoard.tsx`.** An **➕ Add Lot** button inside the `isAdmin` control panel (admin-only; not gated by Edit Mode) opens a modal mirroring U6's Manual Assign modal: a required **Name** and optional **Capacity**, a red inline error from `state.error`, and a **Create** button disabled until the name is non-blank. On click, `await dispatch(createLot(...))` and close the modal only if `createLot.fulfilled.match(res)` — so a rejected create keeps the modal open with the error. (Full modal JSX is in [Lesson U9](lessons/U9-add-a-parking-lot.md#step-2--add-the-button-and-the-create-lot-modal-in-controlboardtsx-20-min).)
+
+**Step 3 — Hand off to map + arrange.** `createLot.fulfilled` already selected the new lot, so the canvas switches to it. Show a hint when the selected lot has no spaces yet, pointing the admin at **Update School Map** (U7) then **Arrange Spots** (U8).
+
+**UI mock (after this phase):** ➕ Add Lot opens a create modal; after Create the nav gains the lot, selects it, and a next-step hint appears.
+```
+   click ➕ Add Lot                 after Create
+┌───────────────┐        ┌────────────────────────────┐
+│ │➕ Add Lot  │◀─────── │  Create Parking Lot         │
+│ │ Single    │ │        │  Name     [North Lot____]   │
+│ │ Arrange   │ │        │  Capacity [ 20 ]            │
+│ └───────────┘ │        │        [Cancel] [Create]    │
+└───────────────┘        └────────────────────────────┘
+  ▶ nav: [Home][Lot A]…[Lot 17][North Lot]  ← new, selected
+```
+
+**Local testing guide:**
+1. Setup: backend running through **B9** (seeded); `npm run dev`; admin logged in.
+2. Steps: **➕ Add Lot** → name `North Lot`, capacity `10` → **Create**; then try a **blank** name and a **duplicate** name; **refresh**; log in as a **student**.
+3. Expected:
+   - The new lot appears in the nav immediately and is selected; the next-step hint shows.
+   - Blank name disables **Create**; a duplicate name shows a red error and the modal stays open.
+   - After **refresh** the lot is still listed (persisted); you can Update School Map (U7) + Arrange Spots (U8) on it.
+   - A **student** never sees ➕ Add Lot.
+
+**☁️ Cloud check (optional):** needs backend **B9** deployed. `./release.sh all`, create a lot live, **refresh** — persists in RDS; a second browser sees it. Full loop: create → map (U7) → arrange (U8) → student sees it in availability.
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "U9: admin creates a new lot (POST /api/lots) + hand off to map/arrange" && git push -u origin cr/u9-add-lot
+```
+PR base = `cr/u8-arrange-spots`.
+
+---
+
 ## Part F2 — End-to-end (E2E) test: the whole system together
 
 Up to now each CR's "Local testing guide" checked **one slice** of the app. An **end-to-end test** is different: you run the **real backend and the real frontend at the same time** and click through the *entire* story a real user would — student asks for a spot, admin grants it, student sees it granted. If that works, the pieces fit together.
@@ -1665,6 +1794,7 @@ The React SPA is organised as a thin **API client**, three Redux **slices**, and
 - **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**).
 - **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
 - **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
+- **Authored layouts (positions as data):** spot *positions* start as those hard-coded tables but become **normalized `x`/`y`/`rotation` fields** (`0..1` of the map image) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with a saved layout renders from it; a lot without one falls back to the config tables — the tables are never deleted, just demoted to a default. Lots themselves are created from the UI via `POST /api/lots` (**U9**), so the lot set is no longer fixed at 17.
 - **UX states:** loading spinners, empty states ("No spaces available" only when truly empty), error toasts, and **optimistic updates with refetch on failure** (**U4**).
 
 ### C. Cross-cutting (frontend side)
@@ -1685,3 +1815,5 @@ The React SPA is organised as a thin **API client**, three Redux **slices**, and
 | Student interest | `interestSlice.ts`, `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
 | Admin assignment | `interestSlice.ts`, `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
 | Map upload | `client.ts` (`uploadFile`), `parkingSlice.ts` | [U7](#cr-u7--update-the-school-map-image) |
+| Arrange spots (drag-drop layout) | `parkingSlice.ts` (`saveLayout`), `ControlBoard.tsx` | [U8](#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) |
+| Add a parking lot | `parkingSlice.ts` (`createLot`), `ControlBoard.tsx` | [U9](#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
