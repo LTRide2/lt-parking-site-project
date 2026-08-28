@@ -2,7 +2,9 @@
 
 > **Who this is for:** someone brand new to coding. This guide is written so you can follow it **literally, line by line**. When you see a gray box, that's a command you type into your terminal. Type one line, press Enter, wait for it to finish, then do the next line.
 >
-> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: `backend-development-guide.md`. Read the [overall plan](plan.md) first for the big picture.
+> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](../backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
+>
+> **Where this doc sits:** this is the **frontend design + implementation guide**, one of three docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`.
 
 ---
 
@@ -88,7 +90,7 @@ You don't need to be a Git expert. You only need these moves. We'll repeat them 
 
 ## Part C — How we work: one branch per CR (stacked)
 
-A **CR** ("change request") is one small, complete piece of work. We do them one at a time. The rule from the [plan](plan.md):
+A **CR** ("change request") is one small, complete piece of work. We do them one at a time. The rule from the [plan](../plan.md) (the full stacked-CR strategy and the live [CR status tracker](../plan.md#82-cr-status-tracker) are in `../plan.md §8`):
 
 > **Each CR branches off the *previous* CR's branch**, so you can keep building while an earlier CR is being reviewed.
 
@@ -177,7 +179,7 @@ src/
     └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
 ```
 
-> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in **plan.md §7.1**.
+> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
 > **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
 > - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
@@ -579,7 +581,7 @@ export default App;
 ```
 
 **Local testing guide:**
-1. Setup: start the backend (`backend-development-guide.md`, through **B3**, seeded) and `npm run dev`.
+1. Setup: start the backend ([`../backend/backend-development-guide.md`](../backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
 2. Steps:
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -1259,7 +1261,7 @@ PR base = `cr/u4-save-status`.
 
 > **📸 What's already in the prototype:** `ControlBoard.tsx` already has a **local** Manual Assign (select a space → a modal asks you to type a student ID → it writes to `assignedSpaces`) **and** a **student self-claim** flow (a student clicks an open spot, confirms a pop-up, and claims it). Both are browser-only and vanish on refresh. This CR **replaces the local Manual Assign** with the real server-backed one below: instead of *typing* a student ID, the admin picks a **pending interest request** (which already knows the student) and clicks a space. The old `assignSpace`/`unassignSpace` reducers and the type-in-ID modal can be deleted once this is wired.
 >
-> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see plan.md §6). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
+> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see [`../plan.md` §6](../plan.md#6-runtime-views-sequence-diagrams)). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
 
 **Branch:**
 ```bash
@@ -1564,6 +1566,63 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 
 ---
 
+## Part F3 — Deployment (frontend)
+
+> **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable scripts/templates live in the repo-root [`deploy/`](../../deploy/README.md) folder.
+
+### F3.1 What "deploying the frontend" means
+
+The frontend is **static files**. `npm run build` compiles the app into a `dist/` folder (HTML + hashed JS/CSS + assets); there is no Node server in production. Those files are copied onto the same EC2 box and **nginx serves them directly**, while `/api/*` requests are proxied to the Flask backend. There's nothing to "restart" for a frontend release — you just replace the files.
+
+```
+npm run build ──▶ dist/ ──(rsync / release.sh)──▶ /var/www/ltride on EC2 ──▶ nginx serves it
+                                                                    └─ /api/* ─▶ gunicorn (Flask)
+```
+
+### F3.2 Build for production
+
+```bash
+cd ~/workspace/lt-parking-site-project
+# Point the build at the PUBLIC API URL (NOT localhost) — baked in at build time:
+VITE_API_URL=https://<your-domain> npm run build
+# output: dist/  (this is the entire deployable artifact)
+npm run preview        # optional: serve dist/ locally to sanity-check the prod build
+```
+
+- **`VITE_API_URL` is baked in at build time**, not read at runtime. If the API URL changes, you must **rebuild**. Use `https://<your-domain>` for production (never `http://localhost:8000`).
+- Keep prod values in `.env.production` (committed without secrets — Vite only exposes `VITE_*`) so `npm run build` picks them up automatically.
+
+### F3.3 How it gets onto the server
+
+You normally don't copy files by hand — the repo-root [`deploy/release.sh`](../../deploy/release.sh) does the frontend release for you:
+
+```bash
+./deploy/release.sh frontend    # builds with the prod VITE_API_URL, rsyncs dist/ to nginx
+./deploy/release.sh all         # backend + frontend together
+```
+
+The equivalent manual step (for debugging) is an `rsync` of `dist/` to `/var/www/ltride` on the box — see [deployment guide §B.7](../deploy/deployment-guide.md#b7-build--place-the-frontend).
+
+### F3.4 nginx: static files + SPA fallback + API proxy
+
+Two rules matter for a React SPA, both already in the shipped nginx config ([`deploy/server/nginx-ltride.conf`](../../deploy/server/nginx-ltride.conf)):
+
+- **SPA fallback** — unknown paths must return `index.html` so client-side routing (React Router from [U2](#cr-u2--routing-real-pages-with-urls)) works on deep links / refresh: `try_files $uri /index.html;`. Without this, refreshing `/admin` returns a 404.
+- **API proxy** — `location /api/ { proxy_pass http://127.0.0.1:8000; ... }` keeps the SPA and API on the **same origin** in production, so there are no CORS issues and no `VITE_API_URL` cross-origin config needed (you can even build with a relative `/api`).
+
+### F3.5 Cache busting
+
+Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely cache them forever; only `index.html` must not be cached (it references the new hashes). If you add cache headers, set `Cache-Control: no-cache` for `index.html` and long-lived immutable caching for the hashed assets.
+
+### F3.6 Frontend deployment checklist
+
+1. `VITE_API_URL` points at the **production** URL (or a relative `/api`), not localhost.
+2. `npm run build` succeeds; `npm run preview` renders and can log in against the prod API.
+3. Deep-link + refresh on a protected route works (SPA fallback in nginx).
+4. After `release.sh frontend`, hard-refresh the site and confirm the new build loads (check a changed string / the network tab hashes).
+
+---
+
 ## Part G — When something goes wrong
 
 - **Red text in the terminal running `npm run dev`** — read the top line; it usually names the file and line number. Fix and save; it reloads.
@@ -1583,3 +1642,40 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 4. Make small changes → save → check the browser.
 5. `git add -A && git commit -m "..."` often.
 6. `git push` when the CR is ready → open the PR with the right base branch.
+
+---
+
+## Appendix — Frontend architecture reference
+
+> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
+
+### A. Module structure (target)
+
+The React SPA is organised as a thin **API client**, three Redux **slices**, and route-guarded **pages**. The static module view is diagrammed in [`../plan.md §5.3`](../plan.md#53-frontend-module-structure); the file-by-file target layout (tagged by the CR that adds each file) is in [Part D → "The target"](#the-source-structure-youre-building-toward) above.
+
+### B. Design conventions
+
+- **API client** (`src/api/client.ts`): a single `fetch` wrapper. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`. It is the **one place** that talks to the backend (built in **U0**).
+- **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**).
+- **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
+- **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
+- **UX states:** loading spinners, empty states ("No spaces available" only when truly empty), error toasts, and **optimistic updates with refetch on failure** (**U4**).
+
+### C. Cross-cutting (frontend side)
+
+- **Config:** a local `.env` holds `VITE_API_URL`; commit `.env.example`, never the real `.env`. See **U0**.
+- **Token storage:** the JWT is held in-memory in `client.ts` with a `localStorage` copy so a refresh doesn't log you out; on app load, `fetchMe()` re-validates it via `GET /api/auth/me` and falls back to logged-out if the token is stale (**U1**). *(If the backend is later changed to serve the SPA from the same origin, an httpOnly cookie becomes an option — see [`../plan.md §11` open decisions](../plan.md#11-open-decisions-to-confirm).)*
+- **Observability (client side):** on any failed API call, log `method path → status` to the browser console via the `api` client's error path, and surface a user-visible toast rather than crashing. This is the frontend end of the request trace whose backend half is the Flask access log (backend guide, `ltride.service`).
+
+### D. Where each piece is built
+
+| Concern | Slice / file | CR |
+|---|---|---|
+| API client + token | `src/api/client.ts` | [U0](#cr-u0--project-hygiene-foundation-no-visible-change) |
+| Auth (login/session) | `authSlice.ts`, `Login.tsx`, `App.tsx` | [U1](#cr-u1--real-login-replaces-the-fake-login) |
+| Routing + guards | `main.tsx`, `App.tsx`, `ProtectedRoute.tsx` | [U2](#cr-u2--routing-real-pages-with-urls) |
+| Lots/spaces data | `parkingSlice.ts`, `ControlBoard.tsx` | [U3](#cr-u3--show-real-lots-and-spaces-data-driven-map) |
+| Persist enable/disable | `parkingSlice.ts` (`updateSpaces`) | [U4](#cr-u4--make-enabledisable-actually-save) |
+| Student interest | `interestSlice.ts`, `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
+| Admin assignment | `interestSlice.ts`, `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
+| Map upload | `client.ts` (`uploadFile`), `parkingSlice.ts` | [U7](#cr-u7--update-the-school-map-image) |
