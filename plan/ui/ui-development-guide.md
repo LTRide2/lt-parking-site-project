@@ -2,80 +2,17 @@
 
 > **Who this is for:** someone brand new to coding. This guide is written so you can follow it **literally, line by line**. When you see a gray box, that's a command you type into your terminal. Type one line, press Enter, wait for it to finish, then do the next line.
 >
-> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: `backend-development-guide.md`. Read the [overall plan](plan.md) first for the big picture.
-
----
-
-## Progress snapshot (verified against the code on 2026-07-30)
-
-**None of the UI CRs below have been started yet — start at [CR U0](#cr-u0--project-hygiene-foundation-no-visible-change).** The app on `main` is still the click-only prototype described in Part D: no `react-router-dom`, no `src/api/` client, no `.env`, no `createAsyncThunk`, and no network calls anywhere in `src/`. `authSlice` is still the fake login; `parkingSlice` still keys spaces by string with a local-only `assignedSpaces` map.
-
-| CR | What it adds | Status |
-|---|---|---|
-| U0 | Router dep, `src/api/client.ts`, `.env` config | ⬜ Not started |
-| U1 | Real login via API + session restore | ⬜ Not started |
-| U2 | `react-router` routes + role guard | ⬜ Not started |
-| U3 | Data-driven lots/spaces from API | ⬜ Not started |
-| U4 | Persist enable/disable via API | ⬜ Not started |
-| U5 | Student dashboard + register interest | ⬜ Not started |
-| U6 | Admin Manual Assign via API | ⬜ Not started |
-| U7 | Map image upload | ⬜ Not started |
-
-Legend: ⬜ Not started · 🟡 In progress · ✅ Done. Flip a row (and its CR heading below) as each PR merges. **Heads-up:** every U-CR depends on a matching backend CR (U1→B3, U3→B4, U4→B5, U5→B6, U6→B7) — that backend endpoint must exist before the UI CR can be tested. The backend is still the untouched scaffold, so B0–B7 need to land alongside this work.
-
----
-
-## Prerequisites
-
-Before you build anything, your computer needs these. **Part A** walks you through installing each one; this table is the quick checklist of *what* and *why*.
-
-### System tools (install once, machine-wide)
-
-| Tool | Minimum version | Why you need it | How to check |
-|---|---|---|---|
-| **Node.js** | v20+ (use the LTS) | Runs the website code and the dev server | `node --version` |
-| **npm** | v10+ (ships with Node) | Installs the project's libraries | `npm --version` |
-| **Git** | any recent | Saves versions of your code, pushes to GitHub | `git --version` |
-| **VS Code** | latest | The code editor you'll write in | open the app |
-| A modern browser | latest | Chrome / Edge / Firefox / Safari to view the site | — |
-
-> If any `--version` check fails, go do the matching step in **Part A → A1** before continuing.
-
-### Project libraries (installed *into the project* by `npm install`)
-
-These are listed in `package.json` and installed with a single `npm install` (**A4**) — you do **not** install them one by one. This table is so you know what each one is for.
-
-**Runtime dependencies** (`dependencies` — ship in the app):
-
-| Library | Purpose | Added by |
-|---|---|---|
-| `react`, `react-dom` | The UI framework (React 19) | already present |
-| `@reduxjs/toolkit` | Central app state + `createAsyncThunk` for API calls | already present |
-| `react-redux` | Connects React components to the Redux store | already present |
-| `react-router-dom` | Client-side routing (`/login`, `/student`, `/admin`) | **CR U0** (you'll add it) |
-
-**Build / dev tooling** (`devDependencies` — used only while developing, not shipped): `vite` (dev server + bundler), `typescript` + `typescript-eslint`, `@vitejs/plugin-react`, `eslint` (+ `@eslint/js`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`), `@types/*` type definitions, and `globals`. These are already in `package.json`; `npm install` sets them up.
-
-**How to install everything (the normal path):**
-```bash
-cd ~/workspace/lt-parking-site-project
-npm install          # reads package.json, installs every library above into node_modules/
-```
-
-**Adding a new library later** (you'll do this once, in CR U0, for the router):
-```bash
-npm install react-router-dom      # runtime dependency
-npm install -D <tool>             # -D = dev-only tool (e.g. a test runner)
-```
-> `npm install <name>` records the library in `package.json` and downloads it into `node_modules/`. Commit the changed `package.json` **and** `package-lock.json` so everyone gets the exact same versions.
+> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](../backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
+>
+> **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
+>
+> **The code you're editing lives in its own repo:** [`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project) (locally `~/workspace/LT_Proj/lt-parking-site-project`). This `plan/` folder lives in the **backend** repo (`LTR-Backend`); the guides describe the frontend, but the frontend source is cloned separately — see [A3](#a3-get-the-project-onto-your-computer) below.
 
 ---
 
 ## Part A — One-time setup (do this once)
 
-> **Which section do I follow?** **Part A (A1–A5)** is written for **macOS**. If you're on **Windows**, skip to **[Part A-W](#part-a-w--one-time-setup-on-windows)** below — it covers the same five steps with Windows commands. After setup, the rest of the guide is identical on both (the `git` and `npm` commands are the same); where a terminal command differs, the Windows note calls it out.
-
-### A1. Install the tools (macOS)
+### A1. Install the tools
 
 You need three programs. Install them in this order.
 
@@ -104,16 +41,20 @@ git config --global user.email "you@example.com"
 
 ### A3. Get the project onto your computer
 
-`cd` means "change directory" (move into a folder). `~` means your home folder.
+The frontend lives in its own GitHub repository: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)**. `cd` means "change directory" (move into a folder); `~` means your home folder.
+
+**If you don't have the project yet, clone it** (downloads a copy from GitHub):
 ```bash
-cd ~
-cd workspace
-```
-The frontend project is the folder `lt-parking-site-project`. Move into it:
-```bash
+cd ~/workspace/LT_Proj                 # the folder that holds both repos (make it with: mkdir -p ~/workspace/LT_Proj)
+git clone https://github.com/LTRide2/lt-parking-site-project.git
 cd lt-parking-site-project
 ```
-> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`.
+
+**If you already have it,** just move into it:
+```bash
+cd ~/workspace/LT_Proj/lt-parking-site-project
+```
+> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`. This is a **different repo** from the backend (`~/workspace/LT_Proj/LTR-Backend`, which also holds these `plan/` docs) — keep the two terminals/folders straight.
 
 ### A4. Install the project's building blocks
 
@@ -131,88 +72,6 @@ npm run dev
 You'll see a line like `Local: http://localhost:5173/`. Hold **Cmd** and click it, or paste it into your browser. You should see the LTRide login screen. **Leave this running** in its terminal while you work — it auto-refreshes when you save a file.
 
 To **stop** it later, click that terminal and press **Ctrl + C**.
-
----
-
-## Part A-W — One-time setup on Windows
-
-> **For Windows 10/11 users.** This is the Windows equivalent of Part A (A1–A5). Do it once. Everywhere the Mac guide says "Terminal," on Windows you use **Windows Terminal** or **PowerShell** (press **Start**, type `powershell`, press Enter). After this section, follow the rest of the guide normally — the `git` and `npm` commands are identical.
-
-### A1-W. Install the tools
-
-You need three programs. There are **two ways** to install them — pick one.
-
-**Option 1 — winget (fastest; built into Windows 10/11).** Open **PowerShell** and run:
-```powershell
-winget install --id OpenJS.NodeJS.LTS -e
-winget install --id Git.Git -e
-winget install --id Microsoft.VisualStudioCode -e
-```
-> `winget` is Windows' built-in package installer. If it's not found, install "App Installer" from the Microsoft Store, or use Option 2.
-
-**Option 2 — download the installers by hand:**
-1. **Node.js** — go to <https://nodejs.org>, download the **LTS** `.msi`, run it, and **keep every checkbox at its default** (the defaults add Node to your PATH so the terminal can find it).
-2. **Git** — go to <https://git-scm.com/download/win>, run the installer. Accept the defaults; on the "default editor" screen you can pick VS Code if you like. This also installs **Git Bash** (a Unix-style terminal) if you prefer it.
-3. **VS Code** — go to <https://code.visualstudio.com>, download the Windows installer, and during setup **tick "Add to PATH"** so the `code` command works.
-
-**Close and reopen PowerShell** (so it picks up the new PATH), then verify all three:
-```powershell
-node --version
-npm --version
-git --version
-```
-Each should print a version number. `node` should be **v20 or higher**. If a command is "not recognized," reopen the terminal; if it still fails, the tool's PATH entry is missing — re-run its installer and ensure the "Add to PATH" option is selected.
-
-### A2-W. Tell Git who you are (one time)
-
-Same commands as macOS. In PowerShell:
-```powershell
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-```
-> **Recommended on Windows** — keep line endings consistent so files don't show phantom changes:
-> ```powershell
-> git config --global core.autocrlf true
-> ```
-
-### A3-W. Get the project onto your computer
-
-Windows has no `~/workspace`; use your user folder. In PowerShell:
-```powershell
-cd $HOME
-mkdir workspace -Force
-cd workspace
-```
-Then get the project (if you haven't already cloned it):
-```powershell
-git clone https://github.com/LTRide2/lt-parking-site-project.git
-cd lt-parking-site-project
-```
-> **Windows command notes:** use `dir` (or `ls` in PowerShell) to list files, `pwd` to see where you are, and **backslashes or forward slashes** both work in paths. If you cloned the repo somewhere else, just `cd` into that folder instead.
-
-### A4-W. Install the project's building blocks
-
-Identical to macOS — run it inside the project folder:
-```powershell
-npm install
-```
-This reads `package.json` and creates a `node_modules` folder. It can take a minute.
-> **If `npm install` fails with a script-execution error** ("running scripts is disabled on this system"), allow local scripts for your user once:
-> ```powershell
-> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-> ```
-> then re-run `npm install`.
-
-### A5-W. Run the website on your computer
-
-```powershell
-npm run dev
-```
-You'll see a line like `Local: http://localhost:5173/`. **Ctrl + click** it (or copy it into your browser). You should see the LTRide login screen. **Leave this running** while you work — it auto-refreshes when you save a file.
-
-To **stop** it later, click that terminal window and press **Ctrl + C**.
-
-> **From here on, follow the rest of this guide as written.** The only Windows differences to remember: open **PowerShell** wherever it says "Terminal," `Ctrl+click` links instead of `Cmd+click`, and use `dir`/`ls` to list files. All `git …` and `npm …` commands are the same.
 
 ---
 
@@ -237,7 +96,7 @@ You don't need to be a Git expert. You only need these moves. We'll repeat them 
 
 ## Part C — How we work: one branch per CR (stacked)
 
-A **CR** ("change request") is one small, complete piece of work. We do them one at a time. The rule from the [plan](plan.md):
+A **CR** ("change request") is one small, complete piece of work. We do them one at a time. The rule from the [plan](../plan.md) (the full stacked-CR strategy and the live [CR status tracker](../plan.md#82-cr-status-tracker) are in `../plan.md §8`):
 
 > **Each CR branches off the *previous* CR's branch**, so you can keep building while an earlier CR is being reviewed.
 
@@ -316,17 +175,19 @@ src/
 ├── ProtectedRoute.tsx    # blocks pages you're not allowed to see              (U2)
 ├── Login.tsx             # real login form, shows errors                       (U1)
 ├── StudentDashboard.tsx  # student: see availability, register interest        (U5)
-├── ControlBoard.tsx      # admin: data-driven map, disable, assign             (U3,U4,U6,U7)
+├── ControlBoard.tsx      # admin: data-driven map, disable, assign,
+│                         #        arrange spots (drag-drop), add lot           (U3,U4,U6,U7,U8,U9)
 ├── api/
 │   └── client.ts         # the ONE place that talks to the backend            (U0)
 └── store/
     ├── index.ts          # registers the slices below
     ├── authSlice.ts      # real login thunks + token                           (U1)
-    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces thunks       (U3,U4)
+    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces /
+    │                     #   saveLayout / createLot thunks                     (U3,U4,U8,U9)
     └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
 ```
 
-> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in **plan.md §7.1**.
+> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
 > **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
 > - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
@@ -384,7 +245,7 @@ cd ~/workspace/LTR-Backend/deploy
 
 ---
 
-### CR U0 — Project hygiene (foundation, no visible change)  ⬜ Not started · **START HERE**
+### CR U0 — Project hygiene (foundation, no visible change)
 
 **Goal:** add the plumbing later CRs need — routing, an API helper, environment config, and code formatting — **without changing what the user sees yet.**
 
@@ -486,7 +347,7 @@ Open a PR with base = `main`.
 
 ---
 
-### CR U1 — Real login (replaces the fake login)  ⬜ Not started
+### CR U1 — Real login (replaces the fake login)
 
 **Depends on:** U0 and backend **B3** (auth endpoints must exist). **Branch off U0.**
 
@@ -728,7 +589,7 @@ export default App;
 ```
 
 **Local testing guide:**
-1. Setup: start the backend (`backend-development-guide.md`, through **B3**, seeded) and `npm run dev`.
+1. Setup: start the backend ([`../backend/backend-development-guide.md`](../backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
 2. Steps:
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -753,7 +614,7 @@ PR base = `cr/u0-hygiene`.
 
 ---
 
-### CR U2 — Routing (real pages with URLs)  ⬜ Not started
+### CR U2 — Routing (real pages with URLs)
 
 **Depends on:** U1. **Branch off U1.**
 
@@ -893,7 +754,7 @@ PR base = `cr/u1-real-auth`.
 
 ---
 
-### CR U3 — Show real lots and spaces (data-driven map)  ⬜ Not started
+### CR U3 — Show real lots and spaces (data-driven map)
 
 **Depends on:** U2 and backend **B4**. **Branch off U2.**
 
@@ -1125,7 +986,7 @@ PR base = `cr/u2-routing`.
 
 ---
 
-### CR U4 — Make enable/disable actually save  ⬜ Not started
+### CR U4 — Make enable/disable actually save
 
 **Depends on:** U3 and backend **B5**. **Branch off U3.**
 
@@ -1225,7 +1086,7 @@ PR base = `cr/u3-real-lots`.
 
 ---
 
-### CR U5 — Student registers interest (core feature #1)  ⬜ Not started
+### CR U5 — Student registers interest (core feature #1)
 
 **Depends on:** U2 and backend **B6**. **Branch off U4.**
 
@@ -1400,7 +1261,7 @@ PR base = `cr/u4-save-status`.
 
 ---
 
-### CR U6 — Admin assigns spaces (core feature #2)  ⬜ Not started
+### CR U6 — Admin assigns spaces (core feature #2)
 
 **Depends on:** U5 and backend **B7**. **Branch off U5.**
 
@@ -1408,7 +1269,7 @@ PR base = `cr/u4-save-status`.
 
 > **📸 What's already in the prototype:** `ControlBoard.tsx` already has a **local** Manual Assign (select a space → a modal asks you to type a student ID → it writes to `assignedSpaces`) **and** a **student self-claim** flow (a student clicks an open spot, confirms a pop-up, and claims it). Both are browser-only and vanish on refresh. This CR **replaces the local Manual Assign** with the real server-backed one below: instead of *typing* a student ID, the admin picks a **pending interest request** (which already knows the student) and clicks a space. The old `assignSpace`/`unassignSpace` reducers and the type-in-ID modal can be deleted once this is wired.
 >
-> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see plan.md §6). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
+> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see [`../plan.md` §6](../plan.md#6-runtime-views-sequence-diagrams)). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
 
 **Branch:**
 ```bash
@@ -1532,7 +1393,7 @@ PR base = `cr/u5-student-interest`.
 
 ---
 
-### CR U7 — Update the school map image  ⬜ Not started
+### CR U7 — Update the school map image
 
 **Depends on:** U6 and the backend **map-upload** endpoint (`POST /api/lots/:id/map`). **Branch off U6.**
 
@@ -1643,6 +1504,133 @@ PR base = `cr/u6-admin-assign`.
 
 ---
 
+### CR U8 — Place & arrange parking spots (drag-and-drop layout editor)
+
+**Depends on:** U7 and backend **B8** (`PUT /api/lots/:id/layout` — persist a lot's spot layout). **Branch off U7.**
+
+**Goal:** today a spot's position on the map is **source code** — three hand-tuned tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`) that only a developer can change. Make positions **data an admin authors in the browser**: add a spot by clicking the map, drag it to place, rotate/delete it, and **Save Layout** to the server so it survives refresh and shows for everyone.
+
+> **Big idea / what changes:** a spot's position becomes **normalized** coordinates — `x`/`y` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing config tables — no regression.
+
+> **📸 What's already in the prototype:** the three hard-coded position tables and the `MAP_ONLY_LOTS` set stay exactly as-is — they become the *fallback*. This CR adds a higher-priority path that draws from server `x`/`y` when present. Nothing from U3–U7 is removed.
+
+**Backend contract (B8):**
+- `GET /api/lots/:id/spaces` gains optional `x`, `y` (floats `0..1`) and `rotation` (degrees) per space; legacy spaces send `null`.
+- `PUT /api/lots/:id/layout` — admin only. Body `{ spaces: [{ id?, label, x, y, rotation? }] }`. **Replaces** the lot's spot set in one transaction (entries with `id` updated, without `id` created, missing existing ids deleted); refuses to delete an `assigned` space (`409`). Returns the updated `Space[]`.
+
+**Branch:**
+```bash
+git checkout cr/u7-map-upload
+git checkout -b cr/u8-arrange-spots
+```
+
+**Step 1 — Extend the `Space` type and add a `saveLayout` thunk in `parkingSlice.ts`.** Add `x?`, `y?`, `rotation?` to `Space`, add an `"arrange"` value to the `EditAction` union, and (if missing) a `put` method to `client.ts`. Then:
+```ts
+// PUT /api/lots/:id/layout  body { spaces:[{id?,label,x,y,rotation?}] } -> Space[]
+export const saveLayout = createAsyncThunk(
+  "parking/saveLayout",
+  async (args: { lotId: number; spaces: Array<Pick<Space, "id" | "label" | "x" | "y" | "rotation">> }, { dispatch }) => {
+    await api.put(`/api/lots/${args.lotId}/layout`, { spaces: args.spaces });
+    await dispatch(fetchSpaces(args.lotId));   // reload the server's truth
+    return args.lotId;
+  }
+);
+```
+Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
+
+**Step 2 — Add an "Arrange Spots" edit action + an editable canvas in `ControlBoard.tsx`.** A new sidebar button dispatches `setEditAction('arrange')`. While arranging, hold the working layout in local state (`draft`, seeded from `spacesByLot[selectedLotId]`) and measure the map wrapper with a `ref`. Convert a mouse point to a fraction, render each draft spot absolutely-positioned, and wire click-to-add + pointer-capture drag. (Full code — the `toNorm` helper, `renderArrangeCanvas`, and pointer handlers — is in [Lesson U8](lessons/U8-place-and-arrange-spots.md#step-2--add-the-arrange-spots-mode-and-an-editable-canvas-25-min).)
+
+**Step 3 — Add rotate, delete, and Save Layout; render saved layouts in normal view.** A small toolbar (shown only while arranging) rotates/deletes the picked spot and, on **Save Layout**, maps the draft to the PUT body (dropping temporary negative ids so the server creates those spaces) and dispatches `saveLayout`. Update `renderParkingLot` to prefer a saved layout (`spaces.some(s => s.x != null)`) — a read-only version of the arrange canvas — and otherwise fall through to the existing config/fan rendering.
+
+**UI mock (after this phase):** the selected lot's map becomes an editable canvas — click to add, drag to move, a picked spot outlined in gold, a toolbar to rotate/delete/save.
+```
+┌──────────────────────────────────────────────────────────┐
+│ LTRide                                       [Cancel][Done]│
+├───────────────┬──────────────────────────────────────────┤
+│ ┌───────────┐ │   ┌───────────── lot map ──────────────┐  │
+│ │Admin Ctrl │ │   │   ▭   ▭   ▭        ▭   ▭            │  │  ▭ spot
+│ │ Arrange ▣ │ │   │     ▧◀picked (drag me)   ▭          │  │  ▧ picked
+│ └───────────┘ │   │   ▭     click empty map = add ↑     │  │
+│ ┌───────────┐ │   └────────────────────────────────────┘  │
+│ │ Rotate15° │ │                                            │
+│ │ Delete    │ │   [Home][Lot A][Lot B][North Lot]          │
+│ │ [Save Lay]│ │   Edit Mode ●——                            │
+│ └───────────┘ │                                       LT   │
+└───────────────┴──────────────────────────────────────────┘
+```
+
+**Local testing guide:**
+1. Setup: backend running through **B8** (seeded); `npm run dev`; admin logged in; a lot selected.
+2. Steps: **Edit Mode** → **Arrange Spots** → click the map to add spots → drag one → pick it, **Rotate 15°**, **Delete** another → **Save Layout**; then **refresh** and **resize the window**.
+3. Expected:
+   - Click-to-add drops a spot where you clicked; drag moves it and it stays on release; rotate/delete work.
+   - After **Save Layout** the spots render in place; after **refresh** they're unchanged (persisted); after **resize** they stay put relative to the map (normalized coords).
+   - Deleting an **assigned** spot and saving surfaces a red error (`409`) — nothing lost.
+   - A never-arranged lot still draws via the old config tables.
+
+**☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS; a second browser sees the same arrangement (it's server data now).
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "U8: drag-and-drop spot layout editor + saved layouts (PUT /api/lots/:id/layout)" && git push -u origin cr/u8-arrange-spots
+```
+PR base = `cr/u7-map-upload`.
+
+---
+
+### CR U9 — Add a new parking lot from the admin UI
+
+**Depends on:** U8 and backend **B9** (`POST /api/lots` — create a lot). **Branch off U8.**
+
+**Goal:** today the lot list is a hard-coded `Home + Lot 1..17` loop — there's no way to add lot 18 without editing code. Let an admin click **➕ Add Lot**, name it (optional capacity), and get a real new lot that appears in the nav immediately and is auto-selected, ready to receive its map (U7) and arranged spots (U8).
+
+> **📸 What's already in the prototype:** since **U3** the bottom nav is `lots.map(...)` fed by `fetchLots()`, not the hard-coded list. So a newly created lot appears for free once `fetchLots()` re-runs; this CR just adds the create path.
+
+**Backend contract (B9):** `POST /api/lots` — admin only. Body `{ name, capacity?, display_order? }`. Creates the lot (and, if `capacity` given, that many positionless `available` spaces to place in U8). Returns the new `Lot`. Rejects blank/duplicate `name` with `400`/`409` and the standard error envelope.
+
+**Branch:**
+```bash
+git checkout cr/u8-arrange-spots
+git checkout -b cr/u9-add-lot
+```
+
+**Step 1 — Add a `createLot` thunk to `parkingSlice.ts`** (next to `fetchLots`): POST the body, `await dispatch(fetchLots())` to refresh the nav, and return the new `Lot`. In `extraReducers`, set `state.selectedLotId = action.payload.id` on `createLot.fulfilled` (land on the new lot) and write the message to `state.error` on `rejected`.
+
+**Step 2 — Add the button + Create Lot modal in `ControlBoard.tsx`.** An **➕ Add Lot** button inside the `isAdmin` control panel (admin-only; not gated by Edit Mode) opens a modal mirroring U6's Manual Assign modal: a required **Name** and optional **Capacity**, a red inline error from `state.error`, and a **Create** button disabled until the name is non-blank. On click, `await dispatch(createLot(...))` and close the modal only if `createLot.fulfilled.match(res)` — so a rejected create keeps the modal open with the error. (Full modal JSX is in [Lesson U9](lessons/U9-add-a-parking-lot.md#step-2--add-the-button-and-the-create-lot-modal-in-controlboardtsx-20-min).)
+
+**Step 3 — Hand off to map + arrange.** `createLot.fulfilled` already selected the new lot, so the canvas switches to it. Show a hint when the selected lot has no spaces yet, pointing the admin at **Update School Map** (U7) then **Arrange Spots** (U8).
+
+**UI mock (after this phase):** ➕ Add Lot opens a create modal; after Create the nav gains the lot, selects it, and a next-step hint appears.
+```
+   click ➕ Add Lot                 after Create
+┌───────────────┐        ┌────────────────────────────┐
+│ │➕ Add Lot  │◀─────── │  Create Parking Lot         │
+│ │ Single    │ │        │  Name     [North Lot____]   │
+│ │ Arrange   │ │        │  Capacity [ 20 ]            │
+│ └───────────┘ │        │        [Cancel] [Create]    │
+└───────────────┘        └────────────────────────────┘
+  ▶ nav: [Home][Lot A]…[Lot 17][North Lot]  ← new, selected
+```
+
+**Local testing guide:**
+1. Setup: backend running through **B9** (seeded); `npm run dev`; admin logged in.
+2. Steps: **➕ Add Lot** → name `North Lot`, capacity `10` → **Create**; then try a **blank** name and a **duplicate** name; **refresh**; log in as a **student**.
+3. Expected:
+   - The new lot appears in the nav immediately and is selected; the next-step hint shows.
+   - Blank name disables **Create**; a duplicate name shows a red error and the modal stays open.
+   - After **refresh** the lot is still listed (persisted); you can Update School Map (U7) + Arrange Spots (U8) on it.
+   - A **student** never sees ➕ Add Lot.
+
+**☁️ Cloud check (optional):** needs backend **B9** deployed. `./release.sh all`, create a lot live, **refresh** — persists in RDS; a second browser sees it. Full loop: create → map (U7) → arrange (U8) → student sees it in availability.
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "U9: admin creates a new lot (POST /api/lots) + hand off to map/arrange" && git push -u origin cr/u9-add-lot
+```
+PR base = `cr/u8-arrange-spots`.
+
+---
+
 ## Part F2 — End-to-end (E2E) test: the whole system together
 
 Up to now each CR's "Local testing guide" checked **one slice** of the app. An **end-to-end test** is different: you run the **real backend and the real frontend at the same time** and click through the *entire* story a real user would — student asks for a spot, admin grants it, student sees it granted. If that works, the pieces fit together.
@@ -1673,9 +1661,9 @@ curl -s http://localhost:8000/api/health
 
 ### Step 2 — Start the frontend (Terminal 2)
 
-In the **frontend** repo (`~/workspace/lt-parking-site-project`):
+In the **frontend** repo (`~/workspace/LT_Proj/lt-parking-site-project`):
 ```bash
-cd ~/workspace/lt-parking-site-project
+cd ~/workspace/LT_Proj/lt-parking-site-project
 # .env must point at the backend you just started:
 #   VITE_API_URL=http://localhost:8000
 npm run dev
@@ -1713,6 +1701,63 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 
 ---
 
+## Part F3 — Deployment (frontend)
+
+> **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable scripts/templates live in the repo-root [`deploy/`](../../deploy/README.md) folder.
+
+### F3.1 What "deploying the frontend" means
+
+The frontend is **static files**. `npm run build` compiles the app into a `dist/` folder (HTML + hashed JS/CSS + assets); there is no Node server in production. Those files are copied onto the same EC2 box and **nginx serves them directly**, while `/api/*` requests are proxied to the Flask backend. There's nothing to "restart" for a frontend release — you just replace the files.
+
+```
+npm run build ──▶ dist/ ──(rsync / release.sh)──▶ /var/www/ltride on EC2 ──▶ nginx serves it
+                                                                    └─ /api/* ─▶ gunicorn (Flask)
+```
+
+### F3.2 Build for production
+
+```bash
+cd ~/workspace/LT_Proj/lt-parking-site-project
+# Point the build at the PUBLIC API URL (NOT localhost) — baked in at build time:
+VITE_API_URL=https://<your-domain> npm run build
+# output: dist/  (this is the entire deployable artifact)
+npm run preview        # optional: serve dist/ locally to sanity-check the prod build
+```
+
+- **`VITE_API_URL` is baked in at build time**, not read at runtime. If the API URL changes, you must **rebuild**. Use `https://<your-domain>` for production (never `http://localhost:8000`).
+- Keep prod values in `.env.production` (committed without secrets — Vite only exposes `VITE_*`) so `npm run build` picks them up automatically.
+
+### F3.3 How it gets onto the server
+
+You normally don't copy files by hand — the repo-root [`deploy/release.sh`](../../deploy/release.sh) does the frontend release for you:
+
+```bash
+./deploy/release.sh frontend    # builds with the prod VITE_API_URL, rsyncs dist/ to nginx
+./deploy/release.sh all         # backend + frontend together
+```
+
+The equivalent manual step (for debugging) is an `rsync` of `dist/` to `/var/www/ltride` on the box — see [deployment guide §B.7](../deploy/deployment-guide.md#b7-build--place-the-frontend).
+
+### F3.4 nginx: static files + SPA fallback + API proxy
+
+Two rules matter for a React SPA, both already in the shipped nginx config ([`deploy/server/nginx-ltride.conf`](../../deploy/server/nginx-ltride.conf)):
+
+- **SPA fallback** — unknown paths must return `index.html` so client-side routing (React Router from [U2](#cr-u2--routing-real-pages-with-urls)) works on deep links / refresh: `try_files $uri /index.html;`. Without this, refreshing `/admin` returns a 404.
+- **API proxy** — `location /api/ { proxy_pass http://127.0.0.1:8000; ... }` keeps the SPA and API on the **same origin** in production, so there are no CORS issues and no `VITE_API_URL` cross-origin config needed (you can even build with a relative `/api`).
+
+### F3.5 Cache busting
+
+Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely cache them forever; only `index.html` must not be cached (it references the new hashes). If you add cache headers, set `Cache-Control: no-cache` for `index.html` and long-lived immutable caching for the hashed assets.
+
+### F3.6 Frontend deployment checklist
+
+1. `VITE_API_URL` points at the **production** URL (or a relative `/api`), not localhost.
+2. `npm run build` succeeds; `npm run preview` renders and can log in against the prod API.
+3. Deep-link + refresh on a protected route works (SPA fallback in nginx).
+4. After `release.sh frontend`, hard-refresh the site and confirm the new build loads (check a changed string / the network tab hashes).
+
+---
+
 ## Part G — When something goes wrong
 
 - **Red text in the terminal running `npm run dev`** — read the top line; it usually names the file and line number. Fix and save; it reloads.
@@ -1726,9 +1771,52 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 
 ## Part H — Daily checklist
 
-1. `cd ~/workspace/lt-parking-site-project`
+1. `cd ~/workspace/LT_Proj/lt-parking-site-project`
 2. `git status` (am I on the right branch? any leftover changes?)
 3. `npm run dev` (start the site)
 4. Make small changes → save → check the browser.
 5. `git add -A && git commit -m "..."` often.
 6. `git push` when the CR is ready → open the PR with the right base branch.
+
+---
+
+## Appendix — Frontend architecture reference
+
+> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
+
+### A. Module structure (target)
+
+The React SPA is organised as a thin **API client**, three core Redux **slices** (plus a PoC-extension `studentsSlice`), and route-guarded **pages**. The static module view is diagrammed in [`../plan.md §5.3`](../plan.md#53-frontend-module-structure); the file-by-file target layout (tagged by the CR that adds each file) is in [Part D → "The target"](#the-source-structure-youre-building-toward) above.
+
+### B. Design conventions
+
+- **API client** (`src/api/client.ts`): a single `fetch` wrapper. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`. It is the **one place** that talks to the backend (built in **U0**).
+- **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**), and — PoC extension — `studentsSlice` (roster CRUD/CSV/direct-assign, **U10**).
+- **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
+- **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
+- **Authored layouts (positions *and size* as data):** spot placement starts as those hard-coded tables but becomes **normalized `x`/`y`/`w`/`h`/`rotation` fields** (`0..1` of the map image — position *and size*, so a spot keeps its shape at any zoom) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with a saved layout renders from it; a lot without one falls back to the config tables — the tables are never deleted, just demoted to a default. Lots themselves are created from the UI via `POST /api/lots` — carrying an optional admin-set **`number`** that prefixes spot labels — (**U9**), so the lot set is no longer fixed at 17.
+- **UX states:** loading spinners, empty states ("No spaces available" only when truly empty), error toasts, and **optimistic updates with refetch on failure** (**U4**).
+
+### C. Cross-cutting (frontend side)
+
+- **Config:** a local `.env` holds `VITE_API_URL`; commit `.env.example`, never the real `.env`. See **U0**.
+- **Token storage:** the JWT is held in-memory in `client.ts` with a `localStorage` copy so a refresh doesn't log you out; on app load, `fetchMe()` re-validates it via `GET /api/auth/me` and falls back to logged-out if the token is stale (**U1**). *(If the backend is later changed to serve the SPA from the same origin, an httpOnly cookie becomes an option — see [`../plan.md §11` open decisions](../plan.md#11-open-decisions-to-confirm).)*
+- **Observability (client side):** on any failed API call, log `method path → status` to the browser console via the `api` client's error path, and surface a user-visible toast rather than crashing. This is the frontend end of the request trace whose backend half is the Flask access log (backend guide, `ltride.service`).
+
+### D. Where each piece is built
+
+| Concern | Slice / file | CR |
+|---|---|---|
+| API client + token | `src/api/client.ts` | [U0](#cr-u0--project-hygiene-foundation-no-visible-change) |
+| Auth (login/session) | `authSlice.ts`, `Login.tsx`, `App.tsx` | [U1](#cr-u1--real-login-replaces-the-fake-login) |
+| Routing + guards | `main.tsx`, `App.tsx`, `ProtectedRoute.tsx` | [U2](#cr-u2--routing-real-pages-with-urls) |
+| Lots/spaces data | `parkingSlice.ts`, `ControlBoard.tsx` | [U3](#cr-u3--show-real-lots-and-spaces-data-driven-map) |
+| Persist enable/disable | `parkingSlice.ts` (`updateSpaces`) | [U4](#cr-u4--make-enabledisable-actually-save) |
+| Student self-service (pick one spot, submit/withdraw) | `interestSlice.ts` (`registerInterest`, `withdrawInterest`), `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
+| Admin assignment (assign / unassign / move) | `interestSlice.ts`, `parkingSlice.ts` (`assignSpace`, `unassignSpace`, `moveAssignment`), `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
+| Map upload | `client.ts` (`uploadFile`), `parkingSlice.ts` | [U7](#cr-u7--update-the-school-map-image) |
+| Arrange spots (drag-drop layout) | `parkingSlice.ts` (`saveLayout`), `ControlBoard.tsx` | [U8](#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) |
+| Add / remove a parking lot | `parkingSlice.ts` (`createLot`, `deleteLot`), `ControlBoard.tsx` | [U9](#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
+| **Student Management (roster + CSV + direct assign/move)** — PoC extension | `studentsSlice.ts`, `StudentManagement.tsx` | [U10](lessons/U10-student-management.md) |
+
+> **PoC extensions (design in [`../plan.md §5`](../plan.md#5-domain--class-diagram) / [§6.5](../plan.md#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move)).** Beyond the base slices above, the prototype adds: a **`Student` roster** keyed by `student_id` (distinct from the login `User`, linked by `user.code == student.student_id`); **dual assignment identity** on a space (`assigned_user_id` *or* `assigned_student_id`, so a login-less roster student can hold a spot); a **single-spot request** (`interest.space_ids`, ≤ 1) that **locks on submit** and can be **withdrawn** while `pending` (`DELETE /api/interest/me`); and **move-to-another-lot** (`POST /api/assignments/move`). These consume the extension backend CRs **B13–B16** tracked in [`../plan.md §8.2`](../plan.md#82-cr-status-tracker).
