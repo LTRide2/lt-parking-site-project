@@ -277,6 +277,11 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) => {
     return '#ffeb3b';                                          // available (yellow)
   };
 
+  // The spot the currently-picked request asked for — outlined on the map so the
+  // admin can find and approve the exact spot the student chose.
+  const isRequestedSpot = (space: Space) =>
+    editAction === 'manual' && !!pickedInterest?.space_ids?.includes(space.id);
+
   // --- arrange helpers ---
   const startArrange = () => {
     log('arrange', `start on lot ${selectedLotId} (${spaces.length} existing spaces)`);
@@ -441,7 +446,9 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) => {
     position: 'absolute', left: `${(space.x ?? 0) * 100}%`, top: `${(space.y ?? 0) * 100}%`,
     width: `${(space.w ?? DEFAULT_SPOT_W) * 100}%`, height: `${(space.h ?? DEFAULT_SPOT_H) * 100}%`,
     transform: `translate(-50%, -50%) rotate(${space.rotation ?? 0}deg)`,
-    backgroundColor: spaceColor(space), border: selectedSpaces.includes(space.id) ? '2px solid #c8a000' : '1px solid #1a3d7a',
+    backgroundColor: spaceColor(space),
+    border: isRequestedSpot(space) ? '3px dashed #2e7d32' : selectedSpaces.includes(space.id) ? '2px solid #c8a000' : '1px solid #1a3d7a',
+    boxShadow: isRequestedSpot(space) ? '0 0 0 2px rgba(46,125,50,0.4)' : undefined,
     boxSizing: 'border-box', cursor: (isSelecting || editAction === 'manual') ? 'pointer' : 'default',
   });
 
@@ -529,7 +536,7 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) => {
             onClick={() => handleSpaceClick(space)}
             style={{
               width: `${Math.round(30 * lotZoom)}px`, height: `${Math.round(14 * lotZoom)}px`, backgroundColor: spaceColor(space),
-              border: selectedSpaces.includes(space.id) ? '2px solid #c8a000' : '1px solid #1a3d7a',
+              border: isRequestedSpot(space) ? '3px dashed #2e7d32' : selectedSpaces.includes(space.id) ? '2px solid #c8a000' : '1px solid #1a3d7a',
               cursor: (isSelecting || editAction === 'manual') ? 'pointer' : 'default', boxSizing: 'border-box',
             }}
           />
@@ -547,6 +554,9 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) => {
     : interestList.filter((request) => request.lot_id === selectedLotId).slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
   const pendingOther = interestList.filter((request) => request.lot_id !== selectedLotId);
   const requestLabel = (request: Interest) => request.user_name ?? `Student #${request.user_id}`;
+  // The specific spot(s) the student picked, or a hint when they only expressed lot interest.
+  const requestedSpotText = (request: Interest) =>
+    request.space_labels?.length ? request.space_labels.join(', ') : 'no specific spot';
   const lotHasAssigned = spaces.some((space) => space.status === 'assigned'); // can't remove such a lot
 
   // --- assigned-spot actions (used by the "Assign to Spot" sub-panel) ---
@@ -659,18 +669,18 @@ export const ControlBoard = ({ onLogout }: ControlBoardProps) => {
                   {pendingForLot.length === 0 && <div style={{ color: '#666' }}>No student has requested this lot.</div>}
                   {pendingForLot.map((request, index) => (
                     <div key={request.id} onClick={() => setPickedInterest(request)} style={{ padding: '5px 6px', cursor: 'pointer', borderRadius: '4px', background: pickedInterest?.id === request.id ? '#f5c542' : '#f2f2f2', marginTop: '4px', display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
-                      <span><b>{requestLabel(request)}</b></span>
+                      <span><b>{requestLabel(request)}</b> <span style={{ color: '#1a3d7a' }}>· wants spot {requestedSpotText(request)}</span></span>
                       <span style={{ color: '#888' }}>#{index + 1}</span>
                     </div>
                   ))}
-                  {pickedInterest?.lot_id === selectedLotId && <div style={{ marginTop: '6px', color: '#1a3d7a' }}>Approving <b>{requestLabel(pickedInterest)}</b> — now click an available space →</div>}
+                  {pickedInterest?.lot_id === selectedLotId && <div style={{ marginTop: '6px', color: '#1a3d7a' }}>Approving <b>{requestLabel(pickedInterest)}</b> (wants spot {requestedSpotText(pickedInterest)}) — now click an available space →</div>}
 
                   {pendingOther.length > 0 && (
                     <div style={{ marginTop: '10px', borderTop: '1px solid #ddd', paddingTop: '6px' }}>
                       <div style={{ color: '#666', marginBottom: '2px' }}>Requests for other lots — select that lot to assign:</div>
                       {pendingOther.map((request) => (
                         <div key={request.id} style={{ padding: '3px 6px', color: '#666' }}>
-                          {requestLabel(request)} → {request.lot_name ?? `lot ${request.lot_id}`}
+                          {requestLabel(request)} → {request.lot_name ?? `lot ${request.lot_id}`} · spot {requestedSpotText(request)}
                         </div>
                       ))}
                     </div>
