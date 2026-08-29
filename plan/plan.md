@@ -167,6 +167,7 @@ classDiagram
 
     class Lot {
         +int id
+        +int number
         +string name
         +int display_order
         +string map_image_url
@@ -180,15 +181,29 @@ classDiagram
         +string label
         +SpaceStatus status
         +int assigned_user_id
+        +string assigned_student_id
         +float pos_x
         +float pos_y
+        +float pos_w
+        +float pos_h
         +float rotation
+    }
+
+    class Student {
+        +string student_id
+        +string first
+        +string last
+        +string email
+        +int grade
+        +int assigned_slot
+        +ParkingStatus parking_status
     }
 
     class Interest {
         +int id
         +int user_id
         +int lot_id
+        +int[] space_ids
         +InterestStatus status
         +datetime created_at
     }
@@ -204,15 +219,21 @@ classDiagram
 
     User "1" --> "0..*" Interest : registers
     User "1" --> "0..*" Assignment : receives
+    User "0..1" -- "0..1" Student : same person (code == student_id)
     Lot  "1" --> "1..*" Space : contains
     Lot  "1" --> "0..*" Interest : preferred
     Space "1" --> "0..1" Assignment : currently
+    Space "0..1" --> "0..1" Student : held by (assigned_student_id)
     Assignment "*" --> "1" User : assigned_by(admin)
 ```
 
-**Enums:** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, declined}`.
+**Enums:** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, cancelled}` (a student *withdraws* a pending request → `cancelled`), `ParkingStatus = {unassigned, valid, expired, suspended}` (the roster's view of whether a student currently holds/paid for a slot).
 
-**Space geometry (part of the base schema):** `pos_x`, `pos_y` are **normalized** positions (`0..1` of the lot's map image) and `rotation` is in degrees — nullable, so a space with no authored position falls back to the front-end's config-table layout. These columns are **designed into the initial schema (B2)** from the start — spot placement is a real property of a space — not bolted on by a later migration; nothing *writes* them until the drag-and-drop editor ships, which does so via `PUT /api/lots/:id/layout` (backend **B8**). New lots are created via `POST /api/lots` (backend **B9**) — see [§8.4 Phase 3](#84-the-crs-phase-by-phase-narrative--local-test-seed).
+**Space geometry (part of the base schema):** `pos_x`, `pos_y` are **normalized** positions and `pos_w`, `pos_h` the **normalized size** (all `0..1` of the lot's map image), with `rotation` in degrees — all nullable, so a space with no authored layout falls back to the front-end's config-table layout. Storing size as fractions (not fixed pixels) is what keeps a spot aligned *and correctly shaped* at any zoom/screen size — the map's zoom scale is never persisted. These columns are **designed into the initial schema (B2)** from the start — spot placement is a real property of a space — not bolted on by a later migration; nothing *writes* them until the drag-and-drop editor ships, which does so via `PUT /api/lots/:id/layout` (backend **B8**). New lots are created via `POST /api/lots` (backend **B9**) — see [§8.4 Phase 3](#84-the-crs-phase-by-phase-narrative--local-test-seed).
+
+**Student roster (extension surfaced by the PoC).** `Student` is an admin-managed roster keyed by **`student_id`** (a school id string, *not* email), imported/exported as CSV. It is distinct from `User` (the login identity): the PoC links the two by convention `user.code == student.student_id`, and the real backend makes that a foreign key. A `Space` can be held either by a login `User` (`assigned_user_id`) **or** by a roster `Student` with no login account (`assigned_student_id`) — the two identity paths let an admin assign a CSV-imported student who has never logged in. `assigned_slot` mirrors the space a student holds and `parking_status` tracks their allocation lifecycle. Roster CRUD, CSV import (upsert)/export, and direct assign/move live on the **students endpoints** (see §5.2 and the backend API Reference); these are an **extension beyond the original B0–B9 plan** and are not yet on the CR tracker (§8.2).
+
+**Preferred spot on an interest.** A request carries `space_ids` — the specific spot the student picked (the PoC allows **exactly one**, so the array holds ≤ 1; kept as an array so the contract can widen to ranked choices later). A student has **one active request at a time** (upsert), may **withdraw** it while `pending` (`DELETE /api/interest/me` → `cancelled`), and it becomes read-only once `fulfilled`.
 
 ### 5.2 Backend layering (component classes)
 
@@ -241,10 +262,21 @@ classDiagram
         +create_interest()
         +list_interest()
         +my_interest()
+        +withdraw_interest()
     }
     class AssignmentBlueprint {
         +create_assignment()
         +delete_assignment(id)
+        +move_assignment()
+    }
+    class StudentsBlueprint {
+        +list_students()
+        +create_student()
+        +update_student(id)
+        +delete_student(id)
+        +import_csv()
+        +export_csv()
+        +assign_student(id)
     }
     class Repository {
         +get_db()
@@ -293,25 +325,42 @@ classDiagram
         +updateSpaces(thunk)
         +saveLayout(thunk)
         +createLot(thunk)
+        +deleteLot(thunk)
+        +assignSpace(thunk)
+        +unassignSpace(thunk)
+        +moveAssignment(thunk)
     }
     class interestSlice {
         +registerInterest(thunk)
         +fetchMyInterest(thunk)
+        +withdrawInterest(thunk)
+    }
+    class studentsSlice {
+        +fetchStudents(thunk)
+        +saveStudent(thunk)
+        +deleteStudent(thunk)
+        +importCsv(thunk)
+        +assignStudent(thunk)
     }
     class ProtectedRoute
     class LoginPage
     class StudentDashboard
     class AdminControlBoard
+    class StudentManagement
 
     authSlice --> ApiClient
     parkingSlice --> ApiClient
     interestSlice --> ApiClient
+    studentsSlice --> ApiClient
     ProtectedRoute --> authSlice
     LoginPage --> authSlice
     StudentDashboard --> interestSlice
     StudentDashboard --> parkingSlice
     AdminControlBoard --> parkingSlice
     AdminControlBoard --> interestSlice
+    StudentManagement --> studentsSlice
+    StudentManagement --> parkingSlice
+    AdminControlBoard --> StudentManagement
 ```
 
 ---
@@ -334,13 +383,16 @@ sequenceDiagram
     API-->>UI: 200 {token, user}
     UI->>UI: store token, route to /student
 
-    S->>UI: view availability, click "Register Interest"
-    UI->>API: POST /api/interest {lot_id} (Bearer token)
-    API->>API: verify token -> student
-    API->>DB: INSERT interest (pending)
+    S->>UI: open a lot (read its layout)
+    UI->>API: GET /api/lots/:id/spaces (Bearer — login-gated, not admin-only)
+    API-->>UI: 200 {lot_id, spaces}
+    S->>UI: pick ONE available spot, Submit
+    UI->>API: POST /api/interest {lotId, spaceIds:[spaceId]} (Bearer)
+    API->>API: verify student token, validate spot in-lot and available (else 400 none/multi, 409 taken)
+    API->>DB: UPSERT the student's one active interest (pending, with preferred space_ids)
     DB-->>API: ok
     API-->>UI: 201 {interest}
-    UI-->>S: "Request submitted (pending)"
+    UI-->>S: Request submitted (pending) — selection locks, may Withdraw while pending
 ```
 
 ### 6.2 Admin disables spaces (bulk)
@@ -401,10 +453,10 @@ sequenceDiagram
     participant API as Flask API
     participant DB as Database
 
-    A->>UI: click Add Lot, enter name and capacity
-    UI->>API: POST /api/lots with name and optional capacity (Bearer)
-    API->>API: require_role admin, then validate name is non-blank and unique
-    API->>DB: INSERT lot plus capacity blank spaces (no position yet)
+    A->>UI: click Add Lot, enter name, optional number and capacity
+    UI->>API: POST /api/lots with name, optional number and capacity (Bearer)
+    API->>API: require_role admin, then validate name non-blank/unique and number unique
+    API->>DB: INSERT lot plus capacity blank spaces (labeled number-n, no position yet)
     API-->>UI: 201 with the new lot
     UI->>UI: refetch lots, auto-select the new lot
 
@@ -420,6 +472,15 @@ sequenceDiagram
     API-->>UI: 200 with the saved spaces
     UI->>UI: optimistic update, then refetch lot spaces
 ```
+
+### 6.5 Extension flows surfaced by the PoC (roster, withdraw, move)
+
+These four flows were validated in the PoC and are **extensions beyond the core B0–B9 / U0–U9 plan** (they need their own CR rows, §8.2). They reuse the same transactional, validate-first patterns as §6.3/§6.4:
+
+- **Withdraw a request** (student, while `pending`). `DELETE /api/interest/me` sets the student's one active interest to `cancelled` and frees any preferred pick; the map re-opens for a fresh pick. A `fulfilled` request is read-only (no self-withdraw — contact an admin).
+- **Move an assigned request to another lot** (admin). `POST /api/assignments/move {fromSpaceId, toLotId}` — inside one transaction: the source space is freed (`available`, both identity fields cleared, roster slot → `unassigned`) and the occupant's `fulfilled` interest is re-queued as `pending` in the target lot; the admin then assigns a spot there via the normal §6.3 path. 409 if the source is not currently assigned.
+- **Manage the roster + direct assign** (admin). CRUD + CSV import (upsert by `student_id`) / export via the students endpoints; `POST /api/students/:id/assign {spaceId}` binds a roster student — *including one with no login account* — to an available space (409 otherwise), freeing any spot the student already holds first (one-slot-per-student move semantics) and stamping `assigned_student_id`. If a login `User` exists for that `student_id`, their pending interest is re-pointed and fulfilled.
+- **Read-for-pick access.** All of the above depend on `GET /api/lots/:id/spaces` being **login-gated, not admin-only**, so a student can read a lot's layout to pick a spot (§7.1).
 
 ---
 
@@ -441,7 +502,8 @@ Everything else about implementation is delegated to the guides, but these are t
 - **Transport & envelope:** JSON over HTTP. Success = `{ "data": ... }`; error = `{ "error": { "code", "message", "details"? } }` with a meaningful HTTP status. Both the Flask handlers and the React `api` client are written to this shape.
 - **Auth:** JWT in `Authorization: Bearer <token>`, signed `{user_id, role, exp}` with `SECRET_KEY`. Admin routes are guarded by `@require_role('admin')`; the SPA guards routes by `auth.user.role`.
 - **CORS:** the backend `CORS_ORIGINS` env must list every SPA origin (localhost dev + the deployed domain), or the browser blocks the calls.
-- **Enums (shared vocabulary):** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, declined}` — see the data model in §5.1.
+- **Enums (shared vocabulary):** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, cancelled}`, and (roster extension) `ParkingStatus = {unassigned, valid, expired, suspended}` — see the data model in §5.1.
+- **Space read access:** `GET /api/lots/:id/spaces` is **login-gated (any authenticated role), not admin-only** — students must read a lot's layout to pick a spot (§6.1). Only *mutating* space/lot/assignment routes require `@require_role('admin')`.
 - **Correlation across the process boundary:** a request is traceable end-to-end by pairing the browser-side console/toast log (UI) with the Flask access-log line (backend) for the same `METHOD /api/...`. See each guide's cross-cutting/observability note.
 
 The endpoint-by-endpoint realization of this contract is the [backend API Reference](backend/backend-development-guide.md#appendix-a--backend-api-reference-v1); the client-side realization is the [frontend reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference).
@@ -513,6 +575,20 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | U8 | Place & arrange spots (drag-and-drop layout editor) | `cr/u8-arrange-spots` | U7 | **B8** | [U8](ui/ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) | — | 📋 |
 | U9 | Add a new parking lot from the admin UI | `cr/u9-add-lot` | U8 | **B9** | [U9](ui/ui-development-guide.md#cr-u9--add-a-new-parking-lot-from-the-admin-ui) | — | 📋 |
 
+**Extensions (`B13–B16`, `U10`) — PoC-validated, beyond the core plan; not yet expanded into guide sections.**
+
+The PoC (§2) validated four features beyond core U0–U9. The **frontend is already prototyped** (see the UI `backport.md` and the U# lessons — including the [U10 Student Management extension lesson](ui/lessons/README.md)); each still needs its **backend** CR. These stack after **B9/U9** and may be sequenced before or after the Phase-4 hardening pass. The per-endpoint contract each adds is digested in the backend `backport.md`; the runtime flows are in [§6.5](#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move) and the entities/enums in [§5.1](#51-data-model-entities).
+
+| CR | Title | Depends on | Contract it adds | Frontend | Status |
+|---|---|---|---|---|---|
+| B13 | Student roster + CSV import/export | B2, B4 | `students` entity (PK `student_id`); `GET/POST/PATCH/DELETE /api/students`; `POST /api/students/import` (multipart, upsert); CSV export | U10 | 📋 |
+| B14 | Direct assign / move a roster student | B13, B7 | `spaces.assigned_student_id` (nullable FK); `POST /api/students/:id/assign {spaceId}` (one-slot-per-student move) | U10 | 📋 |
+| B15 | Preferred-spot interest + withdraw | B6 | `interest.space_ids`; `POST /api/interest {lotId, spaceIds}` (400 none/multi · 409 taken · upsert one-active); `DELETE /api/interest/me` (→ `cancelled`) | folded into U5 | 📋 |
+| B16 | Move an assigned request to another lot | B7 | `POST /api/assignments/move {fromSpaceId, toLotId}` (transactional free-and-re-queue) | folded into U6 | 📋 |
+| U10 | Student Management (roster + CSV + direct assign/move) | B13, B14 | *(consumes B13/B14)* | [U10 lesson](ui/lessons/U10-student-management.md) | 📋 prototyped |
+
+*Also folded into existing CRs as contract additions (not separate CRs): `Lot.number` extends **B9/U9**; `pos_w`/`pos_h` size on layout save extends **B8/U8**; `assigned_user_name` in space serialization extends **B4/U3**.*
+
 **Deployment (`D#`) — run in `deploy/deployment-guide.md`:**
 
 | CR | Title | Branch | Parent | Step-by-step | PR | Status |
@@ -524,7 +600,7 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | D3 | Release the application code (`release.sh`) | `cr/d3-release` | D2 | [D3](deploy/deployment-guide.md#cr-d3--release-the-application-code) | — | 📋 |
 | D4 | Domain + Route 53 + HTTPS (certbot) | `cr/d4-dns-tls` | D3 | [D4](deploy/deployment-guide.md#cr-d4--buy-a-domain-wire-it-to-route-53-and-turn-on-https) | — | 📋 |
 
-**Hardening (`B10/U10`, `B11/U11`, `B12`) — planned, not yet expanded into guide sections.** Validation/error-envelope polish (B10/U10), automated tests — pytest + Vitest (B11/U11), and the SQLite→Postgres path (B12). *Note:* the guides already build directly on **PostgreSQL** from B2 onward, so B12 is largely satisfied by design; it remains listed for the explicit "run the suite against a second Postgres" check. These get their own guide sections + tracker rows when scheduled. *(Renumbered from B8/B9/B10 when the layout-save and create-lot features claimed B8/B9 · U8/U9.)*
+**Hardening (`B10/U11`, `B11/U12`, `B12`) — planned, not yet expanded into guide sections.** Validation/error-envelope polish (B10/U11), automated tests — pytest + Vitest (B11/U12), and the SQLite→Postgres path (B12). *Note:* the guides already build directly on **PostgreSQL** from B2 onward, so B12 is largely satisfied by design; it remains listed for the explicit "run the suite against a second Postgres" check. These get their own guide sections + tracker rows when scheduled. *(Frontend hardening is **U11/U12**, not U10 — **U10** is the PoC's Student Management extension above. Backend was earlier renumbered from B8/B9/B10 when the layout-save and create-lot features claimed B8/B9 · U8/U9.)*
 
 > **Ordering — the one hard cross-layer rule.** A frontend CR in the "Also needs" column **cannot be tested to green until its backend CR is merged (or at least deployed to a branch/staging instance)** — U1→B3, U3→B4, U4→B5, U5→B6, U6→B7, U8→B8, U9→B9. Build/open the backend CR first. Within a layer, the `Parent` column is a strict stack: rebase children when a parent changes (§8.1). The critical path that respects both is in §9.
 
@@ -605,10 +681,10 @@ Every CR — backend and frontend — ships with a PR description in this shape.
 - **U9 — Add a new parking lot.** Admin **➕ Add Lot** button + Create Lot modal (`POST /api/lots`, B9); auto-selects the new lot and hands off to U7 (map) + U8 (arrange).
   - **Local test:** create a lot → it appears in the nav **without refresh** and is selected; blank name is blocked client-side; a duplicate name shows the server's red error; after refresh the lot persists; a student never sees the control.
 
-#### Phase 4 — Hardening *(planned; tracker rows B10/U10, B11/U11, B12)*
-- **B10 / U10 — Validation & error handling.** Server validation, consistent error envelope, UI toasts/empty/loading states.
+#### Phase 4 — Hardening *(planned; tracker rows B10/U11, B11/U12, B12)*
+- **B10 / U11 — Validation & error handling.** Server validation, consistent error envelope, UI toasts/empty/loading states.
   - **Local test:** malformed/oversized payloads return 400 with the `{error:{code,message}}` envelope; the UI surfaces a toast instead of crashing; empty lists show an empty state.
-- **B11 / U11 — Tests.** Backend: pytest (API + auth). Frontend: Vitest + Testing Library.
+- **B11 / U12 — Tests.** Backend: pytest (API + auth). Frontend: Vitest + Testing Library.
   - **Local test:** `pytest` is green (auth + each endpoint, incl. 401/403/409 paths); `npm run test` green for login, routing guard, and interest/assign flows.
 - **B12 — Second-Postgres check** (run schema + suite against a fresh Postgres via `DATABASE_URL`). *The app is already Postgres-native from B2, so this is a portability check, not a migration.*
   - **Local test:** run a local Postgres (e.g. `docker run -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres`), point `DATABASE_URL` at it, run the migration + seed, and re-run `pytest` green against it.
@@ -697,6 +773,7 @@ Deployment is delivered as CRs **D0–D4** in the [CR status tracker](#82-cr-sta
 | R6 | **Single-EC2 SPOF / no backups.** | Medium — downtime, data loss. | RDS automated backups; CloudFormation makes the box reproducible; documented restore. Scale-out is out of scope (§Executive Summary). | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
 | R7 | **Cost overrun** — the sized instance is far larger than a school parking app needs. | Low/Medium — budget. | The [cost model (deployment guide §B.13)](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) is an explicit planning decision to revisit; right-size before provisioning. | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
 | R8 | **Layout save destroys assigned spots** — the full-replace `PUT /api/lots/:id/layout` (B8/U8) deletes spaces omitted from the payload. | Medium — an admin re-arranging could wipe a space a student is assigned to. | Transactional save that **refuses (409)** to delete any space that is currently `assigned`; positions stored as normalized 0–1 fractions so they don't break on zoom/resize. | [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring) |
+| R9 | **Roster↔login identity drift** — the PoC links `Student` to `User` by the convention `user.code == student.student_id`; a typo or duplicate leaves a space held by a `student_id` with no matching login (or vice-versa). | Medium — a student can't see the spot assigned to them; orphaned `assigned_student_id`. | Make it a real **FK** in the backend (B13/B14), enforce uniqueness on `student_id` and `user.code`, and reconcile on assign/import; the dual-identity assign path is validated (409 on unavailable spot). | [§5.1](#51-data-model-entities), [§6.5](#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move) |
 
 ---
 
@@ -723,9 +800,11 @@ This is a single-box Flask + React deployment on EC2 — **not** a fleet with a 
 | **Guide** | One of the two implementation docs: `ui/ui-development-guide.md` (frontend) and `backend/backend-development-guide.md` (backend + deployment). |
 | **Envelope** | The uniform JSON response shape: `{data}` on success, `{error:{code,message,details}}` on failure. Authoritative in [§7.1](#71-the-contract-that-binds-the-two-halves-authoritative-here). |
 | **`@require_role`** | Backend decorator enforcing that a valid JWT with the required role (`student`/`admin`) is present. |
-| **Interest** | A student's request for parking in a lot (`pending` → `fulfilled`/`withdrawn`). Core feature 1. |
+| **Interest** | A student's request for parking, carrying a **preferred spot** (`space_ids`, ≤ 1 in the PoC). One active request per student; `pending` → `fulfilled`, or the student **withdraws** it while pending → `cancelled`. Core feature 1. |
+| **Roster / Student** | An admin-managed list of students keyed by **`student_id`** (a school id string, not email), imported/exported as CSV. Distinct from the login `User`; linked by `user.code == student.student_id`. A PoC extension (§5.1, §6.5). |
+| **Dual assignment identity** | A space records who holds it as either `assigned_user_id` (a login `User`) **or** `assigned_student_id` (a roster `Student` with no login account) — so an admin can place a CSV-imported student who has never logged in. |
 | **Assignment** | An admin binding a student to a specific space (transactional; flips space→`assigned`, interest→`fulfilled`). Core feature 2. |
-| **Normalized coordinates** | A spot's position stored as fractions of the map image (`pos_x`,`pos_y` in 0–1) plus a `rotation` in degrees, so the layout survives zoom/resize on any screen. The columns live on `spaces` from the initial schema (B2); they're first *written* by the arrange-spots feature (§6.4, B8/U8). |
+| **Normalized coordinates** | A spot's position **and size** stored as fractions of the map image (`pos_x`,`pos_y`,`pos_w`,`pos_h` in 0–1) plus a `rotation` in degrees, so both placement and shape survive zoom/resize on any screen (the zoom scale itself is never persisted). The columns live on `spaces` from the initial schema (B2); they're first *written* by the arrange-spots feature (§6.4, B8/U8). |
 | **Layout (authored)** | A lot's set of spot positions saved as data via `PUT /api/lots/:id/layout`, replacing the hard-coded config-table positions in the prototype. Full-replace + transactional (§6.4). |
 | **IaC** | Infrastructure as Code — all AWS resources defined in CloudFormation templates, no manual console clicks (§10). |
 | **SPA** | Single-Page Application — the React frontend, served as a static build and talking to the API over JSON. |
@@ -745,4 +824,6 @@ The decisions that shaped this plan, each linking to the section that justifies 
 6. **PostgreSQL from the first schema CR (B2 onward).** Avoids a late SQLite→Postgres migration; the "second-Postgres" item (B12) becomes a portability check, not a migration. → [§8.2](#82-cr-status-tracker), [§10](#10-aws-deployment--ec2--rds-via-cloudformation)
 7. **All AWS resources as CloudFormation (IaC), single EC2 + RDS.** Reproducible infra sized for a school-scale app; scale-out explicitly out of scope. → [§10](#10-aws-deployment--ec2--rds-via-cloudformation), [R6](#12-risks--mitigations)
 8. **Lightweight, single-box observability.** Structured journal logs + a correlation id across the process boundary, no external APM — matched to the deployment, not a fleet. → [§13](#13-observability-scoped-to-this-deployment)
-9. **Spot positions are authored data, not hard-coded config.** Layouts are stored as normalized coordinates on `spaces` and edited via a drag-and-drop editor (U8) saved through a transactional full-replace endpoint (B8) that refuses to delete assigned spaces; lots are created from the UI (U9/B9) instead of a fixed seed loop. Lets the school grow and rearrange lots without a code change. → [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring), [§8.2](#82-cr-status-tracker), [R8](#12-risks--mitigations)
+9. **Spot positions are authored data, not hard-coded config.** Layouts are stored as normalized coordinates (position **and size**, `pos_x/pos_y/pos_w/pos_h/rotation`) on `spaces` and edited via a drag-and-drop editor (U8) saved through a transactional full-replace endpoint (B8) that refuses to delete assigned spaces; lots are created from the UI (U9/B9) instead of a fixed seed loop. Lets the school grow and rearrange lots without a code change. → [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring), [§8.2](#82-cr-status-tracker), [R8](#12-risks--mitigations)
+10. **Roster is a separate entity from the login user, with dual assignment identity (PoC extension).** Students are managed as a CSV-backed `students` roster keyed by `student_id`, distinct from the login `User` and linked by `user.code == student.student_id`; a space can be held by either `assigned_user_id` or `assigned_student_id`. This lets an admin allocate a student who has never logged in, at the cost of one convention (soon a FK) binding the two identities — the residual risk is tracked in [R9](#12-risks--mitigations). → [§5.1](#51-data-model-entities), [§6.5](#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move)
+11. **Student self-service is a single-spot request→approve, not a self-claim (PoC extension).** A student picks **exactly one** preferred spot (`interest.space_ids`, ≤ 1), holds **one active request**, and the pick **locks on submit** — changeable only by withdrawing while `pending`; an admin still approves via the §6.3 assignment. Keeps the in-scope approval workflow (Executive Summary out-of-scope: direct self-claim) while giving the student a concrete pick. → [§5.1](#51-data-model-entities), [§6.1](#61-student-login--register-interest)
