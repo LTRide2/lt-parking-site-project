@@ -13,7 +13,7 @@ Three admin-only endpoints that round out lot management — the app stops being
 
 - **`POST /api/lots`** (`webapp/App/views/lots.py:124`) — body `{"name", "number"?, "capacity"?, "display_order"?}`. `name` is required; `display_order` defaults to `MAX(display_order)+1`; `number` defaults to that resolved `display_order` and must be unique. If `capacity` is given, seeds that many positionless `available` spaces labeled `<number>-<index>` (the admin arranges them later with B8's layout editor). Returns `201` with the new lot.
 - **`DELETE /api/lots/<id>`** (`webapp/App/views/lots.py:174`) — removes a lot, refusing with `409` if any of its spaces is currently `assigned`.
-- **`POST /api/lots/<id>/map`** (`webapp/App/views/lots.py:201`) — uploads a PNG/JPG map image for a lot and stores its URL. Backs the frontend's [U7 — Update the school map image](../../ui/lessons/U7-update-school-map.md).
+- **`POST /api/lots/<id>/map`** (`webapp/App/views/lots.py:201`) — uploads a PNG/JPG map image for a lot and stores its URL. Backs the frontend's [U7 — Update the school map image](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md).
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `POST /api/lots` with a valid admin token, a `name`, a `number`, and a `capacity` returns `201`; `GET /api/lots` lists it and `GET /api/lots/<newId>/spaces` shows `capacity` spaces labeled `<number>-1`, `<number>-2`, ….
@@ -30,9 +30,9 @@ Three admin-only endpoints that round out lot management — the app stops being
 
 Every endpoint you've built so far either *read* data or *edited* rows that the B2 seed already created. `POST /api/lots` is the first one that **creates a brand-new top-level resource** — a row that didn't exist before. It's a small shift with a big payoff: the app stops being limited to the lots hard-coded in a seed file and becomes something the school can grow on its own.
 
-It's also the lesson that finishes lot management end to end. On its own, "create a lot" gives you an empty, mapless lot — not very useful. But this same lesson also ships the map upload, so a lot gets a photo behind it ([U7](../../ui/lessons/U7-update-school-map.md) is the UI that calls it), and B8/U8 arrange its spots. And when a lot outlives its usefulness — a construction closure, a renumbering — `DELETE /api/lots/<id>` tears it down again, with the same care B8's layout delete taught you: it refuses to erase a spot a student is actually parked in.
+It's also the lesson that finishes lot management end to end. On its own, "create a lot" gives you an empty, mapless lot — not very useful. But this same lesson also ships the map upload, so a lot gets a photo behind it ([U7](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md) is the UI that calls it), and B8/U8 arrange its spots. And when a lot outlives its usefulness — a construction closure, a renumbering — `DELETE /api/lots/<id>` tears it down again, with the same care B8's layout delete taught you: it refuses to erase a spot a student is actually parked in.
 
-One theme carries through all three endpoints: **the server is the real boundary.** The UI ([U9](../../ui/lessons/U9-add-a-parking-lot.md)) will grey out the Create button for a blank name and the Remove button when a lot has an assigned space, but that's UX only. Each endpoint still has to enforce its own rule, because a determined client (or a bug) can send anything.
+One theme carries through all three endpoints: **the server is the real boundary.** The UI ([U9](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U9-add-a-parking-lot.md)) will grey out the Create button for a blank name and the Remove button when a lot has an assigned space, but that's UX only. Each endpoint still has to enforce its own rule, because a determined client (or a bug) can send anything.
 
 ---
 
@@ -309,5 +309,5 @@ Open a Pull Request on GitHub with **base = `cr/b8-layout`** (this CR stacks on 
 
 **That's the whole backend track — every endpoint the app needs is built.** From here:
 
-- Build the site that calls this API: the [UI track](../../ui/lessons/README.md), including [U7](../../ui/lessons/U7-update-school-map.md) (map upload), [U8](../../ui/lessons/U8-place-and-arrange-spots.md) (drag-and-drop arrange), and [U9](../../ui/lessons/U9-add-a-parking-lot.md) (add/remove a lot) that pair with the endpoints you just built.
+- Build the site that calls this API: the [UI track](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/README.md), including [U7](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md) (map upload), [U8](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U8-place-and-arrange-spots.md) (drag-and-drop arrange), and [U9](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U9-add-a-parking-lot.md) (add/remove a lot) that pair with the endpoints you just built.
 - Or put this backend online: the [Deploy track at Lesson D0 — AWS account setup](../../deploy/lessons/D0-aws-account-setup.md).

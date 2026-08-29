@@ -30,4 +30,4 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 ## After the backend
 
-When B9 passes, either build the website in the [**UI lessons**](../../ui/lessons/README.md) or put your server online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).
+When B9 passes, either build the website in the [**UI lessons**](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/README.md) or put your server online with the [**Deploy lessons**](../../deploy/lessons/D0-aws-account-setup.md). The overall order and dependencies are in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).

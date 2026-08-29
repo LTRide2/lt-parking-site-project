@@ -1,9 +1,9 @@
 and# LTRide — Deployment Guide (AWS)
 
-> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](../ui/ui-development-guide.md) and the [backend guide](../backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
+> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md) and the [backend guide](../backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 >
 > - **Backend build** (the app these steps deploy) → [backend guide](../backend/backend-development-guide.md)
-> - **Frontend build & serve** (the SPA nginx serves) → [UI guide → Deployment (frontend)](../ui/ui-development-guide.md#part-f3--deployment-frontend)
+> - **Frontend build & serve** (the SPA nginx serves) → [UI guide → Deployment (frontend)](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md#part-f3--deployment-frontend)
 > - **Runnable artifacts** (templates, scripts, server config) → repo-root [`deploy/`](../../deploy/README.md)
 > - **CR ordering & status** → [`../plan.md` §8.2 tracker](../plan.md#82-cr-status-tracker)
 
@@ -622,7 +622,7 @@ The SPA build is an app artifact, not infrastructure, so it stays a CI step. On 
 rsync -avz -e "ssh -i ltride-key.pem" dist/ ubuntu@<elastic-ip>:/tmp/dist/
 sudo mkdir -p /var/www/ltride && sudo cp -r /tmp/dist/* /var/www/ltride/
 ```
-*(Alternative: a separate CloudFormation stack provisions an S3 bucket + CloudFront distribution; CI syncs `dist/` to S3 and invalidates the cache. nginx then only proxies `/api`.)* The frontend-side build/serve details also live in the [UI guide's Deployment section](../ui/ui-development-guide.md#part-f3--deployment-frontend).
+*(Alternative: a separate CloudFormation stack provisions an S3 bucket + CloudFront distribution; CI syncs `dist/` to S3 and invalidates the cache. nginx then only proxies `/api`.)* The frontend-side build/serve details also live in the [UI guide's Deployment section](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md#part-f3--deployment-frontend).
 
 ### B.8 nginx reverse proxy + SPA
 `/etc/nginx/sites-available/ltride`:
