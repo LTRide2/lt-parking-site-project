@@ -1,6 +1,6 @@
 # Lesson U0 — Project hygiene (foundation)
 
-> **Track:** Frontend · **Lesson 1 of 8**
+> **Track:** Frontend · **Lesson 1 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** gentle (no visible change yet — this is the plumbing later lessons need)
 > **🧩 Prerequisites:** you've done the UI guide's [Part A — One-time setup](../ui-development-guide.md#part-a--one-time-setup-do-this-once) (VS Code, Node.js LTS, Git installed; `npm install` already run once in the project). It helps if the backend from the Backend track is runnable too, though this lesson doesn't call it yet.
 > **🌿 CR branch:** `cr/u0-hygiene` (off `main`) · **📄 Source CR:** [CR U0](../ui-development-guide.md#cr-u0--project-hygiene-foundation-no-visible-change) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -223,6 +223,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 - **`Cannot find module 'react-router-dom' or its corresponding type declarations'`** — the install in Step 1 didn't finish, or you're not in the project folder. Re-run `npm install react-router-dom` from the project root and check it appears under `"dependencies"` in `package.json`.
 - **ESLint or `tsc` errors in `client.ts`** — check your file matches Step 3 exactly, especially the types (`string | null`, `Record<string, string>`) — a missing type annotation is the most common cause.
 - **The app looks different or the fake login stopped working** — you likely edited an existing file (`Login.tsx`, `ControlBoard.tsx`, etc.) by mistake. This lesson only **adds** new files; nothing existing should change.
+- **A totally blank white page as soon as a module-level `let` both loads *and* saves state** — watch the initialization order. A pattern like `let store = load()` placed *above* the `load`/`save` helpers it calls — where `save` reassigns `store` — throws `ReferenceError: Cannot access 'store' before initialization` (a *temporal dead zone* error) at **import time**, before React (or the `ErrorBoundary` you add in [U2](U2-routing.md)) can even mount, so you get a silent white page with only a console error. Fix by ordering: define the helper functions first and run the `let x = load()` initializer **last**, and keep each persist helper touching only its argument (`persist(db)`) rather than the module-level binding it's about to assign. `client.ts`'s `let token = localStorage.getItem("token")` is safe because its initializer never calls back into `setToken` — preserve that property as this file grows.
 
 ---
 

@@ -1,6 +1,6 @@
 # Lesson U4 — Make enable/disable actually save
 
-> **Track:** Frontend · **Lesson 5 of 8**
+> **Track:** Frontend · **Lesson 5 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first optimistic update with rollback)
 > **🧩 Prerequisites:** you've done [Lesson U3 — Show real lots and spaces](U3-show-real-lots-and-spaces.md); backend **B5** (the `PATCH /api/spaces` endpoint) is running.
 > **🌿 CR branch:** `cr/u4-save-status` (off `cr/u3-real-lots`) · **📄 Source CR:** [UI guide → CR U4](../ui-development-guide.md#cr-u4--make-enabledisable-actually-save) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -115,6 +115,10 @@ Now handle the thunk's three states in `extraReducers`, right after the ones you
 
 The old **Enable**/**Disable** buttons dispatched `enableSelectedSpaces`/`disableSelectedSpaces` — reducers that only touched a local, browser-only list. U3 already deleted those reducers, so right now those buttons are broken. Replace both dispatches with `updateSpaces`.
 
+> **Gating note — how the admin buttons turn on.** The Admin Control Panel activates the moment a **lot is selected** — `isControlPanelActive = selectedLotId != null` — *not* when a separate "Edit Mode" is flipped. Gate the lot-scoped actions on that (Disable/Enable additionally need at least one selected space). **Edit Mode is optional editing chrome** — the pink border + Cancel affordance — not a hard gate. An earlier prototype double-gated on `isEditMode && selectedLotId != null`, so selecting a lot left every button disabled until you *also* toggled Edit Mode, which reads as broken. This is the same panel model U3 introduces — keep them consistent.
+
+> **Menu note — Disable/Enable now live in a sub-panel.** The main sidebar used to list **Disable** and **Enable** as separate top-level buttons. They've been grouped, Arrange-Spots-style, under one mode button — **"Slot Enable/Disable"** (the old "Single Select") — that reveals a sub-panel containing **Disable** and **Enable**, plus the current selection count. The buttons act on whatever spaces are already selected on the grid; nothing else about Step 1's thunk or Step 2's dispatches changes. Every main-menu button (and this sub-panel's buttons) also gets a `title=` tooltip describing what it does — a one-line accessibility/discoverability win, no contract change.
+
 The **Enable** button:
 ```tsx
 onClick={() => {
@@ -149,24 +153,25 @@ Then add `updateSpaces` to the import list from `./store/parkingSlice`.
 ├───────────────┬──────────────────────────────────────────┤
 │ ┌───────────┐ │                       [ Cancel X ][ Done ✓]│  ← Done saves to server
 │ │Admin Ctrl │ │   ▢ ▢ ▣ ▢ ▢ ▢   ▢ ▢ ▢ ▢ ▢ ▢               │
-│ │ Single ▣  │ │   ▢ ▣ ▢ ▢ ▨ ▨   ▢ ▢ ▢ ▢ ▢ ▢               │  ▢ available
-│ │ Group     │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▣ ▢ ▢ ▢ ▢ ▢               │  ▨ selected (yellow)
-│ │ Disable ▣ │ │                                            │  ▣ disabled (grey)
-│ │ Enable    │ │                                            │  ▦ assigned (blue)
-│ │ Manual    │ │   [Home][Lot A][Lot B]                     │
-│ │ Update Map│ │                                            │
-│ └───────────┘ │   Edit Mode ●——                            │
-│ [👤 My Acct]  │                                       LT   │
+│ │Slot En/Dis│ │   ▢ ▣ ▢ ▢ ▨ ▨   ▢ ▢ ▢ ▢ ▢ ▢               │  ▢ available (yellow)
+│ │  Disable ▣│ │   ▢ ▢ ▢ ▢ ▢ ▢   ▣ ▢ ▢ ▢ ▢ ▢               │  ▨ selected (gold)
+│ │  Enable   │ │                                            │  ▣ disabled (grey)
+│ │Assign Spot│ │                                            │  ▦ assigned (blue)
+│ │Update Map │ │   [Home][Lot A][Lot B]                     │
+│ └───────────┘ │                                            │
+│ [👤 My Acct]  │   Edit Mode ●——                       LT   │
 └───────────────┴──────────────────────────────────────────┘
 ```
-After **Done ✓**, the two yellow (selected) spaces turn grey immediately — that's the optimistic update from Step 1. After a **refresh**, they're still grey, because the PATCH actually reached the database.
+After **Done ✓**, the two selected (gold) spaces turn grey immediately — that's the optimistic update from Step 1. After a **refresh**, they're still grey, because the PATCH actually reached the database.
+
+> **Status colours (the legend both U3 and U4 use).** available = **yellow** (`#ffeb3b`), selected = **gold** (`#f5c542`), disabled = **grey** (`#aaa`), assigned = **blue** (`#7aa7ff`). Available is yellow, *not* white — a white spot washes out against a light map photo. The space objects the grid reads (`id`, `status`, `lot_id`, `assigned_user_id`) are snake_case, matching the U3 data contract.
 
 ---
 
 ## 🧪 Prove it works — testing guide
 
 1. **Setup:** backend running (through **B5**); `npm run dev`; admin logged in.
-2. **Steps:** toggle **Edit Mode** on → **Single Select** → click 2–3 white spaces (they turn yellow) → **Disable** → **Done ✓**; then **refresh the page**. Repeat with **Enable** to turn them back.
+2. **Steps:** select a lot → **Slot Enable/Disable** → click 2–3 available (yellow) spaces (they turn gold when selected) → **Disable** (in the sub-panel) → **Done ✓**; then **refresh the page**. Repeat with **Enable** to turn them back. (Edit Mode is optional — the buttons work once a lot is selected.)
 3. **Expected:**
    - Right after **Done**, the spaces turn grey **immediately** (optimistic), edit mode closes.
    - After **refresh**, they're **still grey** — it saved to the database.
@@ -193,7 +198,9 @@ Then open a Pull Request on GitHub with **base = `cr/u3-real-lots`** (this CR br
 
 - **The Enable/Disable/Done buttons crash with a "not defined" error** — you forgot to add `updateSpaces` to the import list from `./store/parkingSlice` in `ControlBoard.tsx`.
 - **Spaces flip colour but go back to their old status after refresh** — the PATCH never reached the backend. Check the browser console for a network error, and confirm backend **B5** is actually running.
-- **Clicking Disable on a blue (`assigned`) space always errors** — that's expected: the server returns 409 for spaces that are already assigned. Only select white (`available`) or grey (`disabled`) spaces to test enable/disable.
+- **Clicking Disable on a blue (`assigned`) space always errors** — that's expected: the server returns 409 for spaces that are already assigned. Only select yellow (`available`) or grey (`disabled`) spaces to test enable/disable.
+- **Selected a lot but every admin button stays greyed out** — you're double-gating on a separate Edit Mode. The panel should activate on lot selection (`isControlPanelActive = selectedLotId != null`); gate Disable/Enable on having a selection, and treat Edit Mode as optional chrome, not a required switch (see the Gating note in Step 2).
+- **Can't find the Disable/Enable buttons** — they're no longer top-level; open the **"Slot Enable/Disable"** mode button first, which reveals the sub-panel that contains them (see the Menu note in Step 2).
 - **Nothing happens when you click Done** — check that `editAction === 'disable'` at that moment; if the admin toolbar's `editAction` state got reset, the `else` branch just closes Edit Mode instead of dispatching `updateSpaces`.
 - **`state.error` never clears between attempts** — this lesson's `rejected` handler only sets `error`; if you want it cleared on a fresh attempt, make sure `updateSpaces.pending` (or `fetchSpaces.pending` from U3) resets it, the same way U3's `fetchSpaces.pending` does.
 
@@ -205,6 +212,7 @@ Then open a Pull Request on GitHub with **base = `cr/u3-real-lots`** (this CR br
 - You practiced the **write-then-re-fetch** pattern — `updateSpaces` calls `PATCH`, then dispatches `fetchSpaces` itself, so the store always ends up matching the database exactly.
 - You retired the old browser-only `enableSelectedSpaces`/`disableSelectedSpaces` reducers for good, replacing them with a single thunk that actually talks to the backend.
 - You proved persistence the right way: not just "the screen updated," but "the screen still shows it after a refresh."
+- You saw the admin menu reorganized into mode buttons + sub-panels (Disable/Enable now live under **"Slot Enable/Disable"**) with tooltips on every button — same buttons, same thunk, better discoverability.
 
 ---
 

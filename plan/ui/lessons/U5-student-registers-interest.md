@@ -1,36 +1,38 @@
-# Lesson U5 — Student registers interest (core feature #1)
+# Lesson U5 — Student picks a spot & registers interest (core feature #1)
 
-> **Track:** Frontend · **Lesson 6 of 8**
-> **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first real POST request + a new Redux slice)
-> **🧩 Prerequisites:** you've done [Lesson U4 — Make enable/disable actually save](U4-enable-disable-saves.md); backend **B6** (the interest endpoint) is running.
+> **Track:** Frontend · **Lesson 6 of 10**
+> **⏱ Time:** ~70 min · **🎚 Difficulty:** moderate–hard (your first real POST request, a new Redux slice, and a student-facing map view)
+> **🧩 Prerequisites:** you've done [Lesson U4 — Make enable/disable actually save](U4-enable-disable-saves.md) and read the map/pan-zoom mechanics in [U3](U3-show-real-lots-and-spaces.md); backend **B6** (the interest endpoint) is running.
 > **🌿 CR branch:** `cr/u5-student-interest` (off `cr/u4-save-status`) · **📄 Source CR:** [UI guide → CR U5](../ui-development-guide.md#cr-u5--student-registers-interest-core-feature-1) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
 
 ## 🎯 Goal — what you'll have at the end
 
-A **real** student dashboard. Instead of the U2 stub screen, a logged-in student will see the live parking availability, be able to click a button to **register interest** in a lot, and see their request's status (`pending` now, `fulfilled` once an admin assigns them a space in U6).
+A **real** student dashboard that mirrors the admin's map — campus map → click a lot → see that lot's spots — but with **no admin sidebar**. Instead of a plain lot list with a "register interest" button, the student **clicks the actual spot they want** on the map, then submits. A student may request **exactly one spot**: clicking an available (yellow) spot picks it (turns green), clicking again clears it, and picking a different one replaces the first.
+
+Once they submit, the request **locks**: the map and Submit/Clear go read-only and a side panel shows "Your request — *pending approval*". To change their mind, the student uses **Withdraw request** (offered only while `pending`), which rescinds it and re-opens the map to pick again. After an admin assigns them (U6), the request reads **Approved — spot assigned** and is fully locked (they'd contact the admin to change it).
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `src/store/interestSlice.ts` exists with a `mine` field, plus `fetchMyInterest` and `registerInterest` thunks.
+- [ ] `src/store/interestSlice.ts` exists with a `mine` field, plus `fetchMyInterest`, `registerInterest`, and `withdrawInterest` thunks.
 - [ ] The `interest` reducer is registered in `src/store/index.ts`.
-- [ ] `src/StudentDashboard.tsx` shows the availability list, a "Register interest" button per lot when the student has no active request, and their request + status once they do.
-- [ ] Clicking a "Register interest" button POSTs to the backend, and the result **survives a page refresh**.
-- [ ] Your work is committed on branch `cr/u5-student-interest` and pushed, PR base = `cr/u4-save-status`.
+- [ ] `src/StudentDashboard.tsx` shows the **campus map → lot → spots** view (reusing U3's pan/zoom), **without** the admin sidebar.
+- [ ] A student can **click an available spot to pick it** (green), click again to clear, and picking another **replaces** the first — never more than one.
+- [ ] A **"Your selection"** panel names the picked spot with **Submit** and **Clear**; a top **banner** shows the current request (`lot · spot — status`).
+- [ ] Opening the lot of an existing request **pre-loads** its picked spot.
+- [ ] After **Submit**, the map + Submit/Clear are **disabled**; the panel flips to read-only "Your request". **Withdraw request** (only while `pending`) rescinds it and re-enables picking.
+- [ ] Everything **survives a page refresh**.
+- [ ] Work committed on `cr/u5-student-interest` and pushed, PR base = `cr/u4-save-status`.
 
 ---
 
 ## 🤔 Why this lesson matters
 
-Up to now, the student dashboard has been a stub — a placeholder screen that doesn't talk to the database. This lesson turns it into the app's **first core feature**: a student saying "I want a spot in this lot" and that request actually sticking around.
+Up to now the student dashboard has been a stub. This lesson turns it into the app's **first core feature** — and it's the moment the two halves of the product meet: the student picks a spot on the **same map** the admin arranged in U8, reading the **same** spaces the admin manages. It's worth the extra time over a plain button list because:
 
-Notice the shape of what you're building, because you'll use this exact pattern for the rest of the app:
-
-1. A **thunk** asks the backend to do something (`GET` to read, `POST` to write).
-2. The **slice** stores the result in Redux so any component can read it.
-3. The **component** renders different UI depending on what's in the store — no request yet? Show buttons. Already have one? Show status instead.
-
-This "read state, render one of two UIs" pattern is the heart of almost every interactive screen you'll build. Get comfortable with it here, because U6 (admin assigns spaces) leans on the same `interest` data from the other side.
+- **Students think in spots, not lot names.** Letting them point at the actual spot they want (and see which are taken) is the real product; a "register interest in Lot A" button was a scaffold.
+- **You'll reuse the map everywhere.** The campus→lot→spots view with pan/zoom is the same one from U3/U8 — here you render it *without* the sidebar and make spots *clickable to pick*. Seeing the same map serve admin and student cements how normalized coordinates (`x/y/w/h`) make one layout work for both.
+- **"One active request, lockable, withdrawable" is a real state machine.** Pick → submit → (locked) → withdraw → pick again is the same request lifecycle U6 drives from the admin side. Building the student side here makes U6 click into place.
 
 ---
 
@@ -38,21 +40,29 @@ This "read state, render one of two UIs" pattern is the heart of almost every in
 
 | Concept | One-line meaning | Learn more |
 |---|---|---|
-| **Controlled UI by state** | The buttons you show depend on data (`mine === null` vs not), not on a separate "mode" flag. | [React docs: Reacting to input with state](https://react.dev/learn/reacting-to-input-with-state) |
-| **`fetch` with `POST`** | Sending data *to* the server (not just asking for it) by setting `method` and a JSON `body`. | [MDN: Using the Fetch API — making POST requests](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) |
-| **Redux Toolkit async thunks** | A function that does an `async` request, then Redux tracks its `pending` / `fulfilled` / `rejected` states for you. | [RTK docs: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk) |
-| **Disabling a button mid-request** | Prevents a student from double-clicking and firing the request twice. | [MDN: `disabled` attribute](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button#disabled) |
-| **Showing server errors in the UI** | Turning a caught `Error` (from `api.post`) into a message the user can actually read. | [MDN: Error-handling with try/catch](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch) |
+| **Controlled UI by state** | What you show (pick mode vs locked "your request") depends on the request's `status`, not a separate flag. | [React docs: Reacting to input with state](https://react.dev/learn/reacting-to-input-with-state) |
+| **`fetch` with `POST`** | Sending data *to* the server (the picked spot) by setting `method` and a JSON `body`. | [MDN: Using the Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) |
+| **Redux Toolkit async thunks** | A function that does an `async` request; Redux tracks its `pending`/`fulfilled`/`rejected` for you. | [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk) |
+| **Normalized coordinates** | Spots stored as fractions (`x/y/w/h` ∈ 0..1) so one layout renders at any map size — shared with U3/U8. | [Lesson U3](U3-show-real-lots-and-spaces.md), [U8](U8-place-and-arrange-spots.md) |
+| **Idempotent upsert** | Submitting replaces your single active request rather than piling up duplicates. | [Wikipedia: Idempotence](https://en.wikipedia.org/wiki/Idempotence) |
 
 ---
 
 ## ✅ Before you start
 
-**Prerequisites:** [Lesson U4](U4-enable-disable-saves.md) done (you're on `cr/u4-save-status`), and backend **B6** (the `/api/interest` endpoints) running locally.
+**Time budget for the hour:** setup & branch (5 min) → `interestSlice.ts` (15) → register the slice (5) → rewrite `StudentDashboard.tsx` as the map view (30) → test & commit (15).
 
-**Time budget for the hour:** setup & branch (5 min) → `interestSlice.ts` (15) → register the slice (5) → rewrite `StudentDashboard.tsx` (20) → test & commit (15).
+**The backend contract this lesson calls.** An `interest` request now carries the **picked spot**, not just a lot:
 
-**Open your terminal and make your branch.** This CR branches off U4, not off `main` — remember, each CR builds on the one before it:
+- `Interest` gains **`space_ids: number[]`** and **`space_labels: string[]`** — arrays for forward-compatibility, but the PoC holds **at most one** (a student picks one spot).
+- `GET /api/interest/me` → the student's one active request (or `null`).
+- `POST /api/interest { lotId, spaceIds }` — validates the spot is **in that lot** and **available**: **400** if `spaceIds` is empty, **400** if it has **more than one**, **409** if the spot isn't available. **Upserts** the single active `pending` request (submitting again replaces it).
+- `DELETE /api/interest/me` → cancels (withdraws) the active request (`204`); status becomes `cancelled`.
+- `GET /api/lots/:id/spaces` is **login-gated, not admin-only** — a student must be able to read a lot's layout to see and pick spots. (This is a change from U3/U4 where it was admin-only; the real backend must allow any authenticated user to read spaces.)
+
+> **Status → what the student sees:** `pending` → *"Pending approval"*, `fulfilled` → *"Approved — spot assigned"*, `cancelled` → *"Withdrawn"*.
+
+**Make your branch.** This CR branches off U4:
 
 ```bash
 git checkout cr/u4-save-status
@@ -65,7 +75,7 @@ git checkout -b cr/u5-student-interest
 
 ### Step 1 — Create the interest slice (~15 min)
 
-Create `src/store/interestSlice.ts`:
+Create `src/store/interestSlice.ts`. Note `space_ids`/`space_labels` on the type, and the new `withdrawInterest` thunk:
 
 ```ts
 // src/store/interestSlice.ts
@@ -77,25 +87,36 @@ export interface Interest {
   user_id: number;
   lot_id: number;
   lot_name?: string;
+  space_ids: number[];      // holds ≤ 1 in the PoC (arrays for forward-compat)
+  space_labels: string[];
   status: "pending" | "fulfilled" | "cancelled";
   created_at: string;
 }
 
 interface InterestState {
-  mine: Interest | null;            // this student's current request (one active at a time)
+  mine: Interest | null;    // this student's one active request
   status: "idle" | "loading" | "error";
   error: string | null;
 }
 
 const initialState: InterestState = { mine: null, status: "idle", error: null };
 
-// GET /api/interest/me -> Interest | null
-export const fetchMyInterest = createAsyncThunk("interest/me", () => api.get("/api/interest/me") as Promise<Interest | null>);
+export const fetchMyInterest = createAsyncThunk(
+  "interest/me",
+  () => api.get("/api/interest/me") as Promise<Interest | null>
+);
 
-// POST /api/interest { lotId } -> Interest
+// POST /api/interest { lotId, spaceIds: [spotId] } -> Interest
 export const registerInterest = createAsyncThunk(
   "interest/register",
-  (lotId: number) => api.post("/api/interest", { lotId }) as Promise<Interest>
+  ({ lotId, spaceId }: { lotId: number; spaceId: number }) =>
+    api.post("/api/interest", { lotId, spaceIds: [spaceId] }) as Promise<Interest>
+);
+
+// DELETE /api/interest/me  (withdraw / rescind)
+export const withdrawInterest = createAsyncThunk(
+  "interest/withdraw",
+  () => api.del("/api/interest/me")
 );
 
 const interestSlice = createSlice({
@@ -113,7 +134,10 @@ const interestSlice = createSlice({
       .addCase(fetchMyInterest.rejected, fail)
       .addCase(registerInterest.pending, pending)
       .addCase(registerInterest.fulfilled, (s, a) => { s.status = "idle"; s.mine = a.payload; })
-      .addCase(registerInterest.rejected, fail);
+      .addCase(registerInterest.rejected, fail)
+      .addCase(withdrawInterest.pending, pending)
+      .addCase(withdrawInterest.fulfilled, (s) => { s.status = "idle"; s.mine = null; })
+      .addCase(withdrawInterest.rejected, fail);
   },
 });
 
@@ -121,17 +145,14 @@ export default interestSlice.reducer;
 ```
 
 **Explanation, piece by piece:**
-- **`Interest` interface** — the shape of one request as the backend sends it: which lot, whose it is, and its `status`. `lot_name?` has a `?` because the backend may or may not include it — always handle the "not there" case.
-- **`InterestState.mine`** — a student has **at most one active request**, so this is a single `Interest | null`, not an array. `null` means "hasn't asked yet."
-- **`fetchMyInterest`** — a `GET` thunk, same pattern as `fetchLots` from U3: no arguments, just ask the backend "what's my current request?" → [createAsyncThunk docs](https://redux-toolkit.js.org/api/createAsyncThunk).
-- **`registerInterest`** — your first **`POST`** thunk. It takes `lotId` as an argument and calls `api.post("/api/interest", { lotId })`. `api.post` (built back in U0/U1) sends `lotId` as the JSON body and attaches your login token automatically. → [MDN: making POST requests with fetch](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch).
-- **`extraReducers`** — the same `pending` / `fulfilled` / `rejected` pattern as every other slice in this app: `pending` clears old errors and shows a loading state, `fulfilled` stores the result, `rejected` stores a readable error message. Both thunks share the same `mine = a.payload` logic on success, because registering *is* the new "your current request."
-
-> **Why one thunk for reading, one for writing?** Keeping `fetchMyInterest` (read) and `registerInterest` (write) separate means each has one job and one clear success shape. You'll reuse this "one thunk per HTTP verb" habit for every feature from here on.
+- **`space_ids` / `space_labels`** — the picked spot travels with the request. They're arrays because the API is built to allow multiple picks later, but the PoC enforces exactly one (the backend rejects `>1`).
+- **`registerInterest({ lotId, spaceId })`** — your first **`POST`** thunk. It wraps the single spot as `spaceIds: [spaceId]`. `api.post` (from U0/U1) sends the JSON body and attaches your token.
+- **`withdrawInterest`** — a **`DELETE`** to `/api/interest/me` (`api.del`, the same client method U6 uses for unassign). On success the reducer sets `mine = null`, which re-opens the map for picking.
+- **`extraReducers`** — the familiar `pending`/`fulfilled`/`rejected` shape. All three thunks share the loading + error handling; `register` and `fetch` set `mine = payload`, `withdraw` clears it.
 
 ### Step 2 — Register the slice (~5 min)
 
-Open `src/store/index.ts` and add the new reducer to the store:
+In `src/store/index.ts`:
 
 ```ts
 import interestReducer from "./interestSlice";
@@ -145,110 +166,102 @@ export const store = configureStore({
 });
 ```
 
-**Why this step exists:** a slice's reducer only actually manages state once it's plugged into the store under a key (here, `"interest"`). That key is what `useAppSelector((s) => s.interest)` reads from — skip this step and `s.interest` would be `undefined`.
+Without this, `useAppSelector((s) => s.interest)` would be `undefined`.
 
-### Step 3 — Rewrite the student dashboard (~20 min)
+### Step 3 — Rewrite `StudentDashboard.tsx` as the map view (~30 min)
 
-Replace the whole contents of `src/StudentDashboard.tsx` with the real screen:
+The student dashboard now reuses the **campus map → lot → spots** view you built for admin in U3, **minus the sidebar**, plus spot-picking. Rather than repeat the whole pan/zoom map here, lift the map-rendering pieces you already have (campus image with lot markers, per-lot spaces render, the shared `translate`-offset pan + cursor-anchored wheel zoom from U3/U8) into a component the student screen can render read-only. The **new** behaviour is spot-picking and the lock/withdraw states:
 
 ```tsx
-// src/StudentDashboard.tsx
-import { useEffect } from "react";
-import { useAppDispatch, useAppSelector } from "./store";
-import { logout } from "./store/authSlice";
-import { fetchLots } from "./store/parkingSlice";
-import { fetchMyInterest, registerInterest } from "./store/interestSlice";
+// src/StudentDashboard.tsx  (key logic — map/pan/zoom reused from U3)
+const { mine, status, error } = useAppSelector((s) => s.interest);
+const [pickedSpaceId, setPickedSpaceId] = useState<number | null>(null);
 
-export default function StudentDashboard() {
-  const dispatch = useAppDispatch();
-  const user = useAppSelector((s) => s.auth.user);
-  const lots = useAppSelector((s) => s.parking.lots);
-  const { mine, status, error } = useAppSelector((s) => s.interest);
+const locked = mine != null;                          // submitted → read-only
+const canPick = !locked;
 
-  useEffect(() => {
-    dispatch(fetchLots());
-    dispatch(fetchMyInterest());
-  }, [dispatch]);
+// Pre-load the existing pick when opening the lot of an active request:
+const openLot = (lotId: number) => {
+  dispatch(fetchSpaces(lotId));                        // login-gated, students allowed
+  setSelectedLotId(lotId);
+  setPickedSpaceId(mine?.lot_id === lotId ? (mine.space_ids[0] ?? null) : null);
+};
 
-  return (
-    <div style={{ padding: "24px", maxWidth: "560px", margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>Welcome, {user?.name}</h1>
-        <button onClick={() => dispatch(logout())}>Logout</button>
-      </div>
+// Click a spot on the map:
+const onSpaceClick = (space: Space) => {
+  if (!canPick || space.status !== "available") return;   // can't pick taken/disabled, or when locked
+  setPickedSpaceId((cur) => (cur === space.id ? null : space.id));  // toggle / replace
+};
 
-      <h3>Parking availability</h3>
-      <ul>
-        {lots.map((lot) => (
-          <li key={lot.id}>{lot.name}: {lot.available_count} of {lot.capacity} available</li>
-        ))}
-      </ul>
+const submit = () => {
+  if (pickedSpaceId == null || selectedLotId == null) return;
+  dispatch(registerInterest({ lotId: selectedLotId, spaceId: pickedSpaceId }));
+};
+```
 
-      <h3>Your request</h3>
-      {mine ? (
-        <p>
-          You requested <b>{mine.lot_name ?? `lot #${mine.lot_id}`}</b> — status:{" "}
-          <b style={{ color: mine.status === "fulfilled" ? "green" : "#b80" }}>{mine.status}</b>
-        </p>
-      ) : (
-        <div>
-          <p>You haven't requested a spot yet. Pick a lot:</p>
-          {lots.map((lot) => (
-            <button
-              key={lot.id}
-              disabled={status === "loading"}
-              onClick={() => dispatch(registerInterest(lot.id))}
-              style={{ marginRight: "8px" }}
-            >
-              Register interest — {lot.name}
-            </button>
-          ))}
-        </div>
-      )}
-      {error && <p style={{ color: "red" }}>{error}</p>}
-    </div>
-  );
-}
+Spot colour while picking: available = **yellow**, your pick = **green**, taken/disabled = grey/red (same legend as U3). A spot is green when `space.id === pickedSpaceId`.
+
+The two panels — pick mode vs locked — are pure "controlled UI by state":
+
+```tsx
+{/* Top banner: always shows the current request, if any */}
+{mine && (
+  <div className="banner">
+    {mine.lot_name} · {mine.space_labels[0] ?? "—"} —{" "}
+    {/* `cancelled` is a defensive fallback — withdrawing sets `mine = null`, so
+        this banner (which only renders when `mine` exists) won't normally show it. */}
+    <b>{ {pending: "Pending approval", fulfilled: "Approved — spot assigned",
+          cancelled: "Withdrawn"}[mine.status] }</b>
+  </div>
+)}
+
+{locked ? (
+  /* Read-only "Your request" */
+  <aside>
+    <h3>Your request</h3>
+    <p>{mine!.lot_name} · <b>{mine!.space_labels[0]}</b></p>
+    <p>Status: {mine!.status === "fulfilled" ? "Approved — spot assigned" : "Pending approval"}</p>
+    {mine!.status === "pending" && (
+      <button onClick={() => dispatch(withdrawInterest())}>Withdraw request</button>
+    )}
+    {mine!.status === "fulfilled" && <p>Assigned by the office — contact an admin to change.</p>}
+  </aside>
+) : (
+  /* Pick mode: "Your selection" */
+  <aside>
+    <h3>Your selection</h3>
+    <p>{pickedSpaceId ? `Spot picked in this lot` : "Click an available (yellow) spot to pick it."}</p>
+    <button disabled={pickedSpaceId == null || status === "loading"} onClick={submit}>Submit</button>
+    <button disabled={pickedSpaceId == null} onClick={() => setPickedSpaceId(null)}>Clear</button>
+  </aside>
+)}
+{error && <p style={{ color: "red" }}>{error}</p>}
 ```
 
 **Explanation, piece by piece:**
-- **`useEffect(..., [dispatch])`** — on the very first render, dispatch two reads at once: the lot list (from U3's `parkingSlice`) and this student's own request. Both run in parallel; neither waits for the other. → [React docs: useEffect](https://react.dev/reference/react/useEffect).
-- **`const { mine, status, error } = useAppSelector((s) => s.interest)`** — pulls all three fields out of the `interest` slice you registered in Step 2, in one line.
-- **`{mine ? (...) : (...)}`** — this is the "controlled UI by state" concept from the table above: **one `if`, driven entirely by data.** No `mine` yet → show the register buttons. Have a `mine` → show its status instead. There's no separate "hasRegistered" flag to keep in sync — the data itself *is* the truth. → [React docs: Reacting to input with state](https://react.dev/learn/reacting-to-input-with-state).
-- **`disabled={status === "loading"}`** — while a `registerInterest` request is in flight, the buttons are disabled so a student can't fire two requests by double-clicking. → [MDN: `disabled`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button#disabled).
-- **`onClick={() => dispatch(registerInterest(lot.id))}`** — clicking a lot's button dispatches the write thunk with that lot's id. On success, `mine` fills in and React re-renders straight into the "Your request" branch — the buttons disappear on their own, because they only render when `mine` is `null`.
-- **`{error && <p ...>{error}</p>}`** — if the backend rejects the request (for example, a 409 because the student already has an active request), `interestSlice`'s `fail` reducer put a readable message in `error`, and this line shows it in red. → [MDN: try/catch error handling](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch).
+- **`locked = mine != null`** — once a request exists, the whole map + Submit/Clear go read-only. The student *can still pan/zoom and look*, but `onSpaceClick` early-returns because `canPick` is false. This is the "controlled UI by state" concept: the request's existence, not a flag, decides the mode.
+- **Toggle / replace in one line** — `setPickedSpaceId(cur => cur === space.id ? null : space.id)` clears if you click the same spot, otherwise selects the new one. Because there's a single `pickedSpaceId`, picking a different spot *automatically* replaces the old pick — you never track more than one.
+- **Pre-load on open** — when the student opens the lot their request is in, `openLot` seeds `pickedSpaceId` from `mine.space_ids[0]`, so the green spot shows where they already asked.
+- **Withdraw only while `pending`** — a `fulfilled` request (admin already assigned them, U6) is fully locked; the student contacts the office. `withdrawInterest` sets `mine = null`, which drops `locked` to false and re-opens picking.
+- **Don't set state in an effect** — reset `pickedSpaceId` in the `openLot`/nav **click handlers**, not in a `useEffect`, to respect the `react-hooks/set-state-in-effect` rule you met in U3/U8.
 
-**What it looks like, before and after registering:**
-
-```
-  BEFORE registering                         AFTER registering
-┌────────────────────────────────┐        ┌────────────────────────────────┐
-│ Welcome, Alice        [Logout]  │        │ Welcome, Alice        [Logout]  │
-│                                 │        │                                 │
-│ Parking availability            │        │ Parking availability            │
-│  • Lot A: 11 of 12 available    │        │  • Lot A: 10 of 12 available    │
-│  • Lot B:  8 of  8 available    │        │  • Lot B:  8 of  8 available    │
-│                                 │        │                                 │
-│ Your request                    │        │ Your request                    │
-│  You haven't requested a spot.  │        │  You requested Lot A — status:  │
-│  [Register interest — Lot A]    │        │  pending                        │
-│  [Register interest — Lot B]    │        │                                 │
-└────────────────────────────────┘        └────────────────────────────────┘
-```
+> **Hover tooltip (optional polish).** Like the admin map (U3), give student spots a floating cursor tooltip showing **lot number · spot label · availability** (*Available / Taken / Unavailable / Selected by you*) instead of the native `title`.
 
 ---
 
 ## 🧪 Prove it works — testing guide
 
-1. **Setup:** backend running (through **B6**), seeded; `npm run dev`; log in as a seeded student (`STU001`).
-2. **Steps:** read the availability list; click **Register interest — Lot A**; **refresh**; try registering a second time (the buttons should be gone, replaced by your status).
+1. **Setup:** backend through **B6**, seeded; `npm run dev`; log in as a seeded student (**STU001** — the login hint lists `STU001`–`STU004`).
+2. **Steps:** from the campus map, open a lot; click an available (yellow) spot (it turns **green**); click it again (clears); click a different one (the pick moves); **Submit**. Then **refresh**. Re-open the same lot. Click **Withdraw request**, pick a different spot, and submit again.
 3. **Expected:**
-   - After clicking, "Your request" shows **Lot A — pending**.
-   - After **refresh**, the request is still there (loaded by `fetchMyInterest`).
-   - You can't create a second active request (the register buttons disappear once you have one); if you hit the API directly the backend returns 409 and you'd see a red error.
+   - Picking is single-spot: only one spot is ever green; taken/disabled spots don't respond.
+   - After **Submit**, the banner shows `lot · spot — Pending approval`, the map + Submit/Clear are **disabled**, and the panel shows read-only "Your request".
+   - After **refresh**, the request persists (loaded by `fetchMyInterest`), and re-opening its lot pre-selects the green spot.
+   - **Withdraw** re-opens picking (banner clears); you can pick + submit a fresh spot.
+   - Submitting a second time doesn't create a duplicate — it replaces the one active request (upsert). Hitting the API with two spot ids returns **400**; an already-taken spot returns **409** shown in red.
+4. **Admin cross-check (needs U6):** once an admin assigns you, your request reads **Approved — spot assigned** and Withdraw is gone.
 
-**☁️ Cloud check (optional):** needs backend **B6** deployed. `./release.sh frontend`, log in as a student on the live site, register interest, and refresh — the request persists. (Half of the full cloud E2E; the other half lands with U6.)
+**☁️ Cloud check (optional):** needs **B6** deployed. Deploy the frontend, log in as a student, pick + submit a spot, refresh — it persists. (The other half of the E2E lands with U6.)
 
 ---
 
@@ -256,45 +269,46 @@ export default function StudentDashboard() {
 
 ```bash
 git add -A
-git commit -m "U5: student dashboard + interestSlice (register + view status)"
+git commit -m "U5: student self-service map — pick a spot, submit/withdraw interest (single active request)"
 git push -u origin cr/u5-student-interest
 ```
 
-Then open a Pull Request on GitHub with **base = `cr/u4-save-status`** (this CR branches off U4, not `main`). Fill in the CR description template and paste your "Prove it works" output as the testing evidence. The [CR status tracker in plan.md §8.2](../../plan.md#82-cr-status-tracker) is where this CR's status is recorded.
+Open a PR with **base = `cr/u4-save-status`**. Paste your "Prove it works" output. Record it in the [CR status tracker in plan.md §8.2](../../plan.md#82-cr-status-tracker).
 
 ---
 
 ## 🧯 If something breaks
 
-- **Clicking the button does nothing** — check the browser console for a network error. Confirm backend **B6** is actually running and `VITE_API_URL` points at it.
-- **`s.interest` is `undefined` in the console** — you skipped Step 2; the reducer isn't registered in `src/store/index.ts`.
-- **The register buttons never disappear after clicking** — check that `registerInterest.fulfilled` is setting `s.mine = a.payload` in `interestSlice.ts`; if `mine` never gets set, the `mine ? ... : ...` branch never switches.
-- **Refreshing loses your request** — that means it was only ever stored in Redux, not the database. Confirm `registerInterest` is really calling `api.post` (not just updating local state) and that B6's endpoint is saving to Postgres.
-- **You get a 409 error every time, even on a fresh account** — the seeded student may already have a `pending` request from an earlier test run; check the `interest` table in the database or use a different seeded student code.
+- **Clicking a spot does nothing** — confirm the spot is `available` and no request is active (`locked`); a submitted request disables picking until you withdraw.
+- **`s.interest` is `undefined`** — you skipped Step 2; the reducer isn't registered.
+- **Students get 403 reading a lot's spaces** — `GET /api/lots/:id/spaces` must be **login-gated, not admin-only** (contract change from U3/U4). Fix the backend guard.
+- **400 on submit** — you sent an empty `spaceIds`, or more than one. The PoC allows exactly one picked spot.
+- **409 on submit** — the spot was taken between load and submit; refetch the lot's spaces and pick another.
+- **The map + Submit stay disabled forever** — that's `locked` (`mine != null`). Use **Withdraw request** (only shown while `pending`) to re-open; a `fulfilled` request is intentionally locked.
+- **Refreshing loses the request** — it was only in Redux, not the DB. Confirm `registerInterest` calls `api.post` and B6 persists it.
+- **Set-state-in-effect eslint error** — reset `pickedSpaceId` in click/nav handlers, not a `useEffect`.
 
 ---
 
 ## 📝 Recap
 
-- You built your first **write** thunk (`registerInterest`, a `POST`) alongside a **read** thunk (`fetchMyInterest`, a `GET`) — the same one-thunk-per-verb pattern you'll reuse for the rest of the app.
-- You practiced **controlled UI by state**: the dashboard shows register buttons or status entirely based on whether `mine` is `null`, with no separate flag to keep in sync.
-- You disabled a button during an in-flight request to prevent duplicate submissions, and surfaced a server-side error (like a 409 conflict) as readable text.
-- You proved persistence the right way: not just "the screen updated," but "the screen still shows it after a refresh."
+- You built your first **write** thunk (`registerInterest`, a `POST`) and a **withdraw** thunk (`withdrawInterest`, a `DELETE`) alongside the **read** (`fetchMyInterest`) — one thunk per verb.
+- You reused the **campus→lot→spots map** (pan/zoom, normalized coords) from U3/U8 on the **student** side, minus the sidebar, and made spots **clickable to pick** — single-spot, toggle-to-clear, replace-on-new.
+- You modelled a real **request lifecycle** with controlled-by-state UI: pick → **submit (locks)** → **withdraw (re-opens)**, and a `fulfilled` request that's fully locked.
+- You proved persistence the right way — the picked spot and status survive a refresh.
 
 ---
 
 ## 📚 References
 
-- [React docs — Reacting to input with state](https://react.dev/learn/reacting-to-input-with-state) — the pattern behind rendering buttons vs. status from one piece of data.
-- [React docs — useEffect](https://react.dev/reference/react/useEffect) — running the initial data fetches when the component mounts.
-- [MDN — Using the Fetch API: making POST requests](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) — how a POST body gets sent.
-- [Redux Toolkit — createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk) — the thunk pattern used for both `fetchMyInterest` and `registerInterest`.
-- [MDN — `<button>` `disabled` attribute](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button#disabled) — preventing double-submission.
-- [MDN — try/catch error handling](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch) — how a thrown `Error` becomes a message in `error`.
-- Source of truth for this lesson: [UI guide → CR U5](../ui-development-guide.md#cr-u5--student-registers-interest-core-feature-1).
+- [React docs — Reacting to input with state](https://react.dev/learn/reacting-to-input-with-state) — pick-mode vs locked "your request" from one piece of data.
+- [MDN — Using the Fetch API (POST)](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) — how the picked spot gets sent.
+- [Redux Toolkit — createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk) — the thunk pattern for all three verbs.
+- [Lesson U3](U3-show-real-lots-and-spaces.md) & [U8](U8-place-and-arrange-spots.md) — the map, normalized coordinates, and pan/zoom this screen reuses.
+- Source of truth: [UI guide → CR U5](../ui-development-guide.md#cr-u5--student-registers-interest-core-feature-1).
 
 ---
 
 ## ➡️ Next lesson
 
-**[Lesson U6 — Admin assigns spaces](U6-admin-assigns-spaces.md).** You'll build the other half of this feature: an admin sees the list of pending requests and assigns a real space to each one, flipping the student's status from `pending` to `fulfilled`. → [source CR](../ui-development-guide.md#cr-u6--admin-assigns-spaces-core-feature-2).
+**[Lesson U6 — Admin assigns spaces](U6-admin-assigns-spaces.md).** You'll build the other half: an admin sees pending requests (with the student's name and picked spot as a hint), assigns a real space, and flips the status `pending → fulfilled` — which is exactly the "Approved — spot assigned" state this screen shows. → [source CR](../ui-development-guide.md#cr-u6--admin-assigns-spaces-core-feature-2).

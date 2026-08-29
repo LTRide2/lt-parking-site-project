@@ -16,10 +16,12 @@ Concretely, you will have:
 - An `uploadFile` helper in `src/api/client.ts` that sends a file as `FormData` instead of JSON.
 - An `uploadLotMap` thunk that `POST`s the file to `/api/lots/:id/map` and then refreshes the lots so the new image shows up.
 - A hidden `<input type="file">` wired to the **Update School Map** button, so a click opens the OS picker instead of doing nothing.
+- A shared `mapImg()` helper so the map image renders in **every** lot view — not only the one with spots already arranged on it.
 
 **✅ Done when (your deliverable checklist):**
 - [ ] Clicking **Update School Map** (with a lot selected) opens the OS file picker.
 - [ ] Choosing a PNG/JPG uploads it; after the refresh, the Home view shows the new map image.
+- [ ] A newly-created lot with **no spaces yet** still shows an uploaded map (not just lots with an arranged layout).
 - [ ] Choosing a non-image file (e.g. a `.txt`) or an oversized file shows a **red error** — no crash.
 - [ ] Choosing the *same* file a second time still triggers another upload (the picker doesn't silently ignore a repeat choice).
 - [ ] Your work is committed on branch `cr/u7-map-upload` and pushed, PR base = `cr/u6-admin-assign`.
@@ -53,7 +55,7 @@ This is also a nice, small, complete feature to close out the frontend track on:
 
 ## ✅ Before you start
 
-**Time budget for the hour:** setup & branch (5 min) → Step 1, upload helper (10) → Step 2, upload thunk (10) → Step 3, wire the button (15) → test & commit (20).
+**Time budget for the hour:** setup & branch (5 min) → Step 1, upload helper (10) → Step 2, upload thunk (10) → Step 3, wire the button (15) → Step 4, show the map in every lot view (10) → test & commit (10).
 
 You need **U6** merged (or at least on your machine) and the backend's map-upload endpoint (`POST /api/lots/:id/map`) running — this CR **depends on** both.
 
@@ -124,6 +126,10 @@ Handle its `rejected` case to surface errors:
 - After the upload succeeds, it `dispatch(fetchLots())` — the same **refetch-after-mutation** pattern from U6's `createAssignment`: rather than guessing what the server changed, ask it again and trust the fresh answer. That's what puts the new `map_url` into Redux state.
 - The `.rejected` case writes any thrown error (including the message your `uploadFile` helper throws on a non-`ok` response) into `state.error`, the same field your existing error UI already reads.
 
+> **Two things that make an uploaded map "not load" — worth knowing before you test.**
+> - **Where the image lives (mock backend only).** If you run the PoC against the mock backend, it must store the file as a base64 **data URL** (`FileReader.readAsDataURL`), *never* `URL.createObjectURL(file)`. A `blob:` URL is valid only for the current page session — it renders once but is dead after a refresh and is meaningless once written to `localStorage`, so the map "doesn't load" on reload. A **real** backend persists the file and returns a durable URL, so it has no blob-lifetime bug. (Caveat: the mock's `persist()` swallows `QuotaExceededError` and base64 inflates size ~33%, so several multi-MB uploads can quietly exceed the ~5 MB `localStorage` quota — fine in-session, gone after reload.)
+> - **Where the image is drawn (frontend).** The lot view must render `map_image_url` **whenever it exists** — in the no-spaces view, the fallback grid, the authored layout, *and* arrange mode. A common bug is drawing the `<img>` only in the authored-layout/arrange views, so a lot with no spaces or positionless spaces never shows a freshly uploaded map. U3/U8 centralize this in one small `mapImg()` helper used by every lot view; make sure yours does too, or your upload will "succeed" yet appear to do nothing.
+
 ### Step 3 — Wire the button in `ControlBoard.tsx` (~15 min)
 
 A plain `<button>` can't open the OS file picker on its own — only a real `<input type="file">` can. The trick is to hide that input and trigger it programmatically from the button:
@@ -187,6 +193,7 @@ Update the **Update School Map** button's `onClick` to open the picker, and add 
 2. **Steps:** **Edit Mode** on → **Update School Map** → pick a PNG/JPG → confirm. Then try a non-image (e.g. a `.txt`) or an oversized file.
 3. **Expected:**
    - A valid image uploads; after the `fetchLots` refresh, the new map shows on the Home view.
+   - Upload a map to a lot that has **no spaces yet** (or is on the fallback grid) → the image still shows, and after a full **page refresh** it's still there (proves the map renders in every view via `mapImg()`, and — on the mock — that it was stored as a durable data URL, not a session-only `blob:`).
    - A non-image or too-large file → the server rejects it (400/413) and you see a **red error**, no crash.
    - Re-selecting the exact same file a second time uploads again (Step 3's `e.target.value = ""` reset working).
 
@@ -211,7 +218,8 @@ Then open a Pull Request on GitHub with **base = `cr/u6-admin-assign`**. Use the
 - **Clicking the button doesn't open a picker** — check that `onClick` actually calls `fileInputRef.current?.click()` and that the `ref={fileInputRef}` is on the real `<input type="file">`, not some other element. `display: 'none'` on the input is fine — hidden inputs can still be `.click()`ed programmatically.
 - **Upload fails with a 400/415 even for a real image** — you (or a proxy/library) may have accidentally set `Content-Type` on the request. Delete any explicit `Content-Type` header on this call; let the browser write it.
 - **401/403 from the upload** — confirm you're logged in as an **admin** and that `uploadFile` is actually attaching the `Authorization` header (check the Network tab); a stale or missing `token` is the usual cause.
-- **Map doesn't visually update after a successful upload** — confirm `uploadLotMap` really `await`s `dispatch(fetchLots())`; also check your browser isn't just showing a **cached** copy of the old image at the same URL (hard-refresh to rule this out).
+- **Map doesn't visually update after a successful upload** — confirm `uploadLotMap` really `await`s `dispatch(fetchLots())`; also check your browser isn't just showing a **cached** copy of the old image at the same URL (hard-refresh to rule this out). One more common cause: the lot view only draws the `<img>` for authored/arrange layouts, so a lot on the fallback grid (or with no spaces yet) never shows it — render `map_image_url` in **every** lot view via the shared `mapImg()` helper (U3/U8).
+- **Uploaded map shows once, then vanishes after a refresh (mock backend)** — the mock stored `URL.createObjectURL(file)`, a session-scoped `blob:` URL. Store a base64 data URL (`FileReader.readAsDataURL`) so it survives reload. If even that doesn't persist, a multi-MB base64 image may have silently exceeded the ~5 MB `localStorage` quota (the mock's `persist()` swallows the error).
 - **Choosing the same file twice does nothing the second time** — you're missing `e.target.value = ""` at the end of `onMapFileChosen`; without it, the browser doesn't fire `onChange` for a "repeat" selection.
 
 ---

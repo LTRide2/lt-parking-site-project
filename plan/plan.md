@@ -12,7 +12,7 @@ This is the **master/orchestrator design doc**. It captures **what exists today*
 - **Frontend:** [`ui/ui-development-guide.md`](ui/ui-development-guide.md)
 - **Backend + deployment:** [`backend/backend-development-guide.md`](backend/backend-development-guide.md)
 
-**Scope / out of scope.** In scope: a decoupled React SPA + Flask JSON API + relational DB, JWT auth, the parking domain (lots, spaces, interest, assignments), and a single-instance AWS deployment. Out of scope (for now): student *self-claim* as a real feature (the prototype has a local-only version — see §11), payments, notifications, multi-campus, and horizontal scale-out (the HA option is costed in the [deployment guide §B.13](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) but not built).
+**Scope / out of scope.** In scope: a decoupled React SPA + Flask JSON API + relational DB, JWT auth, the parking domain (lots, spaces, interest, assignments), and a single-instance AWS deployment. Out of scope (for now): direct student *self-claim* without admin approval (the PoC instead ships the in-scope request→approve flow — a single-spot pick with lock/withdraw, see §2), payments, notifications, multi-campus, and horizontal scale-out (the HA option is costed in the [deployment guide §B.13](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) but not built).
 
 ---
 
@@ -75,45 +75,39 @@ flowchart TB
 
 | Repo | Path | Stack | State |
 |---|---|---|---|
-| Frontend (UI) | `lt-parking-site-project` ([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)) · local `~/workspace/LT_Proj/lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | UI prototype, ~45% |
-| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | Course scaffold being built out per CRs |
+| Frontend (UI) | `lt-parking-site-project` ([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)) · local `~/workspace/LT_Proj/lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | Feature-complete SPA prototype against a mock backend (mirrors the API contract); real API pending |
+| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | Course scaffold; a one-shot PoC proved B0–B9 run end-to-end (see backend `backport.md`), not yet split into the stacked CRs |
 
-**Overall completion ≈ 25%.**
+**Overall completion ≈ 45%** — the frontend is a feature-complete prototype driven through a mock backend that mirrors the planned API contract (§7.1), and a throwaway PoC has shown the backend design runs; the *shippable* Flask backend (B0–B9) and AWS deployment (D0–D4) are not yet built.
 
 ---
 
 ## 2. What We Have in the UI (today)
 
-The frontend is a working **client-only prototype** — all state lives in Redux and resets on refresh. There are **no API calls and no persistence yet**.
+The frontend is a **feature-complete SPA prototype** that runs against an **independent mock backend** (`src/api/mock/backend.ts`), persisted to `localStorage` and swapped into the `api/` client by the `VITE_USE_MOCK` flag. The mock implements the planned JSON API (§7.1) route-for-route — same `{data}`/`{error}` envelope, same `Authorization: Bearer` token, same paths — so every screen is driven by real thunks/slices and network-shaped calls, **not** local Redux mutation. Flipping `VITE_USE_MOCK=false` points the identical client at the real Flask API once it exists.
 
-### Implemented
-- **Login screen** (`src/Login.tsx`)
-  - Selection between **Student** and **Admin**.
-  - Student form: enter a **code**. Admin form: username + password fields.
-- **Auth state** (`src/store/authSlice.ts`): `loginAsStudent(code)`, `loginAsAdmin()`, `logout()`.
-- **Control Board** (`src/ControlBoard.tsx`) — the most developed piece; it is now the shared screen **both** admins and students land on (the view changes with `userType`):
-  - Campus map view ("Home") with **pan + zoom** (wheel zoom-to-cursor, drag to pan, "Reset View").
-  - Lot navigation bar for **Home + Lot 1–17**.
-  - **All 17 lots** now draw their own parking-space grid — sizes/shapes come from a per-lot `LOT_CONFIGS` table (sections × sides × spaces × orientation), no longer just Lot 1.
-  - Three drawing modes per lot: a **plain grid**; a **map-crop overlay** (`LOT_MAP_CONFIGS`) that positions the grid on a cropped photo of the real lot; and a **curved/radial "fan" layout** (`LOT_FAN_CONFIGS`) for lots whose aisles curve. Some lots are **map-only** (`MAP_ONLY_LOTS`) — photo shown, no clickable grid yet.
-  - **Edit Mode** toggle (admins only) that gates the Admin Control Board.
-  - Admin control actions: **Single Select, Group Select, Disable, Enable, Manual Assign, Update School Map**. Select/enable/disable **and now Manual Assign** mutate local state (Manual Assign = pick one space → type a student ID in a modal → assign). *Update School Map* is still a no-op button.
-  - **Student self-claim:** a logged-in student can click an open spot to **claim** it (a "Claim Parking Spot?" confirmation modal pops up first), is limited to **one spot at a time**, and can click their own spot again to **unclaim** it. Students see only their own spot's ID; admins see every taken spot's ID.
-  - Space states: selected (yellow), disabled (grey), available (blue), **assigned/claimed (red, showing the student ID)**.
-- **Parking state** (`src/store/parkingSlice.ts`): `selectedLot`, `isEditMode`, `editAction`, `selectedSpaces[]`, `disabledSpaces[]`, **`assignedSpaces` (a `{spaceId: studentId}` map)** + reducers, including `assignSpace` / `unassignSpace`.
-- **Redux store** with typed hooks (`useAppDispatch`, `useAppSelector`).
+This prototype was built on the throwaway `poc` branch to de-risk the frontend and lock down the API contract before backend work starts. The bugs and refinements it surfaced are recorded in the UI `backport.md` (items U-1..U-31) and folded into the matching U# lessons' troubleshooting notes; contract changes it forced on the real backend are digested in the backend `backport.md`.
 
-### Partial / Stub
-- **Student experience** — lives inside `ControlBoard` (no separate dashboard yet); a student can claim/unclaim a spot but there is no "register interest / see availability list" screen.
-- **Assignment & claim are local-only** — `assignedSpaces` lives in Redux and **resets on refresh**; nothing is saved to a server.
-- **Admin actions** — *Update School Map* is a button with no behavior; enable/disable/assign only mutate local state.
-- **Map-only lots** — several lots (`MAP_ONLY_LOTS`) show a photo crop but have no interactive grid yet.
+### Implemented — validates CRs U0–U9
+- **Real login, session restore, logout (U1) + URL routing with role-guarded routes (U2).** Students log in by code, admins by username/password; the mock issues a bearer token the client stores and replays; a `ProtectedRoute` guards `/student` and `/admin` by role.
+- **Data-driven lots & spaces (U3).** The campus map, lot navigation, and every lot's spot layout render from `GET /api/lots` and `GET /api/lots/:id/spaces` — no hard-coded `LOT_CONFIGS`. Pan + cursor-anchored wheel zoom on both the campus and per-lot views share one normalized-coordinate transform model. Spot colors reflect the server `status`; a floating hover tooltip shows the spot label, availability, and assignee name.
+- **Enable/disable persisted (U4).** Admin "Slot Enable/Disable" writes through `PATCH /api/spaces` and survives refresh.
+- **Student registers interest (U5) + admin allocation (U6).** Admins see per-lot pending requests by student **name** (not raw id); "Assign to Spot" binds a request to a space transactionally; "Unassign" frees a space and re-queues the request.
+- **Update school map image (U7).** Admin uploads a lot map, stored as a base64 data URL by the mock and rendered in every lot view.
+- **Place & arrange spots (U8).** An Arrange editor adds (➕ Add Spot), drags, resizes, relabels, and deletes spots on the lot map; positions **and sizes** are normalized fractions (`x`,`y`,`w`,`h`) saved via `PUT /api/lots/:id/layout`, so the layout holds at any zoom; deleting an assigned spot is refused.
+- **Create & remove a lot (U9).** ➕ Add Lot (with an optional admin-set **lot number** that prefixes spot labels) via `POST /api/lots`; 🗑 Remove Lot via `DELETE /api/lots/:id`, refused when any of its spaces is assigned.
 
-### Missing (UI)
-Real authentication, API client layer, loading/error/empty states, routing (`react-router`), persistence, tests.
+### Implemented beyond the original U0–U9 plan
+These were added during the PoC and are **not yet on the CR tracker**; each surfaced a real-backend contract change catalogued in the backend `backport.md` digest.
+- **Student roster / Student Management** (`src/StudentManagement.tsx`) — a `students` entity keyed by `student_id`, with search, CRUD, CSV import (upsert) + CSV export, and a `parking_status` lifecycle; the PoC links roster↔login by `user.code === student.student_id`. (backport U-26, U-28)
+- **Direct assign / move a roster student to a spot**, including students with no login account (a space carries `assigned_student_id`), with one-slot-per-student move semantics. (U-27)
+- **Unassign & re-queue; move a request to another lot** — from both Student Management and the map's Assign-to-Spot mode. (U-23, U-29)
+- **Student self-service map** (`src/StudentDashboard.tsx`) mirroring the admin map (no sidebar): a student picks **exactly one** available spot and submits; the selection then **locks**. While `pending` they may **withdraw** (rescind) and re-pick; once `fulfilled` it is read-only. (U-30, U-31)
 
-- **Spot positions are hard-coded, not authorable.** Where each space sits on a lot's map comes from three developer-edited tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`); there is **no UI to place a spot or drag it into position**, which is why several lots are stuck as photo-only (`MAP_ONLY_LOTS`). Addressed by **U8** (positions become normalized `x`/`y`/`rotation` data an admin edits and saves).
-- **The lot set is fixed at 17.** The lot list is a hard-coded `Home + Lot 1..17` loop; there is **no UI to add a new parking lot** (and no create-lot endpoint). Addressed by **U9** (admin `POST /api/lots` from the control board).
+### Still mock-only (not yet real)
+- All state persists to `localStorage` through the mock backend; **nothing is saved to a real server**. The Flask backend (B0–B9) is not built, so `VITE_USE_MOCK=false` has no API to reach.
+- The backend contract changes the extensions require (students entity + CSV, `assigned_student_id`, lot `number`, unassign/move endpoints, preferred-spot on interest) are logged in the backend `backport.md` digest but have **no B-CR yet**.
+- No automated tests yet.
 
 ---
 
@@ -503,6 +497,8 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
 
 **Frontend (`U#`) — build in `ui/ui-development-guide.md`:**
+
+> **PoC status (frontend).** A throwaway prototype on the `poc` branch built and validated **U0–U9 end-to-end against a mock backend** that mirrors the API contract (§7.1), and implemented features beyond this list — student self-service single-spot requests with lock/withdraw, a student roster + CSV import/export, direct assign/move, and unassign-and-re-queue (see §2 and the UI `backport.md`, items U-1..U-31). The rows below still track the **real** stacked CRs against the Flask API and remain 📋 until opened; the extensions need their own follow-on CR rows once the backend contract changes they require (backend `backport.md` digest) are scheduled.
 
 | CR | Title | Branch | Parent | Also needs | Step-by-step | PR | Status |
 |---|---|---|---|---|---|---|---|
