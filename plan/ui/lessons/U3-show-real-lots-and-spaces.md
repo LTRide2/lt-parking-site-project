@@ -2,7 +2,7 @@
 
 > **Track:** Frontend · **Lesson 4 of 10**
 > **⏱ Time:** ~75 min · **🎚 Difficulty:** moderate (a new pattern — fetch on load, render whatever comes back — but each piece is small)
-> **🧩 Prerequisites:** you've completed [Lesson U2 — Routing](U2-routing.md) (on branch `cr/u2-routing`), and backend [Lesson B4 — Read lots and spaces](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/lessons/B4-read-lots-and-spaces.md)'s endpoints (`GET /api/lots`, `GET /api/lots/:id/spaces`) are running and seeded.
+> **🧩 Prerequisites:** you've completed [Lesson U2 — Routing](U2-routing.md) (on branch `cr/u2-routing`), and backend [Lesson B4 — Read lots and spaces](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/lessons/B4-read-lots-and-spaces.md)'s endpoints (`GET /api/lots`, `GET /api/lots/:id/spaces`) are running and seeded.
 > **🌿 CR branch:** `cr/u3-real-lots` (off `cr/u2-routing`) · **📄 Source CR:** [CR U3](../ui-development-guide.md#cr-u3--show-real-lots-and-spaces-data-driven-map) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
