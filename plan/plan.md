@@ -76,9 +76,9 @@ flowchart TB
 | Repo | Path | Stack | State |
 |---|---|---|---|
 | Frontend (UI) | `lt-parking-site-project` ([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)) · local `~/workspace/LT_Proj/lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | Feature-complete SPA prototype against a mock backend (mirrors the API contract); real API pending |
-| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | Course scaffold; a one-shot PoC proved B0–B9 run end-to-end (see backend `backport.md`), not yet split into the stacked CRs |
+| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | `main` is still the course scaffold, but B0–B9 **and** the extensions all run end-to-end on the `poc` branch (commit `17d3e5bf`), verified by `webapp/tests/smoke_api.py` (67/67 checks) against real PostgreSQL (see backend `backport.md`) — not merged to `main`, not yet split into the stacked CRs |
 
-**Overall completion ≈ 45%** — the frontend is a feature-complete prototype driven through a mock backend that mirrors the planned API contract (§7.1), and a throwaway PoC has shown the backend design runs; the *shippable* Flask backend (B0–B9) and AWS deployment (D0–D4) are not yet built.
+**Overall completion — backend feature-complete on PoC (≈80%); deploy pending.** The frontend is a feature-complete prototype driven through a mock backend that mirrors the planned API contract (§7.1). A one-shot PoC pass has now proven the **full** backend feature set — B0–B9 plus the extensions (student roster, pick-a-spot interest + withdraw, assignment move, delete-lot, map-upload) — runs end-to-end against real PostgreSQL ([§8.2](#82-cr-status-tracker)). What remains: splitting the PoC into the reviewable stacked CRs, repointing the UI at the real API (`VITE_USE_MOCK=false`), and AWS deployment (D0–D4), none of which have started.
 
 ---
 
@@ -105,15 +105,15 @@ These were added during the PoC and are **not yet on the CR tracker**; each surf
 - **Student self-service map** (`src/StudentDashboard.tsx`) mirroring the admin map (no sidebar): a student picks **exactly one** available spot and submits; the selection then **locks**. While `pending` they may **withdraw** (rescind) and re-pick; once `fulfilled` it is read-only. (U-30, U-31)
 
 ### Still mock-only (not yet real)
-- All state persists to `localStorage` through the mock backend; **nothing is saved to a real server**. The Flask backend (B0–B9) is not built, so `VITE_USE_MOCK=false` has no API to reach.
-- The backend contract changes the extensions require (students entity + CSV, `assigned_student_id`, lot `number`, unassign/move endpoints, preferred-spot on interest) are logged in the backend `backport.md` digest but have **no B-CR yet**.
-- No automated tests yet.
+- All state persists to `localStorage` through the mock backend; **nothing the UI does today is saved to a real server** — the SPA still runs with `VITE_USE_MOCK=true`. A real Flask backend now exists and runs the full contract (§3, §8.2), verified on the `poc` branch, but the UI has not yet been repointed at it as part of the stacked U-CRs.
+- The backend contract changes the extensions require (students entity + CSV, `assigned_student_id`, lot `number`, unassign/move endpoints, preferred-spot on interest) are now implemented on the PoC backend (backend `backport.md` digest) but have **no B-CR yet** — B13–B16 remain 📋 in the tracker even though the underlying code is done.
+- No automated tests on the frontend yet (the backend has `webapp/tests/smoke_api.py`, 67/67 checks).
 
 ---
 
 ## 3. What We Have in the Backend (today)
 
-`LTR-Backend` is a **generic Flask course template** (UMich "insta485" pattern), essentially unmodified for parking.
+`main` is still a **generic Flask course template** (UMich "insta485" pattern), essentially unmodified for parking — the bullets and security issues below describe `main`, which is what a real stacked-CR build (B0 onward) starts from. **This no longer reflects the backend's actual capability**: a complete parking backend (`webapp/App/`, schema at `webapp/sql/migrations/001_init.sql`, every endpoint in the API Reference including the extensions) was built and verified against real PostgreSQL on the separate `poc` branch (commit `17d3e5bf`), all 67 `webapp/tests/smoke_api.py` checks passing — see [§8.2](#82-cr-status-tracker). It was **not** merged to `main` and **not** split into the stacked CRs described below.
 
 - Flask 2.2.2 + SQLite + a Webpack/React bundle served from Jinja templates.
 - **Duplicated app** in two folders: `BK/` and `webapp/` (copy-paste scaffolding).
@@ -194,8 +194,8 @@ classDiagram
         +string first
         +string last
         +string email
-        +int grade
-        +int assigned_slot
+        +string grade
+        +string assigned_slot
         +ParkingStatus parking_status
     }
 
@@ -539,24 +539,26 @@ Independent CRs (no data dependency) may branch directly off `main` and merge in
 
 ### 8.2 CR status tracker
 
-Every CR that realizes this design, with its parent branch, cross-layer dependency, a link to its step-by-step guide section, and its live status. Keep this table updated as CRs open and merge (add the PR link, advance the status). **Status legend:** 📋 Proposed · 🔍 In Review · ✅ Merged.
+Every CR that realizes this design, with its parent branch, cross-layer dependency, a link to its step-by-step guide section, and its live status. Keep this table updated as CRs open and merge (add the PR link, advance the status). **Status legend:** 📋 Proposed · 🔍 In Review · ✅ Merged · ✅ Implemented (PoC) — code exists and is verified, but not yet split into a reviewable CR/PR.
 
 > **Tracking note.** This is a public GitHub project, so CRs are tracked by **PR** (and optionally a GitHub Issue), not a GUS work item. Fill the **PR** column with the PR number/link when each CR opens.
+
+> **PoC provenance.** All of B0–B9 **and** the extensions (student roster, pick-a-spot interest + withdraw, assignment move, delete-lot, map-upload) were built in **one PoC pass** on the `poc` branch (commit `17d3e5bf`), verified end-to-end by `webapp/tests/smoke_api.py` (**67/67 checks pass**) against a real PostgreSQL. It was **not** merged to `main` and was **not** split into the stacked CRs below — the stacked-CR structure remains the intended path for a real build; the PoC just proved the whole design runs. Deployment (**D0–D4**) is **not** done. Rows below are marked ✅ **Implemented (PoC)** to reflect this. **`GET /api/students/export` was in scope but is NOT implemented** in the PoC (see the B13 row).
 
 **Backend (`B#`) — build in `backend/backend-development-guide.md`:**
 
 | CR | Title | Branch | Parent | Also needs | Step-by-step | PR | Status |
 |---|---|---|---|---|---|---|---|
-| B0 | Clean slate & safety (gitignore, `SECRET_KEY`/`DATABASE_URL` → env) | `cr/b0-hygiene` | `main` | — | [B0](backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) | — | 📋 |
-| B1 | Health check + `create_app()` + CORS | `cr/b1-health` | B0 | — | [B1](backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) | — | 📋 |
-| B2 | DB schema (migration) + seed data | `cr/b2-schema` | B1 | — | [B2](backend/backend-development-guide.md#cr-b2--database-schema--seed-data) | — | 📋 |
-| B3 | Auth: JWT, `@require_role`, student/admin login + `/me` | `cr/b3-auth` | B2 | — | [B3](backend/backend-development-guide.md#cr-b3--authentication-login) | — | 📋 |
-| B4 | Read lots & spaces | `cr/b4-lots` | B3 | — | [B4](backend/backend-development-guide.md#cr-b4--read-lots--spaces) | — | 📋 |
-| B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | 📋 |
-| B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | 📋 |
-| B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | 📋 |
-| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `pos_x/pos_y/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
-| B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
+| B0 | Clean slate & safety (gitignore, `SECRET_KEY`/`DATABASE_URL` → env) | `cr/b0-hygiene` | `main` | — | [B0](backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) | — | ✅ Implemented (PoC) |
+| B1 | Health check + `create_app()` + CORS | `cr/b1-health` | B0 | — | [B1](backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) | — | ✅ Implemented (PoC) |
+| B2 | DB schema (migration) + seed data | `cr/b2-schema` | B1 | — | [B2](backend/backend-development-guide.md#cr-b2--database-schema--seed-data) | — | ✅ Implemented (PoC) |
+| B3 | Auth: JWT, `@require_role`, student/admin login + `/me` | `cr/b3-auth` | B2 | — | [B3](backend/backend-development-guide.md#cr-b3--authentication-login) | — | ✅ Implemented (PoC) |
+| B4 | Read lots & spaces | `cr/b4-lots` | B3 | — | [B4](backend/backend-development-guide.md#cr-b4--read-lots--spaces) | — | ✅ Implemented (PoC) |
+| B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | ✅ Implemented (PoC) |
+| B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | ✅ Implemented (PoC) |
+| B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | ✅ Implemented (PoC) |
+| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `pos_x/pos_y/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | ✅ Implemented (PoC) |
+| B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | ✅ Implemented (PoC) |
 
 **Frontend (`U#`) — build in `ui/ui-development-guide.md`:**
 
@@ -581,13 +583,15 @@ The PoC (§2) validated four features beyond core U0–U9. The **frontend is alr
 
 | CR | Title | Depends on | Contract it adds | Frontend | Status |
 |---|---|---|---|---|---|
-| B13 | Student roster + CSV import/export | B2, B4 | `students` entity (PK `student_id`); `GET/POST/PATCH/DELETE /api/students`; `POST /api/students/import` (multipart, upsert); CSV export | U10 | 📋 |
-| B14 | Direct assign / move a roster student | B13, B7 | `spaces.assigned_student_id` (nullable FK); `POST /api/students/:id/assign {spaceId}` (one-slot-per-student move) | U10 | 📋 |
-| B15 | Preferred-spot interest + withdraw | B6 | `interest.space_ids`; `POST /api/interest {lotId, spaceIds}` (400 none/multi · 409 taken · upsert one-active); `DELETE /api/interest/me` (→ `cancelled`) | folded into U5 | 📋 |
-| B16 | Move an assigned request to another lot | B7 | `POST /api/assignments/move {fromSpaceId, toLotId}` (transactional free-and-re-queue) | folded into U6 | 📋 |
+| B13 | Student roster + CSV import/export | B2, B4 | `students` entity (PK `student_id`); `GET/POST/PATCH/DELETE /api/students`; `POST /api/students/import` (multipart, upsert); CSV export — **import is implemented; `GET /api/students/export` is NOT implemented** in the PoC | U10 | ✅ Implemented (PoC)* |
+| B14 | Direct assign / move a roster student | B13, B7 | `spaces.assigned_student_id` (nullable FK); `POST /api/students/:id/assign {spaceId}` (one-slot-per-student move) | U10 | ✅ Implemented (PoC) |
+| B15 | Preferred-spot interest + withdraw | B6 | `interest.space_ids`; `POST /api/interest {lotId, spaceIds}` (400 none/multi · 409 taken · upsert one-active); `DELETE /api/interest/me` (→ `cancelled`) | folded into U5 | ✅ Implemented (PoC) |
+| B16 | Move an assigned request to another lot | B7 | `POST /api/assignments/move {fromSpaceId, toLotId}` (transactional free-and-re-queue) | folded into U6 | ✅ Implemented (PoC) |
 | U10 | Student Management (roster + CSV + direct assign/move) | B13, B14 | *(consumes B13/B14)* | [U10 lesson](ui/lessons/U10-student-management.md) | 📋 prototyped |
 
-*Also folded into existing CRs as contract additions (not separate CRs): `Lot.number` extends **B9/U9**; `pos_w`/`pos_h` size on layout save extends **B8/U8**; `assigned_user_name` in space serialization extends **B4/U3**.*
+\* CSV export was scoped under B13 but `webapp/App/views/students.py` ships no export route (endpoints run through `webapp/App/views/students.py:24`–`:173`, ending at `import`) — treat it as future/not built, not working.
+
+*Also folded into existing CRs as contract additions (not separate CRs): `Lot.number` extends **B9/U9**; `pos_w`/`pos_h` size on layout save extends **B8/U8**; `assigned_user_name` in space serialization extends **B4/U3**; delete-lot (`DELETE /api/lots/:id`, 409 if any space assigned) extends **B9/U9**; map-upload (`POST /api/lots/:id/map`) extends **U7** — both ✅ implemented (PoC) alongside their parent CR.*
 
 **Deployment (`D#`) — run in `deploy/deployment-guide.md`:**
 

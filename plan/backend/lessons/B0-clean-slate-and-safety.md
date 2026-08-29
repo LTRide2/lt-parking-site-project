@@ -103,7 +103,12 @@ dist/
 
 ### Step 2 — List the libraries this project needs (~10 min)
 
-Open `webapp/requirements.txt` and make sure these lines are present (add the missing ones):
+Open `webapp/requirements.txt`. The course template left a long tail of pinned
+packages in there (`Flask==2.2.2`, `Werkzeug==2.2.2`, `pylint==2.16.2`, and
+~30 more, down to `wrapt==1.14.1`) — those exact old versions don't install
+cleanly on a modern Python, and none of them are things this backend actually
+uses. **Delete everything in the file and replace it with exactly these seven
+lines:**
 
 ```text
 Flask>=2.2
@@ -161,6 +166,8 @@ JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))
 - `int(os.environ.get("JWT_EXP_HOURS", "12"))` — environment values are always text, so we convert to a number with `int(...)`.
 
 > **Why `[...]` for secrets and `.get(...)` for the rest?** Square brackets make the app **crash immediately with a clear error** if a required secret is missing — far better than starting up "half-configured" and failing mysteriously later. This is the "fail loud, fail early" principle. → Reference: [12-Factor: Config](https://12factor.net/config).
+
+> **Looking ahead — the real admin login.** Once the database exists (lesson B2) you'll use `webapp/bin/add-admin` to create the actual admin user (it hashes a password with Werkzeug's scrypt and upserts the `users` row). Nothing to run yet — just know it's there so you don't hand-write SQL for it later.
 
 ### Step 4 — Create your local `.env` (~5 min)
 
@@ -230,7 +237,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 - **`git status` still shows `.env`** — you probably committed it earlier. `.gitignore` only ignores *untracked* files. Run `git rm --cached .env` to stop tracking it, then commit.
 - **`ModuleNotFoundError: No module named 'dotenv'`** — the install in Step 2 didn't run in the active venv. Confirm `(.venv)` is in your prompt, then re-run `pip install -r webapp/requirements.txt`.
 - **`KeyError: 'SECRET_KEY'` when you *didn't* rename `.env`** — your `.env` is in the wrong folder (must be the repo root, the same folder you run `python` from) or has a typo in the key name.
-- **`pip install` fails on `psycopg[binary]`** — make sure you're on Python 3.11+ (`python --version`) and your venv is active.
+- **`pip install` fails partway through, often on an old pin like `Flask==2.2.2` or `wrapt==1.14.1`** — you edited `requirements.txt` instead of replacing it; the leftover course-template pins from Step 2 don't install on modern Python. Delete them so the file has exactly the seven `>=` lines, then re-run `pip install -r webapp/requirements.txt`.
 
 ---
 

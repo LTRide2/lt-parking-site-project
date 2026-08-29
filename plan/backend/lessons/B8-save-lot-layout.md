@@ -2,21 +2,21 @@
 
 > **Track:** Backend · **Lesson 9 of 10**
 > **⏱ Time:** ~55 min · **🎚 Difficulty:** moderate (reuses B7's transaction pattern; the new idea is *reconciling* a whole set — add, move, delete — in one request).
-> **🧩 Prerequisites:** you've done [Lesson B7 — Admin assigns a space](B7-admin-assigns-a-space.md) (JWT auth, `@require_role`, and the one-transaction write pattern). The `spaces` table already has `pos_x`, `pos_y`, `rotation` — they were designed into the B2 schema, so there's **no migration** in this lesson.
+> **🧩 Prerequisites:** you've done [Lesson B7 — Admin assigns a space](B7-admin-assigns-a-space.md) (JWT auth, `@require_role`, and the one-transaction write pattern). The `spaces` table already has `pos_x`, `pos_y`, `pos_w`, `pos_h`, `rotation` — they were designed into the B2 schema, so there's **no migration** in this lesson.
 > **🌿 CR branch:** `cr/b8-layout` (off `cr/b7-assignments`) · **📄 Source CR:** [backend guide → CR B8](../backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
 
 ## 🎯 Goal — what you'll have at the end
 
-One admin-only endpoint that saves *where every parking space sits on a lot's map*, so the layout stops being hard-coded in the front end and becomes real data an admin can author:
+One admin-only endpoint that saves *where every parking space sits on a lot's map, and how big it is*, so the layout stops being hard-coded in the front end and becomes real data an admin can author:
 
-- **`PUT /api/lots/<id>/layout`** — body `{"spaces":[{"id"?, "label", "x", "y", "rotation"?}]}` → the server makes the lot's spaces match that list exactly: **update** the ones that have an `id`, **insert** the ones that don't, and **delete** the ones you left out — all inside **one transaction**.
+- **`PUT /api/lots/<id>/layout`** — body `{"spaces":[{"id"?, "label", "x", "y", "w"?, "h"?, "rotation"?}]}` → the server makes the lot's spaces match that list exactly: **update** the ones that have an `id`, **insert** the ones that don't, and **delete** the ones you left out — all inside **one transaction**.
 
 The important, careful part: the endpoint **refuses to delete a space that's currently `assigned`** (returns `409` and writes nothing), so an admin rearranging a lot can never accidentally erase a space a student is parked in.
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `PUT /api/lots/1/layout` with a valid admin token and a `spaces` array returns `200`, and re-reading the lot shows the saved `x`/`y`/`rotation`.
+- [ ] `PUT /api/lots/1/layout` with a valid admin token and a `spaces` array (some entries with `w`/`h`, some without) returns `200`, and re-reading the lot shows the saved `x`/`y`/`w`/`h`/`rotation`.
 - [ ] Leaving a previously-saved space out of the array **deletes** it — unless it's `assigned`, in which case you get `409` and nothing changes.
 - [ ] A coordinate outside `0..1`, or a missing label, returns `400`.
 - [ ] A **student** token on this route gets `403`, same as every other admin route.
@@ -30,7 +30,7 @@ In the UI prototype, where each space sits on the map comes from three developer
 
 Two design choices are worth slowing down on:
 
-**Normalized coordinates.** We store `x` and `y` as **fractions between 0 and 1** (e.g. `0.42`), not pixels. A pixel position (`537px`) only means something at one exact image size; the moment the map is zoomed, resized, or viewed on a phone, it's wrong. A fraction is "42% across, regardless of how big the image is drawn" — the front end multiplies by the rendered size at paint time. Same reason a responsive layout uses `%` instead of hard pixel offsets.
+**Normalized coordinates *and* size.** We store `x`/`y` (position) **and `w`/`h` (size)** as **fractions between 0 and 1** (e.g. `x: 0.42, w: 0.05`), not pixels. A pixel position or width (`537px`, `40px`) only means something at one exact image size; the moment the map is zoomed, resized, or viewed on a phone, it's wrong. A fraction is "42% across, 5% wide, regardless of how big the image is drawn" — the front end multiplies both by the rendered size at paint time. Same reason a responsive layout uses `%` instead of hard pixel offsets. If a caller omits `w`/`h` (or sends one out of `0..1`), the server fills in a sane default rather than rejecting the save — see the `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` constants at `webapp/App/views/lots.py:14-15`.
 
 **Full-replace instead of many small calls.** The admin edits the whole lot at once and saves once. So the client sends the *entire desired set* of spaces and the server figures out the difference — what to add, move, and remove. This is **idempotent**: sending the same layout twice leaves the database in the same place, no duplicates. It also keeps the browser simple — it doesn't have to remember "I created these two, moved that one, deleted this one" and fire three kinds of request; it just describes the end state.
 
@@ -41,7 +41,7 @@ Two design choices are worth slowing down on:
 | Concept | One-line meaning | Learn more |
 |---|---|---|
 | **HTTP `PUT` & idempotency** | `PUT` means "make the resource look exactly like this"; doing it twice is the same as once. | [MDN: PUT](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PUT) · [MDN: Idempotent](https://developer.mozilla.org/en-US/docs/Glossary/Idempotent) |
-| **Normalized coordinates** | Positions stored as `0..1` fractions of the image, so they survive zoom/resize. | [MDN: Responsive images](https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images) |
+| **Normalized coordinates & size** | Position (`x`/`y`) *and* size (`w`/`h`) stored as `0..1` fractions of the image, so they survive zoom/resize. | [MDN: Responsive images](https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images) |
 | **Reconciliation (upsert + delete)** | Compare the desired set to what's stored, then add/update/remove to match. | [PostgreSQL: UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html) |
 | **Database transaction** | A group of writes that all succeed or all roll back (you met this in B7). | [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html) |
 | **`= ANY(array)`** | One SQL condition that matches any id in a list — lets you delete many rows in one statement. | [PostgreSQL: arrays & ANY](https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME) |
@@ -52,11 +52,12 @@ Two design choices are worth slowing down on:
 
 **Time budget for the hour:** setup & branch (5 min) → build the endpoint + understand reconciliation (30) → local testing (15) → commit & push (5).
 
-**You need, from earlier lessons:** the server running (B1), the database seeded with the B2 schema — which already includes `spaces.pos_x/pos_y/rotation` (B2), login working (B3), and the `lots.py` blueprint you created in B4 (you'll add this endpoint to it).
+**You need, from earlier lessons:** the server running (B1), the database seeded with the B2 schema — which already includes `spaces.pos_x/pos_y/pos_w/pos_h/rotation` (B2), login working (B3), and the `lots.py` blueprint you created in B4 (you'll add this endpoint to it).
 
-> **📸 No migration in this lesson.** The position columns are part of the original schema (see the `spaces` table in [CR B2](../backend-development-guide.md#cr-b2--database-schema--seed-data)). If your database predates that and is missing them, re-run the B2 schema against your dev database, or add them by hand:
+> **📸 No migration in this lesson.** The position *and size* columns are part of the original schema (see the `spaces` table in [CR B2](../backend-development-guide.md#cr-b2--database-schema--seed-data)). If your database predates that and is missing them, re-run the B2 schema against your dev database, or add them by hand:
 > ```sql
-> ALTER TABLE spaces ADD COLUMN pos_x DOUBLE PRECISION, ADD COLUMN pos_y DOUBLE PRECISION, ADD COLUMN rotation DOUBLE PRECISION;
+> ALTER TABLE spaces ADD COLUMN pos_x DOUBLE PRECISION, ADD COLUMN pos_y DOUBLE PRECISION,
+>   ADD COLUMN pos_w DOUBLE PRECISION, ADD COLUMN pos_h DOUBLE PRECISION, ADD COLUMN rotation DOUBLE PRECISION;
 > ```
 
 **Branch off B7** (this CR stacks on it, not `main`):
@@ -72,12 +73,28 @@ git checkout -b cr/b8-layout
 
 ### Step 1 — Add the endpoint to `webapp/App/views/lots.py` (~30 min)
 
-This goes in the **same** blueprint file you built in B4 — reuse its `bp`, its `_err` helper, and its imports. Add the `PUT` handler and the small `_is_frac` helper:
+This goes in the **same** blueprint file you built in B4 — reuse its `bp`, its `_err` helper, and its imports. Add two small module-level pieces (the size defaults and a fraction check), a shared read helper, and the `PUT` handler:
 
 ```python
 # add to webapp/App/views/lots.py
 from ..db import query, query_one, get_db   # extend the existing import
 from ..auth import require_role
+from .. import serialize                     # B4's shared row -> JSON shapes
+
+# Default slot size as a fraction of the map, for spots saved without a size.
+DEFAULT_SPOT_W = 0.05
+DEFAULT_SPOT_H = 0.03
+
+
+def _is_frac(v):
+    return isinstance(v, (int, float)) and 0 <= v <= 1
+
+
+def _lot_spaces(lot_id):
+    """Every space in a lot, serialized, ordered by id. Shared with B4's GET."""
+    rows = query(serialize.SPACE_SELECT + " WHERE s.lot_id = %s ORDER BY s.id", (lot_id,))
+    return [serialize.space(row) for row in rows]
+
 
 @bp.put("/api/lots/<int:lot_id>/layout")
 @require_role("admin")
@@ -95,6 +112,7 @@ def save_layout(lot_id):
     for s in incoming:
         label = s.get("label")
         x, y, rot = s.get("x"), s.get("y"), s.get("rotation")
+        w, h = s.get("w"), s.get("h")
         if not isinstance(label, str) or not label.strip():
             return _err("bad_request", "each space needs a non-empty label", 400)
         if not _is_frac(x) or not _is_frac(y):
@@ -103,6 +121,8 @@ def save_layout(lot_id):
             "id": s.get("id"),                       # None => new space
             "label": label.strip(),
             "x": float(x), "y": float(y),
+            "w": float(w) if _is_frac(w) else DEFAULT_SPOT_W,
+            "h": float(h) if _is_frac(h) else DEFAULT_SPOT_H,
             "rotation": float(rot) if isinstance(rot, (int, float)) else 0.0,
         })
 
@@ -121,14 +141,15 @@ def save_layout(lot_id):
             for c in clean:
                 if isinstance(c["id"], int):
                     cur.execute(
-                        "UPDATE spaces SET label=%s, pos_x=%s, pos_y=%s, rotation=%s "
-                        "WHERE id=%s AND lot_id=%s",
-                        (c["label"], c["x"], c["y"], c["rotation"], c["id"], lot_id))
+                        "UPDATE spaces SET label=%s, pos_x=%s, pos_y=%s, pos_w=%s, "
+                        "pos_h=%s, rotation=%s WHERE id=%s AND lot_id=%s",
+                        (c["label"], c["x"], c["y"], c["w"], c["h"], c["rotation"],
+                         c["id"], lot_id))
                 else:
                     cur.execute(
-                        "INSERT INTO spaces (lot_id, label, pos_x, pos_y, rotation) "
-                        "VALUES (%s, %s, %s, %s, %s)",
-                        (lot_id, c["label"], c["x"], c["y"], c["rotation"]))
+                        "INSERT INTO spaces (lot_id, label, pos_x, pos_y, pos_w, pos_h, rotation) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (lot_id, c["label"], c["x"], c["y"], c["w"], c["h"], c["rotation"]))
             if to_delete:
                 cur.execute("DELETE FROM spaces WHERE id = ANY(%s)", (to_delete,))
         db.commit()
@@ -136,28 +157,18 @@ def save_layout(lot_id):
         db.rollback()
         raise
 
-    rows = query(
-        "SELECT id, label, status, assigned_user_id, pos_x, pos_y, rotation "
-        "FROM spaces WHERE lot_id = %s ORDER BY id", (lot_id,))
-    return jsonify({"data": {"lotId": lot_id, "spaces": [
-        {"id": r["id"], "label": r["label"], "status": r["status"],
-         "assignedUserId": r["assigned_user_id"],
-         "x": r["pos_x"], "y": r["pos_y"], "rotation": r["rotation"]}
-        for r in rows]}})
-
-
-def _is_frac(v):
-    return isinstance(v, (int, float)) and 0 <= v <= 1
+    return jsonify({"data": {"lot_id": lot_id, "spaces": _lot_spaces(lot_id)}})
 ```
 
 **Explanation, piece by piece:**
 
-- **Validate first, on plain reads.** Everything before `get_db()` — the lot exists, `spaces` is a list, each label is non-empty, each `x`/`y` is a fraction — happens *outside* the transaction. By the time you start writing, every write is already known to be valid. This is the same fail-fast shape you used in B7. The `CHECK (pos_x/pos_y in 0..1)` constraint on the table (from B2) is the database's own backstop if a bad value ever slips past this Python check.
-- **Reconciliation — the heart of the lesson.** `keep_ids` is the set of space ids the client still wants. Anything in the lot that's *not* in that set goes into `to_delete`. Then: entries **with** an `id` are `UPDATE`d (someone moved or relabeled an existing spot); entries **without** an `id` are `INSERT`ed (a brand-new spot). → [PostgreSQL UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
-- **The `409` guard is the safety rule.** *Before* deleting anything, we check whether any to-be-deleted space is `assigned`. If so, we bail with `409` and write nothing — an admin can't erase a space a student is parked in without first unassigning it (B7's `DELETE`). This is risk **R8** in the plan.
+- **Validate first, on plain reads.** Everything before `get_db()` — the lot exists, `spaces` is a list, each label is non-empty, each `x`/`y` is a fraction — happens *outside* the transaction. By the time you start writing, every write is already known to be valid. This is the same fail-fast shape you used in B7. The `CHECK (... in 0..1)` constraints on `pos_x`/`pos_y`/`pos_w`/`pos_h` (from B2) are the database's own backstop if a bad value ever slips past this Python check.
+- **`w`/`h` default instead of rejecting.** Unlike `x`/`y`, a missing or out-of-range `w`/`h` isn't a client error — it just means "use the standard spot size." `float(w) if _is_frac(w) else DEFAULT_SPOT_W` falls back to the module constants (`0.05`/`0.03`, ~5%×3% of the map) so every saved space always has a usable size, even from an older client that never sends `w`/`h` at all.
+- **Reconciliation — the heart of the lesson.** `keep_ids` is the set of space ids the client still wants. Anything in the lot that's *not* in that set goes into `to_delete`. Then: entries **with** an `id` are `UPDATE`d (someone moved, resized, or relabeled an existing spot); entries **without** an `id` are `INSERT`ed (a brand-new spot). → [PostgreSQL UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
+- **The `409` guard is the safety rule.** *Before* deleting anything, we check whether any to-be-deleted space is `assigned`. If so, we bail with `409` and write nothing — an admin can't erase a space a student is parked in without first unassigning it (B7's `DELETE`).
 - **One transaction.** Every upsert and the delete run inside a single `with db.cursor() as cur:` block, committed once. If any statement fails, `db.rollback()` undoes the whole thing — you never get half a saved map. Same pattern as B7's assignment.
 - **`= ANY(%s)`** deletes a whole list of ids in one statement; psycopg turns a Python list into a Postgres array for you. → [PostgreSQL ANY](https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME).
-- **The response is the full saved set** — re-read from the database, not echoed from the request — so the client (U8) can trust it matches what's actually stored.
+- **The response reuses B4's serializer.** `_lot_spaces(lot_id)` re-reads every space with `serialize.SPACE_SELECT` and shapes each row with `serialize.space` — the same helper B4's `GET /api/lots/:id/spaces` uses — so the saved layout comes back with `x`/`y`/`w`/`h`/`rotation` plus `status`/`assigned_user_id`/`assigned_user_name`/`assigned_student_id`, re-read from the database (not echoed from the request), under `{"data": {"lot_id": ..., "spaces": [...]}}`.
 
 > **No blueprint registration needed.** You're adding to `lots.py`, which `__init__.py` already registers (B4). New routes in an already-registered blueprint are live as soon as you restart the server.
 
@@ -168,12 +179,12 @@ def _is_frac(v):
 **Setup:** server running; `$A` = admin token; `$S` = student token; pick a lot id (e.g. `1`).
 
 ```bash
-# save a two-spot layout (no ids => both are new spaces)
+# save a two-spot layout (no ids => both are new spaces; A1 sets a custom size, A2 omits w/h)
 curl -i -X PUT http://localhost:8000/api/lots/1/layout \
   -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
-  -d '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"rotation":0},
+  -d '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"w":0.08,"h":0.05,"rotation":0},
                   {"label":"A2","x":0.6,"y":0.4,"rotation":90}]}'
-# re-read: positions persisted
+# re-read: positions AND sizes persisted (A2 shows the default w/h)
 curl -s http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $A"
 # a student may not save a layout -> 403
 curl -i -X PUT http://localhost:8000/api/lots/1/layout \
@@ -185,8 +196,8 @@ curl -i -X PUT http://localhost:8000/api/lots/1/layout \
 ```
 
 **What you should see:**
-- First `PUT` → `200`; the re-GET shows both spaces with their saved `x`/`y`/`rotation`.
-- To test delete: take an `id` from the re-GET, then `PUT` a layout that **includes** that id but omits another — the omitted one disappears on the next GET.
+- First `PUT` → `200`; the re-GET shows both spaces with their saved `x`/`y`/`rotation`, A1's `w`/`h` as `0.08`/`0.05`, and A2's `w`/`h` defaulted to `0.05`/`0.03` (`DEFAULT_SPOT_W`/`DEFAULT_SPOT_H`) since it sent none.
+- To test delete: take an `id` from the re-GET, then `PUT` a layout that **includes** that id but omits another — the omitted one disappears on the next GET (unless it's `assigned` — see below).
 - To test the guard: assign one of the spaces to a student (B7), then `PUT` a layout that omits it → `409`, and the space is still there.
 - Student token → `403`; `x`/`y` outside `0..1` → `400`.
 
@@ -209,19 +220,21 @@ Open a Pull Request on GitHub with **base = `cr/b7-assignments`** (this CR stack
 ## 🧯 If something breaks
 
 - **`404` on `PUT /api/lots/1/layout` even though the route looks right** — make sure you added the handler to `lots.py` (already registered in B4) and restarted the server; a typo in the decorator path (`/layout`) also 404s.
-- **Positions come back as `null` after saving** — you passed `x`/`y` at the top level instead of inside each space object, or your column names don't match (`pos_x`/`pos_y`/`rotation`). Re-read the exact request shape in the testing guide.
+- **Positions come back as `null` after saving** — you passed `x`/`y` at the top level instead of inside each space object, or your column names don't match (`pos_x`/`pos_y`/`pos_w`/`pos_h`/`rotation`). Re-read the exact request shape in the testing guide.
+- **`w`/`h` come back as `0.05`/`0.03` even though you sent something else** — that's `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` kicking in: you either omitted `w`/`h` or sent a value outside `0..1`. The server treats that as "use the default size" rather than a `400` — send a fraction in `0..1` for a custom size.
 - **A save wipes spaces you meant to keep** — remember this is *full-replace*: any existing space whose `id` you don't include gets deleted. To keep a space, include it (with its `id`) in the array.
 - **`409` when you didn't expect it** — you're trying to delete (omit) a space that's currently `assigned`. Unassign it first (B7's `DELETE /api/assignments/:id`), then save the new layout.
-- **`400` for a coordinate you think is fine** — `x`/`y` must be between 0 and 1 (fractions of the image), not pixels. `0.5` is the middle; `537` is invalid.
+- **`400` for a coordinate you think is fine** — `x`/`y` must be between 0 and 1 (fractions of the image), not pixels. `0.5` is the middle; `537` is invalid. (`w`/`h` never 400 — they just fall back to the default.)
 - **`AttributeError`/`KeyError` on `g.user`** — `@require_role("admin")` didn't run; get a fresh admin token from B3.
 
 ---
 
 ## 📝 Recap — what you built and learned
 
-- You built a **full-replace `PUT`** that reconciles a whole set of spaces — inserting new ones, updating moved ones, and deleting omitted ones — instead of many small calls.
-- You learned why positions are stored as **normalized `0..1` coordinates** (they survive zoom/resize) and why the columns lived in the schema from day one.
+- You built a **full-replace `PUT`** that reconciles a whole set of spaces — inserting new ones, updating moved/resized ones, and deleting omitted ones — instead of many small calls.
+- You learned why position *and size* are stored as **normalized `0..1` fractions** (`x`/`y`/`w`/`h`) — they survive zoom/resize — and why a missing/out-of-range `w`/`h` gets a **default** (`DEFAULT_SPOT_W`/`DEFAULT_SPOT_H`) instead of a `400`.
 - You reused B7's **one-transaction** pattern so a layout save is all-or-nothing, and added a **`409` guard** so rearranging can never delete an assigned space.
+- You reused B4's **`serialize`** module (`SPACE_SELECT` + `serialize.space`) to shape the response, instead of hand-rolling another row → JSON mapping.
 - You met `= ANY(array)` for deleting many rows in one statement.
 
 ---
