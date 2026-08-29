@@ -26,7 +26,7 @@ The important, careful part: the endpoint **refuses to delete a space that's cur
 
 ## 🤔 Why this lesson matters
 
-In the UI prototype, where each space sits on the map comes from three developer-edited tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`). That means nobody but a programmer can move a spot — and several lots are stuck as photo-only because nobody hand-coded their grid. This endpoint turns "positions" from *code* into *data*: an admin drags spots on a map (that's the frontend, [U8](../../ui/lessons/U8-place-and-arrange-spots.md)) and hits **Save Layout**, and this endpoint is what persists it.
+In the UI prototype, where each space sits on the map comes from three developer-edited tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`). That means nobody but a programmer can move a spot — and several lots are stuck as photo-only because nobody hand-coded their grid. This endpoint turns "positions" from *code* into *data*: an admin drags spots on a map (that's the frontend, [U8](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U8-place-and-arrange-spots.md)) and hits **Save Layout**, and this endpoint is what persists it.
 
 Two design choices are worth slowing down on:
 

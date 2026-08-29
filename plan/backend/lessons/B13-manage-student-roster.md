@@ -493,4 +493,4 @@ Open a PR with **base = `cr/b9-create-lot`**. Paste your "Prove it works" output
 
 ## ➡️ Next lesson
 
-The roster is admin-only backend plumbing — the UI that drives it is the **[U10 — Student Management lesson](../../ui/lessons/U10-student-management.md)** (frontend track). If you're staying on the backend, the remaining work is the **Phase 4 hardening pass** (validation polish, automated tests — see [plan.md §8.2](../../plan.md#82-cr-status-tracker)) or the **[Deploy track, starting with Lesson D0](../../deploy/lessons/D0-aws-account-setup.md)**.
+The roster is admin-only backend plumbing — the UI that drives it is the **[U10 — Student Management lesson](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U10-student-management.md)** (frontend track). If you're staying on the backend, the remaining work is the **Phase 4 hardening pass** (validation polish, automated tests — see [plan.md §8.2](../../plan.md#82-cr-status-tracker)) or the **[Deploy track, starting with Lesson D0](../../deploy/lessons/D0-aws-account-setup.md)**.
