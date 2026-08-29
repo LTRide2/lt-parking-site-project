@@ -1,8 +1,8 @@
 and# LTRide — Deployment Guide (AWS)
 
-> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](../ui/ui-development-guide.md) and the [backend guide](../backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
+> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](../ui/ui-development-guide.md) and the [backend guide](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 >
-> - **Backend build** (the app these steps deploy) → [backend guide](../backend/backend-development-guide.md)
+> - **Backend build** (the app these steps deploy) → [backend guide](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md)
 > - **Frontend build & serve** (the SPA nginx serves) → [UI guide → Deployment (frontend)](../ui/ui-development-guide.md#part-f3--deployment-frontend)
 > - **Runnable artifacts** (templates, scripts, server config) → repo-root [`deploy/`](../../deploy/README.md)
 > - **CR ordering & status** → [`../plan.md` §8.2 tracker](../plan.md#82-cr-status-tracker)
@@ -21,7 +21,7 @@ This guide has three parts:
 > - `deploy/deploy.sh` — creates/updates the AWS infrastructure (the server, the database, networking, DNS).
 > - `deploy/release.sh` — ships your latest code (backend + frontend) onto that server.
 >
-> You should have finished at least backend B1 (a working backend locally, see the [backend guide](../backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs)) before deploying. The full deep-dive on each CloudFormation stack — architecture, IaC layout, every stack's snippets, the AWS-services inventory, and the cost model — lives in [**Part 3 — Reference**](#part-3--reference-architecture-iac--cost-model) below. This Part 1 is the click-by-click version.
+> You should have finished at least backend B1 (a working backend locally, see the [backend guide](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs)) before deploying. The full deep-dive on each CloudFormation stack — architecture, IaC layout, every stack's snippets, the AWS-services inventory, and the cost model — lives in [**Part 3 — Reference**](#part-3--reference-architecture-iac--cost-model) below. This Part 1 is the click-by-click version.
 
 ### Deployment vocabulary
 

@@ -2,7 +2,7 @@
 
 > **Track:** Frontend · **Lesson 4 of 10**
 > **⏱ Time:** ~75 min · **🎚 Difficulty:** moderate (a new pattern — fetch on load, render whatever comes back — but each piece is small)
-> **🧩 Prerequisites:** you've completed [Lesson U2 — Routing](U2-routing.md) (on branch `cr/u2-routing`), and backend [Lesson B4 — Read lots and spaces](../../backend/lessons/B4-read-lots-and-spaces.md)'s endpoints (`GET /api/lots`, `GET /api/lots/:id/spaces`) are running and seeded.
+> **🧩 Prerequisites:** you've completed [Lesson U2 — Routing](U2-routing.md) (on branch `cr/u2-routing`), and backend [Lesson B4 — Read lots and spaces](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/lessons/B4-read-lots-and-spaces.md)'s endpoints (`GET /api/lots`, `GET /api/lots/:id/spaces`) are running and seeded.
 > **🌿 CR branch:** `cr/u3-real-lots` (off `cr/u2-routing`) · **📄 Source CR:** [CR U3](../ui-development-guide.md#cr-u3--show-real-lots-and-spaces-data-driven-map) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
@@ -357,7 +357,7 @@ The campus "Home" view already pans and zooms; the selected-lot view was fixed-s
 
 **Pin the sidebar against zoom.** Zooming a wide map used to steal width from the left menu. The flexbox fix: `flexShrink: 0` on the sidebar `aside` **and** `minWidth: 0` on the `main` column, so the growing map is clipped by `main` instead of squashing the sidebar.
 
-> **Key teaching point:** a spot's position (`x`,`y`) and size (`w`,`h`) are all stored as **fractions of the map image** (0..1), so they stay aligned at any zoom — you never persist the zoom scale itself; it's purely a viewing convenience. (The mock backend stores these in `pos_x/pos_y/pos_w/pos_h` columns; the API maps them to the frontend `x/y/w/h` contract — the UI never sees the `pos_*` names.)
+> **Key teaching point:** a spot's position (`x`,`y`) and size (`w`,`h`) are all stored as **fractions of the map image** (0..1), so they stay aligned at any zoom — you never persist the zoom scale itself; it's purely a viewing convenience. (The mock backend stores and returns these under the same `x`/`y`/`w`/`h` names the frontend uses — there's no separate column naming to map.)
 
 ---
 

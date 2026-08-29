@@ -134,6 +134,7 @@ Notice neither thunk takes a `fromLotId`/source-lot argument, and neither dispat
 **Explanation, piece by piece:**
 - `fetchInterest` takes a `statusFilter` argument (defaulting to `"pending"`) and calls `GET /api/interest?status=pending` — the same endpoint U5 used, but without narrowing to "mine," and now with each item carrying `user_name`. That's the admin's-eye view of everyone's requests, by name.
 - `createAssignment`'s payload creator is an `async` function that does **two** things in sequence: first it `POST`s the new assignment, then it **dispatches `fetchInterest` again** using the `dispatch` Redux Toolkit hands it in the second argument (`thunkAPI`). → [createAsyncThunk docs](https://redux-toolkit.js.org/api/createAsyncThunk).
+- `createAssignment`'s args carry a `lotId`, but the POST body sent to the server is only `{ spaceId, userId, interestId }` — `lotId` never leaves the browser. It's client-side-only, there so `ControlBoard.tsx` (Step 4) knows which lot's spaces to re-fetch once the assignment succeeds.
 - Why refetch instead of just removing the assigned request from `all` by hand? Because the server is the one place that actually knows the new truth (the request's `status` flipped to `fulfilled` there). Asking it again is simpler and can't drift out of sync. → [Refetch vs. optimistic update](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates).
 - `api.post` (from `src/api/client.ts`, built in U0) automatically attaches `Authorization: Bearer <token>` to the request — that's how the backend knows this call is coming from a logged-in admin and not a random visitor. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
 - `unassignSpace` calls `DELETE /api/assignments/:spaceId`. The backend does two things for one DELETE: it frees the space **and** flips the occupant's fulfilled interest row back to `pending`, so the student re-enters the queue instead of just vanishing. The thunk itself only re-dispatches `fetchInterest` (the pending list); it does **not** touch the spaces grid — `ControlBoard.tsx` re-fetches spaces itself in a `.then()` after dispatching, once it knows which lot's grid needs re-colouring (Step 5). → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
@@ -145,7 +146,7 @@ Add `all: []` to `initialState`, and handle the new fulfilled action in `extraRe
 .addCase(fetchInterest.fulfilled, (s, a) => { s.status = "idle"; s.all = a.payload; })
 ```
 
-**What this does:** whenever `fetchInterest` finishes successfully, the reducer copies the returned array into `state.all`. This is the exact same "listen for `.fulfilled`" pattern you used for `fetchMyInterest` in U5, just writing to a different field. `unassignSpace` and `moveAssignment` don't need their own `extraReducers` cases — each already re-dispatches `fetchInterest`/`fetchSpaces` itself, and those thunks' own `fulfilled` handlers do the real state update.
+**What this does:** whenever `fetchInterest` finishes successfully, the reducer copies the returned array into `state.all`. This is the exact same "listen for `.fulfilled`" pattern you used for `fetchMyInterest` in U5, just writing to a different field. `unassignSpace` and `moveAssignment` don't need their own `extraReducers` cases for `state.all` — each already re-dispatches `fetchInterest` itself, and that thunk's own `fulfilled` handler does the real state update. (They each still get a `.rejected` case wired to a shared `fail` handler, same as `createAssignment`.)
 
 ### Step 2 — Track the chosen request and the chosen spot in `ControlBoard.tsx` (~15 min)
 
@@ -329,7 +330,9 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
       <button
         title="Free this spot and put the student back in the pending queue for this lot"
         onClick={() => {
-          dispatch(unassignSpace({ spaceId: assignedPick.id, lotId: selectedLotId }));
+          const who = assignedPick.assigned_user_name ?? `user #${assignedPick.assigned_user_id ?? '?'}`;
+          if (!window.confirm(`Unassign ${who} from ${assignedPick.label}? Their request goes back to the pending queue.`)) return;
+          dispatch(unassignSpace({ spaceId: assignedPick.id, lotId: selectedLotId })).then(() => dispatch(fetchSpaces(selectedLotId)));
           resetAssignPick();
         }}
       >
@@ -353,8 +356,11 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
         title="Free this spot; the request re-queues as pending in the chosen lot"
         disabled={moveLotId == null}
         onClick={() => {
-          dispatch(moveAssignment({ fromSpaceId: assignedPick.id, fromLotId: selectedLotId, toLotId: moveLotId! }));
-          resetAssignPick();
+          const fromLotId = selectedLotId;   // capture before the async dispatch resolves
+          dispatch(moveAssignment({ fromSpaceId: assignedPick.id, toLotId: moveLotId! })).then(() => {
+            dispatch(fetchSpaces(fromLotId));   // freed spot becomes available here
+            resetAssignPick();
+          });
         }}
       >
         Move
@@ -366,9 +372,9 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
 
 **Explanation:**
 - This panel only renders once a request-holding space is *picked* (Step 4), not on every click — that's the "select, then choose an action" model U-29 asks for.
-- **Unassign** dispatches `unassignSpace`. On the server, one `DELETE` both frees the space and reverts the interest row to `pending`; the thunk's own refetches update both lists, so all this handler needs to do is clear the local pick with `resetAssignPick()`.
-- **Move** needs a target lot first — the `<select>` lists every *other* lot (`lots.filter(l => l.id !== selectedLotId)`); the **Move** button stays `disabled` until one is chosen. It intentionally does **not** ask for a target *spot* — the admin assigns the actual spot afterward, in the target lot, through the same Step 4 flow. One assign path, not two.
-- Both actions call `resetAssignPick()` (from Step 2) afterward — not just `setAssignedPick(null)` — so a leftover `moveLotId` from this attempt can't bleed into the next one.
+- **Unassign** first shows a `window.confirm(...)` naming the student and the spot ("Unassign Ana from A3? Their request goes back to the pending queue.") — a plain browser confirm dialog, no extra library — and bails out (`return`) if the admin cancels it. Only past that guard does it dispatch `unassignSpace`. On the server, one `DELETE` both frees the space and reverts the interest row to `pending`; since the thunk itself only refreshes the pending-interest list, the handler chains `.then(() => dispatch(fetchSpaces(selectedLotId)))` to also re-colour this lot's grid, then clears the local pick with `resetAssignPick()`.
+- **Move** needs a target lot first — the `<select>` lists every *other* lot (`lots.filter(l => l.id !== selectedLotId)`); the **Move** button stays `disabled` until one is chosen. It intentionally does **not** ask for a target *spot* — the admin assigns the actual spot afterward, in the target lot, through the same Step 4 flow. One assign path, not two. There's no confirm dialog here (only Unassign asks).
+- `moveAssignment` only takes `{ fromSpaceId, toLotId }` — no source-lot field — so the handler captures `selectedLotId` into a local `fromLotId` *before* dispatching, then uses that captured value in the `.then()` to refresh the *source* lot's spaces once the move resolves (the lot the admin is currently looking at, which just lost its occupant). `resetAssignPick()` runs inside that same `.then()`, alongside the refetch — not synchronously — so a leftover `moveLotId` from this attempt can't bleed into the next one.
 
 **UI mock (after this phase).** Admin in **Assign to Spot**: Ana's request (this lot) is picked (gold) and the spot she asked for is **outlined (dashed)** on the map, about to be clicked, which then turns blue (assigned). A second admin session has instead clicked an already-assigned space, opening the Unassign/Move sub-panel.
 ```
@@ -408,7 +414,7 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
    - The clicked space turns **blue** (`assigned`); the request disappears from the pending list (now `fulfilled`).
    - Log in separately as that student → their dashboard shows **status: fulfilled**.
    - Clicking an already-assigned or disabled space does not assign; assigning when no request is picked does nothing.
-4. **Steps (unassign):** with the same admin, click the now-blue space → the Unassign/Move sub-panel appears (selecting it did **not** unassign it) → click **Unassign**.
+4. **Steps (unassign):** with the same admin, click the now-blue space → the Unassign/Move sub-panel appears (selecting it did **not** unassign it) → click **Unassign** → confirm the `window.confirm(...)` prompt.
 5. **Expected (unassign):** the space turns **available** (yellow) again; that student's request reappears under "Requests for this lot" as `pending`.
 6. **Steps (move):** re-assign the space to a student, click the blue space again, choose a different lot from the **Move** dropdown, click **Move**.
 7. **Expected (move):** the space in the original lot turns **available**; switching to the target lot's "Assign to Spot" panel shows that student's request now under "Requests for this lot", `pending` — assign it there the normal way to finish placing them.
