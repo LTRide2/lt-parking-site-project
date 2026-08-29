@@ -72,7 +72,7 @@ export default function StudentDashboard() {
   const togglePick = (space: Space) => {
     if (!canPick || lotPanRef.current.moved || space.status !== 'available') return;
     log('ui', `student pick spot ${space.id} (${space.label})`);
-    setPicked((prev) => prev === space.id ? null : space.id);
+setPicked((prev) => prev === space.id ? null : space.id);
   };
 
   const submit = () => {
