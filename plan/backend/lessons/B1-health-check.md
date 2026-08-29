@@ -54,7 +54,7 @@ There's a practical payoff too: `/api/health` becomes your **first troubleshooti
 
 ## ✅ Before you start
 
-**Time budget for the hour:** setup & branch (5 min) → create `health.py` (15) → rewrite `__init__.py` (20) → run the server (10) → prove it with `curl` & commit (10).
+**Time budget for the hour:** setup & branch (5 min) → clear the old template routes (5) → create `health.py` (15) → rewrite `__init__.py` (15) → run the server (10) → prove it with `curl` & commit (10).
 
 **Open your terminal, activate the virtual environment, and branch off B0** — B1 stacks directly on top of the branch you made last lesson, not on `main`:
 
@@ -69,7 +69,34 @@ git checkout -b cr/b1-health
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Create the health route (~15 min)
+### Step 1 — Clear the old template routes (~5 min)
+
+The course template's `App/` still has the scaffold this repo started from — a
+different, older pattern (one global `app` object, routes attached straight to
+it) that doesn't match the blueprint + factory pattern you're about to build.
+Left in place, it crashes the import as soon as you register a blueprint below.
+Delete it now, before you write anything new:
+
+```bash
+rm webapp/App/model.py webapp/App/index.py
+rm webapp/App/views/index.py webapp/App/views/root.py webapp/App/views/images.py
+```
+
+Then open `webapp/App/views/__init__.py` and replace its contents with just a
+docstring — this package should do nothing but mark `views/` as a Python
+package until each lesson adds its own module:
+
+```python
+"""Route blueprints, one module per feature area (health, auth, lots, ...)."""
+```
+
+**Why delete instead of just leaving them unused?** An unused file that still
+imports the old global `app` (e.g. `from App import app`) will `ImportError`
+the moment Python tries to import the `App` package — even if nothing calls
+it. Dead code that fails to import isn't harmless, it's a landmine. Better to
+remove it now than debug a mysterious import crash in Step 4.
+
+### Step 2 — Create the health route (~15 min)
 
 In `webapp/App/views/`, create a new file `health.py`:
 
@@ -92,9 +119,9 @@ def health():
 - `bp = Blueprint("health", __name__)` — creates the blueprint object named `"health"`. Every future feature area (`auth`, `lots`, `spaces`, ...) will start with this same line, just with a different name. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
 - `@bp.get("/api/health")` — a decorator that's shorthand for "register this function to handle **GET** requests at `/api/health`." → [Flask: HTTP methods](https://flask.palletsprojects.com/en/stable/quickstart/#http-methods)
 - `datetime.now(timezone.utc).isoformat()` — the current time in UTC, formatted as text. Including a timestamp in the response is a cheap, useful way to prove the answer is *live*, not cached or hard-coded. → [Python: `datetime.isoformat`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat)
-- `return jsonify({"data": {...}})` — the whole app wraps successful responses in a `{"data": ...}` envelope (and errors in `{"error": ...}`, see Step 2) so the frontend can always expect the same shape.
+- `return jsonify({"data": {...}})` — the whole app wraps successful responses in a `{"data": ...}` envelope (and errors in `{"error": ...}`, see Step 3) so the frontend can always expect the same shape.
 
-### Step 2 — Write the app factory (~20 min)
+### Step 3 — Write the app factory (~15 min)
 
 Open `webapp/App/__init__.py` and replace its contents with this:
 
@@ -138,11 +165,11 @@ app = create_app()
 - `def create_app():` — the **app factory** pattern: one function builds and returns a fully-wired app, instead of building it at import time. This makes it possible to build a second, separate app for automated tests later without the two interfering with each other. → [Flask: Application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)
 - `app.config["SECRET_KEY"] = config.SECRET_KEY` — hands Flask the secret you moved into `.env` back in [Lesson B0](B0-clean-slate-and-safety.md); Flask uses it to sign things like session cookies later. → [Flask: `SECRET_KEY`](https://flask.palletsprojects.com/en/stable/config/#SECRET_KEY)
 - `CORS(app, origins=config.CORS_ORIGINS.split(","), supports_credentials=True)` — without this, a browser tab open on `http://localhost:5173` (the React dev server) would be **blocked** from calling `http://localhost:8000` (this API) — different port counts as a different origin. `origins=...` opts in exactly the addresses listed in `.env`, nothing more. → [flask-cors docs](https://flask-cors.readthedocs.io/en/latest/)
-- `from .views import health` / `app.register_blueprint(health.bp)` — imports the blueprint you wrote in Step 1 and plugs it into the app. Every future view module gets its own import + register line here.
+- `from .views import health` / `app.register_blueprint(health.bp)` — imports the blueprint you wrote in Step 2 and plugs it into the app. Every future view module gets its own import + register line here.
 - `@app.errorhandler(404)` / `@app.errorhandler(500)` — by default Flask returns an HTML error page; these two decorators override that so **every** error, from any route, comes back as the same `{"error": {"code": ..., "message": ...}}` JSON shape the frontend can parse uniformly. → [Flask: Handling application errors](https://flask.palletsprojects.com/en/stable/errorhandling/)
 - `app = create_app()` at module level — this is what lets the command-line tool `flask run` find an app object automatically when you point `FLASK_APP` at this module.
 
-### Step 3 — Run the server (~10 min)
+### Step 4 — Run the server (~10 min)
 
 In this same terminal (venv active, repo root), start the dev server:
 
@@ -170,7 +197,7 @@ curl -i http://localhost:8000/api/does-not-exist
 
 **What you should see:**
 1. The first command returns `200` and a body like `{"data":{"status":"ok","time":"...."}}`.
-2. The second command returns `404` and `{"error":{"code":"not_found","message":"Not found"}}` — proving the error envelope from Step 2 works for a route that doesn't exist.
+2. The second command returns `404` and `{"error":{"code":"not_found","message":"Not found"}}` — proving the error envelope from Step 3 works for a route that doesn't exist.
 
 **☁️ Cloud check (optional).** If you've already stood up the AWS server (Part 2, CRs D0–D2 in the guide), run the repeatable deploy recipe and hit the real server:
 
@@ -201,6 +228,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 
 ## 🧯 If something breaks
 
+- **`ImportError` mentioning `App.views.index` or `App.app`** — you skipped [Step 1](#step-1--clear-the-old-template-routes-5-min); one of the old template files is still importing the global `app` object that no longer exists once you're on the factory pattern. Delete the files listed in Step 1 and make sure `webapp/App/views/__init__.py` is just the one-line docstring.
 - **`ModuleNotFoundError: webapp` when running `flask run`** — you're in the wrong folder. Run it from `~/workspace/LTR-Backend`, where `ls` shows the `webapp/` folder.
 - **`KeyError: 'SECRET_KEY'` on startup** — your `.env` from [Lesson B0](B0-clean-slate-and-safety.md) is missing or in the wrong folder (must be the repo root). Re-check that lesson's Step 4.
 - **`curl: (7) Failed to connect... Connection refused`** — the server isn't actually running. Check the first terminal for errors, or that you didn't close it.

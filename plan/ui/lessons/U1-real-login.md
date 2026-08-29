@@ -1,6 +1,6 @@
 # Lesson U1 — Real login (replaces the fake login)
 
-> **Track:** Frontend · **Lesson 2 of 8**
+> **Track:** Frontend · **Lesson 2 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first real network call + your first Redux Toolkit thunks)
 > **🧩 Prerequisites:** [Lesson U0 — Project hygiene](U0-project-hygiene.md) done (`src/api/client.ts`, `.env` with `VITE_API_URL` in place); backend **B3 — Authentication & login** running and seeded, so there's a real `POST /api/auth/student` and `POST /api/auth/admin` to call.
 > **🌿 CR branch:** `cr/u1-real-auth` (off `cr/u0-hygiene`) · **📄 Source CR:** [CR U1](../ui-development-guide.md#cr-u1--real-login-replaces-the-fake-login) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -363,6 +363,7 @@ Then open a Pull Request on GitHub with **base = `cr/u0-hygiene`** (not `main` �
 
 ## 🧯 If something breaks
 
+- **Blank page + `ReferenceError: Cannot access '…' before initialization` in the console** — a module-level value is computed before a function it depends on is defined; move the `let x = load()` below the function declarations.
 - **Browser console shows a CORS error** ("blocked by CORS policy") — the backend's `CORS_ORIGINS` setting doesn't include your frontend's address. Check the backend's `.env` has `CORS_ORIGINS=http://localhost:5173` (see backend [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md)) and restart the backend.
 - **Every request fails with "Failed to fetch" / a network error** — either the backend isn't running, or your frontend `.env`'s `VITE_API_URL` doesn't match the backend's actual address/port. Confirm both terminals: backend running, and `VITE_API_URL=http://localhost:8000` in your `.env` (from U0).
 - **Login succeeds but every *next* request comes back `401 Unauthorized`** — the token isn't being attached. Open DevTools → Application tab → Local Storage and confirm a `token` key exists after login; if it's missing, double-check `setToken` is being called in the `loginOk` case in Step 1.

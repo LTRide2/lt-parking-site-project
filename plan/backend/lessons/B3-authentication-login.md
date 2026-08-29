@@ -238,8 +238,9 @@ def _err(code, message, status):
     return jsonify({"error": {"code": code, "message": message}}), status
 
 
-def _public_user(u):
-    return {"id": u["id"], "role": u["role"], "name": u["name"]}
+def _public_user(user):
+    """Response-safe fields for login/me — never the password_hash."""
+    return {"id": user["id"], "role": user["role"], "name": user["name"], "email": user["email"]}
 
 
 @bp.post("/api/auth/student")
@@ -249,7 +250,7 @@ def student_login():
     if not code:
         return _err("bad_request", "code is required", 400)
     user = query_one(
-        "SELECT id, role, name FROM users WHERE role='student' AND code = %s", (code,))
+        "SELECT id, role, name, email FROM users WHERE role='student' AND code = %s", (code,))
     if user is None:
         return _err("unauthorized", "Unknown code", 401)
     return jsonify({"data": {"token": issue_token(user), "user": _public_user(user)}})
@@ -262,7 +263,7 @@ def admin_login():
     if not username or not password:
         return _err("bad_request", "username and password are required", 400)
     user = query_one(
-        "SELECT id, role, name, password_hash FROM users "
+        "SELECT id, role, name, email, password_hash FROM users "
         "WHERE role='admin' AND username = %s", (username,))
     if user is None or not check_password_hash(user["password_hash"], password):
         return _err("unauthorized", "Bad credentials", 401)
@@ -278,18 +279,18 @@ def logout():
 @bp.get("/api/auth/me")
 @require_auth
 def me():
-    u = g.user
-    return jsonify({"data": {"id": u["id"], "role": u["role"],
-                             "name": u["name"], "email": u["email"]}})
+    return jsonify({"data": _public_user(g.user)})
 ```
+
+> **Looking ahead:** B4 pulls `_public_user` (and the lot/space serializers it introduces) into a shared `webapp/App/serialize.py`, so `student_login`, `admin_login`, and `me` all end up calling `serialize.public_user(user)` instead of a local helper. The shape — `{id, role, name, email}` — doesn't change.
 
 **Explanation, route by route:**
 - `Blueprint("auth", __name__)` — a Flask **blueprint** groups a set of related routes so they can be registered (and later removed or tested) as one unit, the same pattern the health check used in B1. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/).
 - `student_login()` — reads `code` from the JSON body, looks up a student with that exact code. Notice it's a **single unhashed lookup** — student "login" here is just knowing the code, not a password. No match → `401`. A match → hand back a fresh token from `issue_token` plus the public-safe fields from `_public_user`.
 - `admin_login()` — looks up the admin by `username`, then calls `check_password_hash(user["password_hash"], password)`. The database never stores the real password — only a one-way hash created back in B2's seed data — so this function re-hashes the submitted password the same way and compares the results. If they don't match (or the username doesn't exist), it's `401`. → [Werkzeug: `check_password_hash`](https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.check_password_hash).
 - `logout()` — because JWTs are stateless (the server keeps no record of "who's logged in"), there's nothing to erase server-side; the endpoint exists so the frontend has something to call, and it returns `204 No Content` — "request succeeded, there's nothing to send back."
-- `me()` — stacks `@require_auth` **under** the route decorator, so Flask registers the route first and then wraps it with the auth check. Once `require_auth` has run, `g.user` is guaranteed to be set, so `me()` can just read it and return the logged-in user's own data.
-- `_public_user(u)` — deliberately returns only `id`, `role`, and `name` on login — never the `password_hash` — so a hash never accidentally leaves the server in a response.
+- `me()` — stacks `@require_auth` **under** the route decorator, so Flask registers the route first and then wraps it with the auth check. Once `require_auth` has run, `g.user` is guaranteed to be set (loaded by `_current_user()`'s `SELECT id, role, name, email` in `auth.py`), so `me()` just reshapes it with `_public_user`.
+- `_public_user(user)` — returns `id`, `role`, `name`, **and `email`** — every auth response now includes it — but never `password_hash`, so a hash never accidentally leaves the server in a response.
 
 ### Step 4 — Register the blueprint (~5 min)
 
@@ -328,9 +329,10 @@ curl -i http://localhost:8000/api/auth/me     # no token
 ```
 
 **What you should see:**
-- Valid student/admin → `200` with `{"data":{"token":"...","user":{...}}}`.
+- Valid student (`STU001` seeds to Alice) → `200` with `{"data":{"token":"...","user":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}}` — `user` always includes `email` now.
+- Valid admin → `200` with the same shape: `{"data":{"token":"...","user":{"id":1,"role":"admin","name":"Admin","email":"admin@lt.edu"}}}`.
 - Wrong code / wrong password → `401` `{"error":{"code":"unauthorized",...}}`.
-- `/me` with token → `200` and your user; `/me` without token → `401`.
+- `/me` with token → `200` `{"data":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}`; `/me` without token → `401`.
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
 
@@ -372,6 +374,7 @@ Then open a Pull Request on GitHub with **base = `cr/b2-schema`** (not `main` �
 - You learned the **stateless auth pattern**: the token itself carries proof of identity, checked by signature, not by looking anything up in a session store.
 - You learned why passwords are never stored in plain text, and how `check_password_hash` verifies one without ever un-hashing it.
 - You added the first two authorization primitives (`require_auth`, `require_role`) that every remaining lesson (B4–B7) will reuse to protect its own routes.
+- You shaped every auth response through one `_public_user` helper (`{id, role, name, email}`) instead of hand-building each dict — the seed of the pattern B4 promotes into `webapp/App/serialize.py`.
 
 ---
 

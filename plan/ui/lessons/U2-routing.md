@@ -1,6 +1,6 @@
 # Lesson U2 — Routing (real pages with URLs)
 
-> **Track:** Frontend · **Lesson 3 of 8**
+> **Track:** Frontend · **Lesson 3 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (two new ideas — routing and route guards — but the code is short)
 > **🧩 Prerequisites:** you've completed [Lesson U1 — Real login](U1-real-login.md) (on branch `cr/u1-real-auth`, with the backend running through B3 and seeded).
 > **🌿 CR branch:** `cr/u2-routing` (off `cr/u1-real-auth`) · **📄 Source CR:** [CR U2](../ui-development-guide.md#cr-u2--routing-real-pages-with-urls) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -49,7 +49,7 @@ Right now, `Login.tsx` decides what to show with a `useState<"selection" | "stud
 
 ## ✅ Before you start
 
-**Time budget for the hour:** branch (5 min) → wrap the app in a router (10) → build the `ProtectedRoute` guard (10) → define the routes (15) → simplify `Login.tsx` (5) → stub `StudentDashboard.tsx` (5) → test & commit (10).
+**Time budget for the hour:** branch (5 min) → wrap the app in a router + add an ErrorBoundary (10) → build the `ProtectedRoute` guard (10) → define the routes (15) → simplify `Login.tsx` (5) → stub `StudentDashboard.tsx` (5) → test & commit (10).
 
 **Open your terminal in the frontend project and make your branch.** This CR branches off `cr/u1-real-auth` — the login work from the previous lesson has to exist first, since the routes below depend on `state.auth.isLoggedIn` and `state.auth.user?.role`.
 
@@ -64,9 +64,42 @@ git checkout -b cr/u2-routing
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Wrap the app in a router (~10 min)
+### Step 1 — Wrap the app in a router, and add an ErrorBoundary safety net (~10 min)
 
-Open `src/main.tsx` and add `BrowserRouter` around `<App />`:
+Right now, any runtime render error (a typo'd prop, a `null` where an object was expected) blanks the whole page silently — no error, no stack, just white. Before wiring up routes, give the app a **safety net** that turns that silent blank page into an on-screen error message.
+
+Create `src/ErrorBoundary.tsx`:
+
+```tsx
+// src/ErrorBoundary.tsx
+import { Component, type ReactNode } from "react";
+
+interface Props { children: ReactNode }
+interface State { error: Error | null }
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <pre style={{ padding: 20, color: "crimson", whiteSpace: "pre-wrap" }}>
+          {this.state.error.message}
+          {"\n\n"}
+          {this.state.error.stack}
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
+```
+
+Then open `src/main.tsx` and wrap `<App />` in both the boundary and `BrowserRouter`:
 
 ```tsx
 // src/main.tsx
@@ -77,21 +110,26 @@ import { BrowserRouter } from "react-router-dom";
 import { store } from "./store";
 import "./index.css";
 import App from "./App.tsx";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Provider store={store}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </ErrorBoundary>
     </Provider>
   </StrictMode>,
 );
 ```
 
 **Explanation:**
+- `ErrorBoundary` must be a **class component** — `getDerivedStateFromError` is React's hook for catching render errors, and it's only available on classes, not function components. → [React docs: Error boundaries](https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary).
+- It's wired **outermost** (around `BrowserRouter`, inside `Provider`), so a render crash anywhere in the routed app — a bad route, a bad page, a bad guard — surfaces here instead of blanking the page.
 - `<BrowserRouter>` — turns on real URL-based navigation for everything inside it. It reads the current browser address and lets any nested component ask "what's the URL right now?" or "take me to a different one." → [React Router — `BrowserRouter`](https://reactrouter.com/en/main/router-components/browser-router).
-- **Order matters here:** `<Provider>` (Redux) wraps `<BrowserRouter>`, which wraps `<App>`. That way every component — including the router's own — can read Redux state, and every component can use routing. Neither one needs to be "more outside" than the other in principle; we just need both to wrap `App`.
+- **Order matters here:** `<Provider>` (Redux) wraps `<ErrorBoundary>`, which wraps `<BrowserRouter>`, which wraps `<App>`. That way every component — including the router's own — can read Redux state, and every component can use routing. Neither one needs to be "more outside" than the other in principle; we just need both to wrap `App`.
 - You installed the `react-router-dom` package back in **U0** (`npm install react-router-dom`) specifically so it would be ready for this lesson.
 
 ### Step 2 — Build the route guard: `src/ProtectedRoute.tsx` (~10 min)
@@ -246,7 +284,8 @@ Then open a Pull Request on GitHub with **base = `cr/u1-real-auth`** (not `main`
 
 ## 🧯 If something breaks
 
-- **Blank white page after adding `BrowserRouter`** — open the browser console (right-click → Inspect → Console). A common cause is a component using a routing hook (`useNavigate`, `useAppSelector` for routing state) *outside* of `<BrowserRouter>` — double-check the wrapping order in `main.tsx` from Step 1.
+- **Blank white page** — check the console; the `ErrorBoundary` you added in Step 1 should catch a render crash and print the error message + stack right on the page instead of leaving it blank. If you still see a truly blank page with no error text at all, the crash happened outside React's render (e.g. in `main.tsx` before the boundary even mounts) — the console is your only signal there.
+- **Blank white page after adding `BrowserRouter`, but the `ErrorBoundary` isn't catching it either** — open the browser console (right-click → Inspect → Console). A common cause is a component using a routing hook (`useNavigate`, `useAppSelector` for routing state) *outside* of `<BrowserRouter>` — double-check the wrapping order in `main.tsx` from Step 1.
 - **You're bounced to `/login` even though you just logged in successfully** — `ProtectedRoute` is reading `s.auth.isLoggedIn` / `s.auth.user?.role`. If your `authSlice.ts` from U1 uses different field names, the guard will always see "not logged in." Compare the field names in Step 2 against your actual `authSlice.ts`.
 - **Logging in doesn't navigate anywhere** — check the second `useEffect` in `App.tsx` (Step 3). It only fires when `user` changes, so if login isn't actually updating `state.auth.user`, you'll stay on `/login`. Confirm U1's login thunks are working first (re-run U1's testing guide).
 - **`Cannot find module './StudentDashboard'` or a TypeScript error about a missing default export** — you skipped Step 5, or the stub file's export isn't `export default`. Re-check the exact snippet in Step 5.
@@ -257,6 +296,7 @@ Then open a Pull Request on GitHub with **base = `cr/u1-real-auth`** (not `main`
 ## 📝 Recap — what you built and learned
 
 - You replaced a hand-rolled `if (isLoggedIn)` screen switch with **real URLs**: `/login`, `/student`, `/admin`.
+- You added an **`ErrorBoundary`** around the app shell, so a render crash shows its message + stack on-screen instead of silently blanking the page.
 - You learned the core React Router building blocks: `<BrowserRouter>`, `<Routes>`/`<Route>`, `<Navigate>`, and `useNavigate`.
 - You wrote a reusable **`ProtectedRoute`** guard — the standard pattern for "does this user belong on this page?" that every later admin/student page will reuse.
 - You practiced the **stacked-CR git routine** again, branching off the previous lesson's branch instead of `main`.
