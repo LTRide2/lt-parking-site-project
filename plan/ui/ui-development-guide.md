@@ -1786,15 +1786,15 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 
 ### A. Module structure (target)
 
-The React SPA is organised as a thin **API client**, three Redux **slices**, and route-guarded **pages**. The static module view is diagrammed in [`../plan.md §5.3`](../plan.md#53-frontend-module-structure); the file-by-file target layout (tagged by the CR that adds each file) is in [Part D → "The target"](#the-source-structure-youre-building-toward) above.
+The React SPA is organised as a thin **API client**, three core Redux **slices** (plus a PoC-extension `studentsSlice`), and route-guarded **pages**. The static module view is diagrammed in [`../plan.md §5.3`](../plan.md#53-frontend-module-structure); the file-by-file target layout (tagged by the CR that adds each file) is in [Part D → "The target"](#the-source-structure-youre-building-toward) above.
 
 ### B. Design conventions
 
 - **API client** (`src/api/client.ts`): a single `fetch` wrapper. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`. It is the **one place** that talks to the backend (built in **U0**).
-- **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**).
+- **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**), and — PoC extension — `studentsSlice` (roster CRUD/CSV/direct-assign, **U10**).
 - **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
 - **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
-- **Authored layouts (positions as data):** spot *positions* start as those hard-coded tables but become **normalized `x`/`y`/`rotation` fields** (`0..1` of the map image) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with a saved layout renders from it; a lot without one falls back to the config tables — the tables are never deleted, just demoted to a default. Lots themselves are created from the UI via `POST /api/lots` (**U9**), so the lot set is no longer fixed at 17.
+- **Authored layouts (positions *and size* as data):** spot placement starts as those hard-coded tables but becomes **normalized `x`/`y`/`w`/`h`/`rotation` fields** (`0..1` of the map image — position *and size*, so a spot keeps its shape at any zoom) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with a saved layout renders from it; a lot without one falls back to the config tables — the tables are never deleted, just demoted to a default. Lots themselves are created from the UI via `POST /api/lots` — carrying an optional admin-set **`number`** that prefixes spot labels — (**U9**), so the lot set is no longer fixed at 17.
 - **UX states:** loading spinners, empty states ("No spaces available" only when truly empty), error toasts, and **optimistic updates with refetch on failure** (**U4**).
 
 ### C. Cross-cutting (frontend side)
@@ -1812,8 +1812,11 @@ The React SPA is organised as a thin **API client**, three Redux **slices**, and
 | Routing + guards | `main.tsx`, `App.tsx`, `ProtectedRoute.tsx` | [U2](#cr-u2--routing-real-pages-with-urls) |
 | Lots/spaces data | `parkingSlice.ts`, `ControlBoard.tsx` | [U3](#cr-u3--show-real-lots-and-spaces-data-driven-map) |
 | Persist enable/disable | `parkingSlice.ts` (`updateSpaces`) | [U4](#cr-u4--make-enabledisable-actually-save) |
-| Student interest | `interestSlice.ts`, `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
-| Admin assignment | `interestSlice.ts`, `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
+| Student self-service (pick one spot, submit/withdraw) | `interestSlice.ts` (`registerInterest`, `withdrawInterest`), `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
+| Admin assignment (assign / unassign / move) | `interestSlice.ts`, `parkingSlice.ts` (`assignSpace`, `unassignSpace`, `moveAssignment`), `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
 | Map upload | `client.ts` (`uploadFile`), `parkingSlice.ts` | [U7](#cr-u7--update-the-school-map-image) |
 | Arrange spots (drag-drop layout) | `parkingSlice.ts` (`saveLayout`), `ControlBoard.tsx` | [U8](#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) |
-| Add a parking lot | `parkingSlice.ts` (`createLot`), `ControlBoard.tsx` | [U9](#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
+| Add / remove a parking lot | `parkingSlice.ts` (`createLot`, `deleteLot`), `ControlBoard.tsx` | [U9](#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
+| **Student Management (roster + CSV + direct assign/move)** — PoC extension | `studentsSlice.ts`, `StudentManagement.tsx` | [U10](lessons/U10-student-management.md) |
+
+> **PoC extensions (design in [`../plan.md §5`](../plan.md#5-domain--class-diagram) / [§6.5](../plan.md#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move)).** Beyond the base slices above, the prototype adds: a **`Student` roster** keyed by `student_id` (distinct from the login `User`, linked by `user.code == student.student_id`); **dual assignment identity** on a space (`assigned_user_id` *or* `assigned_student_id`, so a login-less roster student can hold a spot); a **single-spot request** (`interest.space_ids`, ≤ 1) that **locks on submit** and can be **withdrawn** while `pending` (`DELETE /api/interest/me`); and **move-to-another-lot** (`POST /api/assignments/move`). These consume the extension backend CRs **B13–B16** tracked in [`../plan.md §8.2`](../plan.md#82-cr-status-tracker).

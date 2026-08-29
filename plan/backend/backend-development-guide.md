@@ -409,6 +409,7 @@ erDiagram
     }
     lots {
         int   id PK
+        int   number         "admin-set, unique; prefixes spot labels"
         text  name
         int   display_order
         text  map_image_url
@@ -424,7 +425,7 @@ erDiagram
         int          id PK
         int          user_id FK
         int          lot_id FK     "preferred lot, may be NULL"
-        text         status        "pending | fulfilled | declined"
+        text         status        "pending | fulfilled | cancelled"
         timestamptz  created_at
     }
     assignments {
@@ -448,7 +449,7 @@ erDiagram
 **The three fixed value sets (enums):**
 - `users.role` ∈ `{student, admin}`
 - `spaces.status` ∈ `{available, disabled, assigned}`
-- `interest.status` ∈ `{pending, fulfilled, declined}`
+- `interest.status` ∈ `{pending, fulfilled, cancelled}` (a student *withdraws* a pending request → `cancelled`; matches plan.md §5.1 / §7.1 and the frontend `interestSlice`)
 
 #### Step 1 — Create the database (one time)
 
@@ -488,28 +489,34 @@ CREATE TABLE users (
 );
 
 -- LOTS: a parking lot / area.
+--   number is an admin-set, unique lot number that prefixes each spot's label
+--   (e.g. lot number 4 -> spaces "4-01", "4-02", ...). Set at POST /api/lots (B9).
 CREATE TABLE lots (
     id            SERIAL PRIMARY KEY,
+    number        INTEGER UNIQUE,              -- admin-set; defaults to display_order when omitted
     name          TEXT NOT NULL,
     display_order INTEGER NOT NULL DEFAULT 0,
     map_image_url TEXT
 );
 
 -- SPACES: one parking space, belongs to a lot.
---   pos_x / pos_y / rotation are where the space sits on the lot's map image.
---   They are NORMALIZED fractions (0..1 of the image), not pixels, so the layout
---   survives zoom/resize on any screen. NULL = "no authored position yet" (the UI
---   falls back to its config-table layout). An admin sets them with the drag-and-drop
---   editor via PUT /api/lots/:id/layout (built in B8) — the column is here from day one.
+--   pos_x / pos_y are WHERE the space sits and pos_w / pos_h are its SIZE on the lot's
+--   map image; rotation is in degrees. Position AND size are NORMALIZED fractions
+--   (0..1 of the image), not pixels, so both placement and shape survive zoom/resize on
+--   any screen (the zoom scale is never persisted). NULL = "no authored layout yet" (the
+--   UI falls back to its config-table layout). An admin sets them with the drag-and-drop
+--   editor via PUT /api/lots/:id/layout (built in B8) — the columns are here from day one.
 CREATE TABLE spaces (
     id               SERIAL PRIMARY KEY,
     lot_id           INTEGER NOT NULL REFERENCES lots(id) ON DELETE CASCADE,
-    label            TEXT NOT NULL,            -- human label, e.g. "1-0-3"
+    label            TEXT NOT NULL,            -- human label, e.g. "4-01"
     status           TEXT NOT NULL DEFAULT 'available'
                      CHECK (status IN ('available', 'disabled', 'assigned')),
     assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     pos_x            DOUBLE PRECISION CHECK (pos_x IS NULL OR (pos_x >= 0 AND pos_x <= 1)),
     pos_y            DOUBLE PRECISION CHECK (pos_y IS NULL OR (pos_y >= 0 AND pos_y <= 1)),
+    pos_w            DOUBLE PRECISION CHECK (pos_w IS NULL OR (pos_w >= 0 AND pos_w <= 1)),
+    pos_h            DOUBLE PRECISION CHECK (pos_h IS NULL OR (pos_h >= 0 AND pos_h <= 1)),
     rotation         DOUBLE PRECISION,         -- degrees; NULL treated as 0
     UNIQUE (lot_id, label)                     -- no two spaces share a label in a lot
 );
@@ -520,7 +527,7 @@ CREATE TABLE interest (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     lot_id     INTEGER REFERENCES lots(id) ON DELETE SET NULL,  -- preferred lot (optional)
     status     TEXT NOT NULL DEFAULT 'pending'
-               CHECK (status IN ('pending', 'fulfilled', 'declined')),
+               CHECK (status IN ('pending', 'fulfilled', 'cancelled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -550,7 +557,13 @@ COMMIT;
 
 > **Why the partial unique indexes?** They let the *database itself* enforce the rules ("one pending request per student", "one active assignment per space") so you can't get into a bad state even if there's a bug in the Python code. The `WHERE` clause means the rule only applies to the rows that matter (e.g. only `pending` interest).
 
-> **Why `pos_x/pos_y/rotation` are here from the start.** These columns aren't used until [CR B8](#cr-b8--save-lot-layout-spot-positions) (the drag-and-drop layout editor, frontend [U8](../ui/ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor)) — but this is a fresh schema that hasn't shipped anywhere, so we **design them in now** rather than bolt them on with a later migration. A column can exist before the feature that fills it; that's normal, and it keeps the data model honest (spot placement is a real property of a space, per plan.md §5.1). Migrations earn their keep once `001_init.sql` has actually run on a live database — from that point on you add new migration files instead of editing this one.
+> **Why `pos_x/pos_y/pos_w/pos_h/rotation` are here from the start.** These columns aren't used until [CR B8](#cr-b8--save-lot-layout-spot-positions) (the drag-and-drop layout editor, frontend [U8](../ui/ui-development-guide.md#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor)) — but this is a fresh schema that hasn't shipped anywhere, so we **design them in now** rather than bolt them on with a later migration. A column can exist before the feature that fills it; that's normal, and it keeps the data model honest (spot placement — position *and* size — is a real property of a space, per plan.md §5.1). Migrations earn their keep once `001_init.sql` has actually run on a live database — from that point on you add new migration files instead of editing this one.
+
+> **Extensions surfaced by the PoC (later migrations — CRs B13–B16).** The prototype (plan.md §2) validated four features beyond this core schema; because `001_init.sql` above is the *first shippable* schema, these land as **later migration files**, not edits to `001_init.sql`. The full unified data model that includes them is [plan.md §5.1](../plan.md#51-data-model-entities); each maps to an extension CR in [plan.md §8.2](../plan.md#82-cr-status-tracker):
+> - **`students` roster (B13)** — a new table keyed by **`student_id`** (a school id string, PK — *not* email), columns `first, last, email, grade, assigned_slot, parking_status` where `parking_status ∈ {unassigned, valid, expired, suspended}`. Distinct from `users`; linked by `users.code = students.student_id`. CSV import (upsert) / export.
+> - **`spaces.assigned_student_id` (B14)** — a nullable FK to `students.student_id`, so a space can be held by a roster student who has *no* login `users` row (dual assignment identity). `POST /api/students/:id/assign` uses it.
+> - **`interest.space_ids` (B15)** — the student's preferred spot(s) (the PoC allows exactly one, so ≤ 1; an `interest_spaces` join table or a JSON/array column). The `one_active_interest_per_user` index below stays, but B6's rule changes from *reject-duplicate → 409* to **upsert the one active request**; withdraw sets it to `cancelled` via `DELETE /api/interest/me`.
+> - **`POST /api/assignments/move` (B16)** — no schema change; a transactional endpoint that frees a space and re-queues its request as `pending` in another lot.
 
 #### Step 3 — Make the admin password hash
 
@@ -1824,17 +1837,26 @@ LTR-Backend/
 | POST | `/api/auth/logout` | any | invalidate/clear | [B3](#cr-b3--authentication-login) |
 | GET | `/api/auth/me` | any | current user | [B3](#cr-b3--authentication-login) |
 | GET | `/api/lots` | any | list lots | [B4](#cr-b4--read-lots--spaces) |
-| GET | `/api/lots/:id/spaces` | any | spaces + status (+ positions) | [B4](#cr-b4--read-lots--spaces) |
+| GET | `/api/lots/:id/spaces` | any *(login-gated)* | spaces + status (+ positions, + assigned name) | [B4](#cr-b4--read-lots--spaces) |
 | POST | `/api/lots` | admin | create a lot (+ optional blank spaces) | [B9](#cr-b9--create-a-parking-lot) |
 | PUT | `/api/lots/:id/layout` | admin | save spot positions (full-replace) | [B8](#cr-b8--save-lot-layout-spot-positions) |
 | PATCH | `/api/spaces/:id` | admin | enable/disable one | [B5](#cr-b5--admin-enablesdisables-spaces) |
 | PATCH | `/api/spaces` | admin | bulk enable/disable | [B5](#cr-b5--admin-enablesdisables-spaces) |
 | POST | `/api/lots/:id/map` | admin | upload/replace map image | (map upload, [U7](../ui/ui-development-guide.md#cr-u7--update-the-school-map-image)) |
-| POST | `/api/interest` | student | register interest | [B6](#cr-b6--student-registers-interest) |
+| POST | `/api/interest` | student | pick a spot & register interest (`{lotId, spaceIds}`) | [B6](#cr-b6--student-registers-interest) |
 | GET | `/api/interest` | admin | list all interest | [B6](#cr-b6--student-registers-interest) |
-| GET | `/api/interest/me` | student | own interest | [B6](#cr-b6--student-registers-interest) |
+| GET | `/api/interest/me` | student | own active interest | [B6](#cr-b6--student-registers-interest) |
+| DELETE | `/api/interest/me` | student | withdraw own active request → `cancelled` | [B15] *(PoC extension)* |
 | POST | `/api/assignments` | admin | assign space → student | [B7](#cr-b7--admin-assigns-a-space) |
 | DELETE | `/api/assignments/:id` | admin | unassign | [B7](#cr-b7--admin-assigns-a-space) |
+| POST | `/api/assignments/move` | admin | move an assignment to another space | [B16] *(PoC extension)* |
+| GET | `/api/students` | admin | list roster | [B13] *(PoC extension)* |
+| POST | `/api/students` | admin | add a roster student | [B13] *(PoC extension)* |
+| PATCH | `/api/students/:id` | admin | edit a roster student | [B13] *(PoC extension)* |
+| DELETE | `/api/students/:id` | admin | remove a roster student | [B13] *(PoC extension)* |
+| POST | `/api/students/import` | admin | bulk import roster (CSV) | [B13] *(PoC extension)* |
+| GET | `/api/students/export` | admin | export roster (CSV) | [B13] *(PoC extension)* |
+| POST | `/api/students/:id/assign` | admin | assign a space to a roster student | [B14] *(PoC extension)* |
 
 ### A.5 Request / response contracts
 
@@ -1868,9 +1890,9 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 - **200:** `{ "data": [ { "id": 1, "name": "Lot 1", "displayOrder": 1, "mapImageUrl": "/maps/lot1.jpg", "capacity": 120, "availableCount": 37 } ] }`
 
 #### `GET /api/lots/:id/spaces`
-- **Request:** none. Path param `id` (lot id).
-- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "1-0-3", "status": "available", "assignedUserId": null, "x": 0.25, "y": 0.4, "rotation": 0 } ] } }` — `x`/`y`/`rotation` are `null` for spaces with no authored position (the UI falls back to its config-table layout).
-- **404** lot not found.
+- **Request:** none. Path param `id` (lot id). **Auth: any authenticated user** (login-gated, *not* admin-only) — students must read a lot's layout to see and pick spots.
+- **200:** `{ "data": { "lotId": 1, "spaces": [ { "id": 1001, "label": "1-0-3", "status": "available", "assignedUserId": null, "assignedUserName": null, "x": 0.25, "y": 0.4, "w": 0.05, "h": 0.09, "rotation": 0 } ] } }` — `assignedUserName` is the display name when a space is `assigned` (else `null`); `x`/`y`/`w`/`h`/`rotation` are `null` for spaces with no authored position (the UI falls back to its config-table layout).
+- **401** missing/expired token · **404** lot not found.
 
 #### `POST /api/lots` *(admin)*
 - **Request:** `{ "name": "North Lot", "capacity"?: 10, "display_order"?: 5 }` — `name` required (non-blank, unique, case-insensitive); `capacity` optional (≥ 0, seeds that many positionless `available` spaces); `display_order` optional (defaults to end).
@@ -1898,18 +1920,23 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 - **400** missing/invalid file · **403** not admin · **413** too large.
 
 #### `POST /api/interest` *(student)*
-- **Request:** `{ "lotId": 1 }` — `lotId` optional (preferred lot).
-- **201:** `{ "data": { "id": 55, "userId": 1, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } }`
-- **400** invalid body · **403** not student · **409** active request already exists.
+- **Request:** `{ "lotId": 1, "spaceIds": [1001] }` — the student's **picked spot(s)**. `lotId` required; `spaceIds` an array for forward-compatibility but the PoC accepts **exactly one** id. **Upsert semantics:** submitting again *replaces* the caller's single active `pending` request rather than piling up duplicates.
+- **201:** `{ "data": { "id": 55, "userId": 1, "lotId": 1, "spaceIds": [1001], "spaceLabels": ["1-0-3"], "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } }`
+- **400** empty `spaceIds` / more than one id / spot not in that lot · **403** not student · **409** the picked spot is not available (already taken/disabled).
 
 #### `GET /api/interest` *(admin)*
-- **Request:** optional query `?status=pending|fulfilled|declined`.
-- **200:** `{ "data": [ { "id": 55, "user": { "id": 1, "name": "Jane Doe", "code": "ABC123" }, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } ] }`
+- **Request:** optional query `?status=pending|fulfilled|cancelled`.
+- **200:** `{ "data": [ { "id": 55, "user": { "id": 1, "name": "Jane Doe", "code": "ABC123" }, "lotId": 1, "spaceIds": [1001], "spaceLabels": ["1-0-3"], "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } ] }` — `spaceIds`/`spaceLabels` are the student's picked spot, shown to the admin as an assignment hint.
 - **403** not admin.
 
 #### `GET /api/interest/me` *(student)*
-- **Request:** none (Bearer token).
-- **200:** `{ "data": [ { "id": 55, "lotId": 1, "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } ] }`
+- **Request:** none (Bearer token). Returns the caller's **one active request** (or `null`).
+- **200:** `{ "data": { "id": 55, "lotId": 1, "lotName": "Lot 1", "spaceIds": [1001], "spaceLabels": ["1-0-3"], "status": "pending", "createdAt": "2026-06-29T12:00:00Z" } }` — `null` when the student has no active request.
+
+#### `DELETE /api/interest/me` *(student)* — PoC extension [B15]
+- **Request:** none (Bearer token). Withdraws (rescinds) the caller's active `pending` request; its status becomes `cancelled` and the student may pick again.
+- **204:** no content.
+- **404** no active request to withdraw · **409** request is already `fulfilled` (assigned — contact an admin, cannot self-withdraw).
 
 #### `POST /api/assignments` *(admin)*
 - **Request:** `{ "spaceId": 1001, "userId": 1 }` — optionally `{ "interestId": 55 }` to fulfill a specific request.
@@ -1920,6 +1947,46 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 - **Request:** none. Path param `id` (assignment id).
 - **200:** `{ "data": { "id": 200, "active": false, "spaceId": 1001, "spaceStatus": "available" } }` (frees the space).
 - **403** not admin · **404** assignment not found.
+
+#### `POST /api/assignments/move` *(admin)* — PoC extension [B16]
+- **Request:** `{ "fromSpaceId": 1001, "toSpaceId": 1002 }` — reassigns the same student from one space to another in a single call (frees the old space, occupies the new one). Atomic: nothing changes if the target is unavailable.
+- **200:** `{ "data": { "id": 201, "spaceId": 1002, "userId": 1, "assignedBy": 9, "active": true, "createdAt": "2026-06-29T12:00:00Z", "freedSpaceId": 1001 } }`
+- **400** invalid body / same space · **403** not admin · **404** source assignment or target space not found · **409** target space not assignable (disabled or already assigned).
+
+#### `GET /api/students` *(admin)* — PoC extension [B13]
+- **Request:** none (Bearer token).
+- **200:** `{ "data": [ { "studentId": "STU001", "first": "Jane", "last": "Doe", "email": "jane@school.edu", "grade": 11, "assignedSlot": "1-0-3", "parkingStatus": "valid" } ] }` — `assignedSlot` is the label of the space assigned to this roster student (else `null`); `parkingStatus ∈ {unassigned, valid, expired, suspended}`.
+- **403** not admin.
+
+#### `POST /api/students` *(admin)* — PoC extension [B13]
+- **Request:** `{ "studentId": "STU005", "first": "Ada", "last": "Lovelace", "email"?: "ada@school.edu", "grade"?: 12 }` — `studentId` is the roster key (matches a login `user.code`); required and unique.
+- **201:** `{ "data": { "studentId": "STU005", "first": "Ada", "last": "Lovelace", "email": "ada@school.edu", "grade": 12, "assignedSlot": null, "parkingStatus": "unassigned" } }`
+- **400** invalid/blank body · **403** not admin · **409** duplicate `studentId`.
+
+#### `PATCH /api/students/:id` *(admin)* — PoC extension [B13]
+- **Request:** any subset of `{ "first", "last", "email", "grade", "parkingStatus" }`. Path param `id` (`studentId`).
+- **200:** the updated student (same shape as `GET /api/students` rows).
+- **400** invalid field · **403** not admin · **404** student not found.
+
+#### `DELETE /api/students/:id` *(admin)* — PoC extension [B13]
+- **Request:** none. Path param `id` (`studentId`).
+- **204:** no content.
+- **403** not admin · **404** student not found · **409** student currently holds an assignment (unassign first).
+
+#### `POST /api/students/import` *(admin)* — PoC extension [B13]
+- **Request:** `multipart/form-data` with field `file` (CSV: `student_id,first,last,email,grade`), or `text/csv` body.
+- **200:** `{ "data": { "created": 12, "updated": 3, "skipped": [ { "row": 7, "reason": "duplicate student_id" } ] } }` — upserts by `student_id`.
+- **400** malformed CSV / missing required columns · **403** not admin.
+
+#### `GET /api/students/export` *(admin)* — PoC extension [B13]
+- **Request:** none (Bearer token).
+- **200:** `text/csv` attachment (`student_id,first,last,email,grade,assigned_slot,parking_status`).
+- **403** not admin.
+
+#### `POST /api/students/:id/assign` *(admin)* — PoC extension [B14]
+- **Request:** `{ "spaceId": 1001 }`. Path param `id` (`studentId`). Assigns a space to a **roster** student (login-less identity); sets the space's `assigned_student_id`, and `assigned_user_id` too when the roster student is linked to a login (`user.code === student_id`).
+- **201:** `{ "data": { "id": 202, "spaceId": 1001, "studentId": "STU001", "assignedBy": 9, "active": true, "createdAt": "2026-06-29T12:00:00Z" } }` (also sets space → `assigned` and the student's `parkingStatus` → `valid`).
+- **400** invalid body · **403** not admin · **404** student/space not found · **409** space not assignable (disabled or already assigned).
 
 ---
 
