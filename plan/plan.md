@@ -390,7 +390,7 @@ sequenceDiagram
 
     S->>UI: open a lot (read its layout)
     UI->>API: GET /api/lots/:id/spaces (Bearer — login-gated, not admin-only)
-    API-->>UI: 200 Space[] (bare array; fetchSpaces bundles it with lotId client-side)
+    API-->>UI: 200 Space[] (bare array, fetchSpaces bundles it with lotId client-side)
     S->>UI: pick ONE available spot, Submit
     UI->>API: POST /api/interest {lotId, spaceIds:[spaceId]} (Bearer)
     API->>API: verify student token, validate spot in-lot and available (else 400 none/multi, 409 taken)
