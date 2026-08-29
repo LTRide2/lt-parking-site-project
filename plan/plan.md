@@ -10,7 +10,7 @@ LTRide is a school parking management system with two goals:
 This is the **master/orchestrator design doc**. It captures **what exists today**, the **gaps**, the **architecture (class diagrams + runtime views)**, the **cross-cutting contracts** that bind frontend and backend, an **incremental stacked-CR plan** (§8), and the **AWS deployment** design (§10). The step-by-step **implementation details** live in two sibling guides — one per component — which this doc orchestrates and links to:
 
 - **Frontend:** [`ui/ui-development-guide.md`](ui/ui-development-guide.md)
-- **Backend + deployment:** [`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md)
+- **Backend + deployment:** [`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md)
 
 **Current runtime reality.** Everything the app does today runs against an in-memory **mock backend** (`src/api/mock/backend.ts`, persisted to `localStorage`), which is **on by default** — `USE_MOCK` in `src/api/client.ts` treats an unset `VITE_USE_MOCK` as `true`. The Flask backend this doc designs (§3, §7, §8) is the next increment the frontend will point at, not what it currently talks to; §2 has the full mock/API-parity detail.
 
@@ -40,7 +40,7 @@ LTR-Backend/
 |---|---|---|
 | **`plan.md`** (this file) | The **master reference / orchestrator**: architecture, data model, diagrams, cross-cutting contracts, the stacked-CR plan + [status tracker](#82-cr-status-tracker), and the deployment map (§10 → the detail lives in the deployment guide). | You want the big picture, the CR ordering, or how the halves fit together. |
 | **[`ui/ui-development-guide.md`](ui/ui-development-guide.md)** | A **beginner, step-by-step guide to building the website (frontend)**, including every git command and a local test for each CR (U0–U9). Its [Frontend architecture reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference) holds the frontend design detail (moved from this file's old §7.2). | You're sitting down to write frontend code. |
-| **[`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md)** | A **beginner, step-by-step guide to building the server + database (backend)**, with every git command and a local test for each CR (B0–B7). Its [API Reference](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) holds the full endpoint contracts (moved from this file's old §7.1). | You're sitting down to write backend code. |
+| **[`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md)** | A **beginner, step-by-step guide to building the server + database (backend)**, with every git command and a local test for each CR (B0–B7). Its [API Reference](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) holds the full endpoint contracts (moved from this file's old §7.1). | You're sitting down to write backend code. |
 | **[`deploy/deployment-guide.md`](deploy/deployment-guide.md)** | A **step-by-step guide to putting the app on AWS** (CRs D0–D4), plus live-server operations and the full architecture / IaC / [cost reference](deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). | You're ready to deploy, operate, or price the live system. |
 
 ### How the four documents relate
@@ -63,7 +63,7 @@ flowchart TB
     ui <-.->|"shared CR ordering (B before U)"| be
 ```
 
-**If you are brand new and just want to start building:** open [`ui/ui-development-guide.md`](ui/ui-development-guide.md) or [`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md) and follow it top to bottom; when the backend runs locally, use [`deploy/deployment-guide.md`](deploy/deployment-guide.md) to go live. Come back to *this* file whenever a guide says "see plan.md §X" for the big picture, the CR ordering, or a shared contract.
+**If you are brand new and just want to start building:** open [`ui/ui-development-guide.md`](ui/ui-development-guide.md) or [`backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md) and follow it top to bottom; when the backend runs locally, use [`deploy/deployment-guide.md`](deploy/deployment-guide.md) to go live. Come back to *this* file whenever a guide says "see plan.md §X" for the big picture, the CR ordering, or a shared contract.
 
 **The golden rules (both guides follow them):**
 1. **One CR = one small, complete change**, on its own branch named `cr/<id>-<slug>`.
@@ -497,9 +497,9 @@ The step-by-step implementation detail has been **moved out of this file** into 
 
 | Detail | Lives in | Was previously |
 |---|---|---|
-| **Backend** app structure, conventions, full API surface + per-endpoint request/response contracts | [backend guide → Appendix A — API Reference](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) | plan.md §7.1 |
+| **Backend** app structure, conventions, full API surface + per-endpoint request/response contracts | [backend guide → Appendix A — API Reference](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) | plan.md §7.1 |
 | **Frontend** module structure, API client, slices/thunks, routing, data-driven map, UX states | [UI guide → Frontend architecture reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference) | plan.md §7.2 |
-| **Backend cross-cutting** (config, seed data, server-side logging) | [backend guide → Appendix A.3](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#a3-cross-cutting-backend-side) | plan.md §7.3 |
+| **Backend cross-cutting** (config, seed data, server-side logging) | [backend guide → Appendix A.3](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#a3-cross-cutting-backend-side) | plan.md §7.3 |
 | **Frontend cross-cutting** (config, token storage, client-side logging) | [UI guide → Frontend architecture reference §C](ui/ui-development-guide.md#c-cross-cutting-frontend-side) | plan.md §7.3 |
 
 ### 7.1 The contract that binds the two halves (authoritative here)
@@ -513,7 +513,7 @@ Everything else about implementation is delegated to the guides, but these are t
 - **Space read access:** `GET /api/lots/:id/spaces` is **login-gated (any authenticated role), not admin-only** — students must read a lot's layout to pick a spot (§6.1). Only *mutating* space/lot/assignment routes require `@require_role('admin')`.
 - **Correlation across the process boundary:** a request is traceable end-to-end by pairing the browser-side console/toast log (UI) with the Flask access-log line (backend) for the same `METHOD /api/...`. See each guide's cross-cutting/observability note.
 
-The endpoint-by-endpoint realization of this contract is the [backend API Reference](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1); the client-side realization is the [frontend reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference).
+The endpoint-by-endpoint realization of this contract is the [backend API Reference](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1); the client-side realization is the [frontend reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference).
 
 ---
 
@@ -554,16 +554,16 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 
 | CR | Title | Branch | Parent | Also needs | Step-by-step | PR | Status |
 |---|---|---|---|---|---|---|---|
-| B0 | Clean slate & safety (gitignore, `SECRET_KEY`/`DATABASE_URL` → env) | `cr/b0-hygiene` | `main` | — | [B0](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) | — | 📋 |
-| B1 | Health check + `create_app()` + CORS | `cr/b1-health` | B0 | — | [B1](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) | — | 📋 |
-| B2 | DB schema (migration) + seed data | `cr/b2-schema` | B1 | — | [B2](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b2--database-schema--seed-data) | — | 📋 |
-| B3 | Auth: JWT, `@require_role`, student/admin login + `/me` | `cr/b3-auth` | B2 | — | [B3](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b3--authentication-login) | — | 📋 |
-| B4 | Read lots & spaces | `cr/b4-lots` | B3 | — | [B4](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b4--read-lots--spaces) | — | 📋 |
-| B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | 📋 |
-| B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | 📋 |
-| B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | 📋 |
-| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `x/y/w/h/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
-| B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
+| B0 | Clean slate & safety (gitignore, `SECRET_KEY`/`DATABASE_URL` → env) | `cr/b0-hygiene` | `main` | — | [B0](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) | — | 📋 |
+| B1 | Health check + `create_app()` + CORS | `cr/b1-health` | B0 | — | [B1](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) | — | 📋 |
+| B2 | DB schema (migration) + seed data | `cr/b2-schema` | B1 | — | [B2](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b2--database-schema--seed-data) | — | 📋 |
+| B3 | Auth: JWT, `@require_role`, student/admin login + `/me` | `cr/b3-auth` | B2 | — | [B3](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b3--authentication-login) | — | 📋 |
+| B4 | Read lots & spaces | `cr/b4-lots` | B3 | — | [B4](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b4--read-lots--spaces) | — | 📋 |
+| B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | 📋 |
+| B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | 📋 |
+| B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | 📋 |
+| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `x/y/w/h/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
+| B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
 
 **Frontend (`U#`) — build in `ui/ui-development-guide.md`:**
 
@@ -649,7 +649,7 @@ Every CR — backend and frontend — ships with a PR description in this shape.
 #### Phase 1 — Backend API foundation
 - **B1 — App skeleton + health check.** Clean `create_app()`, `GET /api/health`, CORS, env config.
   - **Local test:** `curl localhost:8000/api/health` → `{"data":{"status":"ok",...}}`; a cross-origin `fetch` from the SPA origin succeeds (no CORS error in the browser console).
-- **B2 — Schema + migrations + seed.** `schema.sql` (§5.1) on **PostgreSQL**, seed data (lots, spaces, admin, student codes), dict connection helpers. *(Exact seed set — see the [B2 guide section](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b2--database-schema--seed-data).)*
+- **B2 — Schema + migrations + seed.** `schema.sql` (§5.1) on **PostgreSQL**, seed data (lots, spaces, admin, student codes), dict connection helpers. *(Exact seed set — see the [B2 guide section](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b2--database-schema--seed-data).)*
   - **Local test:** run the migration + seed against the dev Postgres, then `\dt` in `psql` shows all tables and `SELECT count(*) FROM lots;` matches the seed.
 - **B3 — Auth endpoints.** `/api/auth/student|admin|logout|me`, JWT issue/verify, password hashing, `@require_role`.
   - **Local test:** `curl -XPOST localhost:8000/api/auth/student -d '{"code":"ABC123"}' -H 'Content-Type: application/json'` returns a token; reuse it on `GET /api/auth/me` → 200; a bad code → 401; admin route without token → 401.
@@ -772,7 +772,7 @@ Deployment is delivered as CRs **D0–D4** in the [CR status tracker](#82-cr-sta
 
 | # | Risk | Impact | Mitigation | Owning section |
 |---|---|---|---|---|
-| R1 | **Committed secret** (`aws-tutorial.pem`, hard-coded `SECRET_KEY`) leaks credentials. | High — account/key compromise. | **B0** rotates the key, purges it from history, moves `SECRET_KEY`/`DATABASE_URL` to env. | [B0](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) |
+| R1 | **Committed secret** (`aws-tutorial.pem`, hard-coded `SECRET_KEY`) leaks credentials. | High — account/key compromise. | **B0** rotates the key, purges it from history, moves `SECRET_KEY`/`DATABASE_URL` to env. | [B0](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) |
 | R2 | **Cross-layer stack drift** — a frontend CR merges before the backend endpoint it needs. | Medium — UI CR can't reach green; false "done". | "Also needs" column in §8.2 + the hard ordering rule; open/merge the backend CR first. | [§8.2](#82-cr-status-tracker) |
 | R3 | **Rebase churn** in a long CR stack when a parent changes. | Medium — repeated conflict resolution. | Keep CRs small (one endpoint / one screen); rebase children promptly per §8.1. | [§8.1](#81-cr-workflow--branching-strategy) |
 | R4 | **Contract drift** between the two halves (envelope, enums, auth header). | Medium — integration breakage. | §7.1 is the single authoritative contract; both guides link to it, not to each other's copies. | [§7.1](#71-the-contract-that-binds-the-two-halves-authoritative-here) |
@@ -788,7 +788,7 @@ Deployment is delivered as CRs **D0–D4** in the [CR status tracker](#82-cr-sta
 
 This is a single-box Flask + React deployment on EC2 — **not** a fleet with a central log platform, so observability is deliberately lightweight:
 
-- **Structured local logs.** gunicorn/Flask log as structured lines to the systemd journal (`journalctl -u ltride`); nginx access/error logs on the box. Details: [backend guide §A.3](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#a3-cross-cutting-backend-side).
+- **Structured local logs.** gunicorn/Flask log as structured lines to the systemd journal (`journalctl -u ltride`); nginx access/error logs on the box. Details: [backend guide §A.3](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#a3-cross-cutting-backend-side).
 - **Correlation id across the process boundary.** The API accepts/generates an `X-Request-Id`, echoes it on the response, and logs it; the SPA attaches it to each request and includes it in client-side error reports so a user-visible failure can be traced to a server log line. Client side: [UI guide Appendix §C](ui/ui-development-guide.md#appendix--frontend-architecture-reference).
 - **Client-side logging.** The SPA logs API failures to the browser console with the request id and surfaces a user-facing toast (no crash). See UI guide Appendix §C.
 - **Health & liveness.** `GET /api/health` is the single liveness probe used in D2/D3 smoke tests and after every release.

@@ -2,7 +2,7 @@
 
 > **Who this is for:** someone brand new to coding. This guide is written so you can follow it **literally, line by line**. When you see a gray box, that's a command you type into your terminal. Type one line, press Enter, wait for it to finish, then do the next line.
 >
-> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
+> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
 >
 > **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
 >
@@ -189,7 +189,7 @@ src/
     └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
 ```
 
-> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
+> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
 > **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
 > - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
@@ -592,7 +592,7 @@ export default App;
 ```
 
 **Local testing guide:**
-1. Setup: start the backend ([`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
+1. Setup: start the backend ([`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
 2. Steps:
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -1789,7 +1789,7 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 
 ## Appendix — Frontend architecture reference
 
-> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
+> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
 
 ### A. Module structure (target)
 
