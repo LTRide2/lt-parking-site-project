@@ -6,13 +6,13 @@ This folder turns the [UI Development Guide](../ui-development-guide.md) into **
 >
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../ui-development-guide.md) is the source of truth.
 >
-> **Build the backend first (or in parallel):** several UI lessons call real API endpoints, so the matching backend CR should be running. Check the shared ordering in [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs).
+> **No backend build required:** the frontend ships an in-memory mock backend that's **on by default** (`USE_MOCK` in `src/api/client.ts`, served by `src/api/mock/backend.ts`, persisted to localStorage under `"ltride.mockdb.v6"`), so every lesson below runs end-to-end against the mock — no live Flask backend needed to follow along. The "Backend contract" column still names the matching backend CR (per [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)) for when the real backend is built.
 
 ## Do them in order
 
-Each lesson **builds on the one before it** (stacked CRs — every branch starts from the previous CR's branch). Start at U0 and go down.
+Each lesson **builds on the one before it**, following the stacked-CR structure from [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs) (`cr/u0-hygiene` → `cr/u1-real-auth` → … → `cr/u9-add-lot`). That's the intended per-CR branch scheme; the actual PoC implementation landed as a handful of squashed commits on branch `poc` rather than one branch per lesson. Treat the order below as the logical progression to follow regardless of how you branch your own work. Start at U0 and go down.
 
-| # | Lesson | What you'll have built | Needs backend | Source CR |
+| # | Lesson | What you'll have built | Backend contract (mocked by default) | Source CR |
 |---|---|---|---|---|
 | 1 | [U0 — Project hygiene](U0-project-hygiene.md) | A clean, linted React + TypeScript project | — | [CR U0](../ui-development-guide.md#cr-u0--project-hygiene-foundation-no-visible-change) |
 | 2 | [U1 — Real login](U1-real-login.md) | A login form that calls the API and stores a JWT | B3 | [CR U1](../ui-development-guide.md#cr-u1--real-login-replaces-the-fake-login) |
@@ -27,7 +27,7 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 ### Extension lessons (built during the PoC, beyond the core U0–U9)
 
-| # | Lesson | What you'll have built | Needs backend | Notes |
+| # | Lesson | What you'll have built | Backend contract (mocked by default) | Notes |
 |---|---|---|---|---|
 | 11 | [U10 — Student Management (the roster + CSV)](U10-student-management.md) | An admin-managed student roster: CRUD, CSV import/export, and direct assign/move of a student into a spot | student-roster endpoints | See [plan.md §2](../../plan.md#2-what-we-have-in-the-ui-today) & the extensions note in [§8.2](../../plan.md#82-cr-status-tracker) |
 

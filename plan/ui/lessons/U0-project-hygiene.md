@@ -18,7 +18,7 @@ The plumbing every later frontend lesson needs, **without changing what the user
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `npm run dev` shows the site looking and behaving **exactly as before** — same fake Student/Admin login.
-- [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken`.
+- [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken` — this lesson's starting surface; `put` (U8) and a separate `uploadFile()` (U7) land later in the same file.
 - [ ] `.env` exists locally with `VITE_API_URL=http://localhost:8000`; `.env.example` has the same line and **is** tracked by Git; `.env` is **not**.
 - [ ] `npm run lint` and `npm run build` both finish with **no errors**.
 - [ ] Your work is committed on branch `cr/u0-hygiene` and pushed, PR base = `main`.

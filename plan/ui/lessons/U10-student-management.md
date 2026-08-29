@@ -91,51 +91,74 @@ export interface Student {
   parking_status: "unassigned" | "valid" | "expired" | "suspended";
 }
 
+// The editable fields the admin can send when creating or updating a student
+// (not `Partial<Student>` — the roster's identity/status fields are modeled explicitly here).
+export interface StudentDraft {
+  first: string; last: string; student_id: string;
+  email: string; grade: string; parking_status?: Student["parking_status"];
+}
+
 export const fetchStudents = createAsyncThunk(
   "students/fetch",
-  async (q: string = "") => (await api.get(`/api/students?q=${encodeURIComponent(q)}`)) as Student[]
+  (query: string = "") => api.get(`/api/students?q=${encodeURIComponent(query)}`) as Promise<Student[]>
 );
 
 export const createStudent = createAsyncThunk(
   "students/create",
-  async (body: Partial<Student>, { dispatch }) => {
-    const s = (await api.post("/api/students", body)) as Student;
-    await dispatch(fetchStudents());
-    return s;
+  async (draft: StudentDraft, { getState, dispatch }) => {
+    await api.post("/api/students", draft);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
   }
 );
 
 export const updateStudent = createAsyncThunk(
   "students/update",
-  async ({ id, patch }: { id: number; patch: Partial<Student> }, { dispatch }) => {
-    const s = (await api.patch(`/api/students/${id}`, patch)) as Student;
-    await dispatch(fetchStudents());
-    return s;
+  async (args: { id: number; changes: Partial<StudentDraft> }, { getState, dispatch }) => {
+    await api.patch(`/api/students/${args.id}`, args.changes);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
   }
 );
 
 export const deleteStudent = createAsyncThunk(
   "students/delete",
-  async (id: number, { dispatch }) => { await api.del(`/api/students/${id}`); await dispatch(fetchStudents()); return id; }
+  async (id: number, { getState, dispatch }) => {
+    await api.del(`/api/students/${id}`);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+  }
 );
 
 // Place a roster student directly into a spot (Assign or Move).
-export const assignStudentToSpace = createAsyncThunk(
+export const assignStudent = createAsyncThunk(
   "students/assign",
-  async ({ id, spaceId }: { id: number; spaceId: number }, { dispatch }) => {
-    await api.post(`/api/students/${id}/assign`, { spaceId });
-    await dispatch(fetchStudents());
-    return { id, spaceId };
+  async (args: { id: number; spaceId: number }, { getState, dispatch }) => {
+    await api.post(`/api/students/${args.id}/assign`, { spaceId: args.spaceId });
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+  }
+);
+
+// POST /api/students/import (multipart CSV), via the `uploadFile()` helper from client.ts.
+export const importStudents = createAsyncThunk(
+  "students/import",
+  async (file: File, { getState, dispatch }) => {
+    const summary = (await uploadFile("/api/students/import", file)) as ImportSummary;
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+    return summary;
   }
 );
 ```
 
 **Explanation:**
-- Every mutating thunk ends with `dispatch(fetchStudents())` — the same **refetch-after-mutation** habit from U4/U6/U9, so the table always matches the server.
+- Every mutating thunk (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) ends with `dispatch(fetchStudents(getState().students.query))` — the same **refetch-after-mutation** habit from U4/U6/U9, but reading the *active search query* out of state first, so a mutation made while the admin has typed a filter doesn't silently clear it.
 - `fetchStudents(q)` passes the search box straight to the server (`?q=`), so the *server* does the filtering — the client never holds a "full list" it has to filter itself. Simpler and it scales.
-- `assignStudentToSpace` is the cross-entity piece: it doesn't create an *interest request*, it places the student directly (the server handles the "free their old spot first" move semantics).
+- `assignStudent` is the cross-entity piece: it doesn't create an *interest request*, it places the student directly (the server handles the "free their old spot first" move semantics).
+- `importStudents` is the CSV piece: it doesn't call `api.post` with a hand-built `FormData` — it uses the same `uploadFile()` multipart helper the `api` client exposes for file bodies (see Step 4).
 
-Handle the states in `extraReducers` the usual way (`pending` → loading + clear error; `fetchStudents.fulfilled` → store `action.payload` as `list`; `rejected` → `state.error = action.error.message`). Register the slice in `store.ts`.
+Handle the states in `extraReducers` the usual way (`pending` → loading + clear error; `fetchStudents.fulfilled` → store `action.payload` as `list`; `rejected` → `state.error = action.error.message`). The slice's state also carries `query` (the active search term, written by a `setQuery` reducer) and `lastImport` (the most recent `ImportSummary`, written by `importStudents.fulfilled` and cleared by a `clearImportSummary` reducer); a `clearStudentsError` reducer resets `error`. Register the slice in `store.ts`.
 
 ### Step 2 — The Students view: table + live search (~15 min)
 

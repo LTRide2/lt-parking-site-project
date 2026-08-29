@@ -123,10 +123,10 @@ const initialState: ParkingState = {
 // GET /api/lots  -> Lot[]
 export const fetchLots = createAsyncThunk("parking/fetchLots", () => api.get("/api/lots") as Promise<Lot[]>);
 
-// GET /api/lots/:id/spaces  ->  { lot_id, spaces: Space[] }   (an envelope, NOT a bare array)
+// GET /api/lots/:id/spaces  ->  Space[]   (a bare array, NOT an envelope)
 export const fetchSpaces = createAsyncThunk("parking/fetchSpaces", async (lotId: number) => {
-  const body = (await api.get(`/api/lots/${lotId}/spaces`)) as { lot_id: number; spaces: Space[] };
-  return { lotId, spaces: body.spaces };
+  const spaces = (await api.get(`/api/lots/${lotId}/spaces`)) as Space[];
+  return { lotId, spaces };
 });
 
 const parkingSlice = createSlice({
@@ -184,7 +184,7 @@ export default parkingSlice.reducer;
 - `interface Lot` / `interface Space` — these describe the exact shape the backend sends back. Note `status` is a **union of string literals**, not just `string` — TypeScript will now catch a typo like `"disbaled"` at compile time.
 - `createAsyncThunk("parking/fetchLots", () => api.get("/api/lots") as Promise<Lot[]>)` — wraps the API call so Redux automatically fires three actions for you as the request happens: `pending` (started), `fulfilled` (succeeded, with the data), and `rejected` (failed, with an error). You never dispatch those three by hand. → [Redux Toolkit docs: `createAsyncThunk`](https://redux-toolkit.js.org/api/createAsyncThunk).
 - `fetchSpaces` takes a `lotId` argument and returns `{ lotId, spaces }` — it bundles the id back in because by the time the response arrives, the reducer needs to know *which* lot's cache slot (`spacesByLot[lotId]`) to fill.
-- **The spaces endpoint returns an envelope, not a bare array.** `GET /api/lots/:id/spaces` responds with `{ "lot_id": 1, "spaces": [...] }` (inside the standard `{data}` wrapper), so we read `body.spaces` — don't `as Space[]` the whole body. Field names are **snake_case** everywhere the server owns them (`lot_id`, `available_count`, `assigned_user_id`, `assigned_user_name`, `map_image_url`, `display_order`); match them exactly or the fields read back `undefined`.
+- **The spaces endpoint returns a bare array, not an envelope.** `GET /api/lots/:id/spaces` responds with `Space[]` directly (inside the standard `{data}` wrapper, but the `data` payload itself *is* the array) — so we `as Space[]` the whole body and bundle it with `lotId` ourselves for the reducer to key by. Field names are **snake_case** everywhere the server owns them (`lot_id`, `available_count`, `assigned_user_id`, `assigned_user_name`, `map_image_url`, `display_order`); match them exactly or the fields read back `undefined`.
 - `extraReducers` — this is where a slice reacts to actions it didn't define itself, like the three auto-generated thunk actions. `.addCase(fetchSpaces.pending, ...)` sets `status: "loading"` the instant the request starts; `.fulfilled` stores the data and clears loading; `.rejected` stores a human-readable error message from `action.error.message`.
 - `selectedSpaces: number[]` — this used to be `string[]` holding fake ids like `"1-0-5"`. Now it holds the real numeric `id` values the backend assigned, which is also what `toggleSpaceSelection` now expects.
 
@@ -400,7 +400,7 @@ Then open a Pull Request on GitHub with **base = `cr/u2-routing`** (not `main` �
 - **Spaces render but every single one is yellow** — check the order of checks inside `spaceColor`; also double-check the backend's `status` strings match exactly `"available"` / `"disabled"` / `"assigned"` (case-sensitive).
 - **Clicking a lot in the nav does nothing / it never highlights** — you likely missed one of the `selectedLot === 'Home'` / `selectedLot === 'Lot 1'` string comparisons from Step 5; search the whole file for `selectedLot` (not `selectedLotId`) and convert each one.
 - **The network tab shows the same request firing over and over** — a `useEffect` dependency array is missing a value or capturing something that changes every render; re-check the two effects in Step 3 against the exact arrays shown (`[dispatch]` and `[selectedLotId, dispatch]`).
-- **Spaces load but are all `undefined`/blank** — you treated the spaces response as a bare array. It's the envelope `{ lot_id, spaces }`; read `body.spaces` (Step 1). Same trap for `undefined` fields: the server uses snake_case (`assigned_user_name`, `available_count`), not camelCase.
+- **Spaces load but are all `undefined`/blank** — you likely mismatched a field name, not the response shape: `GET /api/lots/:id/spaces` is a bare `Space[]` (Step 1), so don't wrap it in `.spaces` or expect a `{ lot_id, spaces }` envelope. Same trap for `undefined` fields: the server uses snake_case (`assigned_user_name`, `available_count`), not camelCase.
 - **The lot map shows a lone vertical scrollbar and won't pan sideways** — you used `overflow:auto` + scroll instead of the `translate` layer from Step 6. Switch the container to `overflow:hidden` and pan via a `translate` offset like the Home view.
 - **Zooming shrinks the left menu instead of the map** — the sidebar `aside` is missing `flexShrink:0` and/or `main` is missing `minWidth:0` (Step 6).
 - **ESLint fails with `react-hooks/set-state-in-effect`** — you reset the lot zoom inside a `useEffect`; move that reset into the lot-nav click handler.

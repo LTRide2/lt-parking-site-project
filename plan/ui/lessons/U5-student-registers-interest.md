@@ -106,17 +106,20 @@ export const fetchMyInterest = createAsyncThunk(
   () => api.get("/api/interest/me") as Promise<Interest | null>
 );
 
-// POST /api/interest { lotId, spaceIds: [spotId] } -> Interest
+// POST /api/interest { lotId, spaceIds } -> Interest
 export const registerInterest = createAsyncThunk(
   "interest/register",
-  ({ lotId, spaceId }: { lotId: number; spaceId: number }) =>
-    api.post("/api/interest", { lotId, spaceIds: [spaceId] }) as Promise<Interest>
+  ({ lotId, spaceIds }: { lotId: number; spaceIds: number[] }) =>
+    api.post("/api/interest", { lotId, spaceIds }) as Promise<Interest>
 );
 
-// DELETE /api/interest/me  (withdraw / rescind)
+// DELETE /api/interest/me, then refetch  (withdraw / rescind)
 export const withdrawInterest = createAsyncThunk(
   "interest/withdraw",
-  () => api.del("/api/interest/me")
+  async (_: void, { dispatch }) => {
+    await api.del("/api/interest/me");
+    await dispatch(fetchMyInterest());
+  }
 );
 
 const interestSlice = createSlice({
@@ -136,7 +139,6 @@ const interestSlice = createSlice({
       .addCase(registerInterest.fulfilled, (s, a) => { s.status = "idle"; s.mine = a.payload; })
       .addCase(registerInterest.rejected, fail)
       .addCase(withdrawInterest.pending, pending)
-      .addCase(withdrawInterest.fulfilled, (s) => { s.status = "idle"; s.mine = null; })
       .addCase(withdrawInterest.rejected, fail);
   },
 });
@@ -146,9 +148,9 @@ export default interestSlice.reducer;
 
 **Explanation, piece by piece:**
 - **`space_ids` / `space_labels`** — the picked spot travels with the request. They're arrays because the API is built to allow multiple picks later, but the PoC enforces exactly one (the backend rejects `>1`).
-- **`registerInterest({ lotId, spaceId })`** — your first **`POST`** thunk. It wraps the single spot as `spaceIds: [spaceId]`. `api.post` (from U0/U1) sends the JSON body and attaches your token.
-- **`withdrawInterest`** — a **`DELETE`** to `/api/interest/me` (`api.del`, the same client method U6 uses for unassign). On success the reducer sets `mine = null`, which re-opens the map for picking.
-- **`extraReducers`** — the familiar `pending`/`fulfilled`/`rejected` shape. All three thunks share the loading + error handling; `register` and `fetch` set `mine = payload`, `withdraw` clears it.
+- **`registerInterest({ lotId, spaceIds })`** — your first **`POST`** thunk. The PoC only ever picks one spot, but the payload is always the **plural** `spaceIds` array — the caller wraps it as `[pickedSpaceId]` (you'll see that in Step 3). `api.post` (from U0/U1) sends the JSON body and attaches your token.
+- **`withdrawInterest`** — a **`DELETE`** to `/api/interest/me` (`api.del`, the same client method U6 uses for unassign), then it **re-dispatches `fetchMyInterest`** to pick up the now-cancelled state. It has no `.fulfilled` case of its own — the refetch's `fetchMyInterest.fulfilled` is what sets `mine` (to `null`, since a withdrawn request no longer comes back from `GET /api/interest/me`).
+- **`extraReducers`** — the familiar `pending`/`fulfilled`/`rejected` shape. `register` and `fetch` set `mine = payload`; `withdraw` has no `fulfilled` handler of its own and instead relies on the `fetchMyInterest` it triggers to clear `mine`.
 
 ### Step 2 — Register the slice (~5 min)
 
