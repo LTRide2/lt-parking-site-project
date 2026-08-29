@@ -197,7 +197,7 @@ const onSpaceClick = (space: Space) => {
 
 const submit = () => {
   if (pickedSpaceId == null || selectedLotId == null) return;
-  dispatch(registerInterest({ lotId: selectedLotId, spaceId: pickedSpaceId }));
+  dispatch(registerInterest({ lotId: selectedLotId, spaceIds: [pickedSpaceId] }));  // array-of-one
 };
 ```
 
@@ -244,7 +244,7 @@ The two panels — pick mode vs locked — are pure "controlled UI by state":
 - **`locked = mine != null`** — once a request exists, the whole map + Submit/Clear go read-only. The student *can still pan/zoom and look*, but `onSpaceClick` early-returns because `canPick` is false. This is the "controlled UI by state" concept: the request's existence, not a flag, decides the mode.
 - **Toggle / replace in one line** — `setPickedSpaceId(cur => cur === space.id ? null : space.id)` clears if you click the same spot, otherwise selects the new one. Because there's a single `pickedSpaceId`, picking a different spot *automatically* replaces the old pick — you never track more than one.
 - **Pre-load on open** — when the student opens the lot their request is in, `openLot` seeds `pickedSpaceId` from `mine.space_ids[0]`, so the green spot shows where they already asked.
-- **Withdraw only while `pending`** — a `fulfilled` request (admin already assigned them, U6) is fully locked; the student contacts the office. `withdrawInterest` sets `mine = null`, which drops `locked` to false and re-opens picking.
+- **Withdraw only while `pending`** — a `fulfilled` request (admin already assigned them, U6) is fully locked; the student contacts the office. `withdrawInterest` deletes the request, then re-dispatches `fetchMyInterest`, which comes back `null` and drops `locked` to false, re-opening picking.
 - **Don't set state in an effect** — reset `pickedSpaceId` in the `openLot`/nav **click handlers**, not in a `useEffect`, to respect the `react-hooks/set-state-in-effect` rule you met in U3/U8.
 
 > **Hover tooltip (optional polish).** Like the admin map (U3), give student spots a floating cursor tooltip showing **lot number · spot label · availability** (*Available / Taken / Unavailable / Selected by you*) instead of the native `title`.

@@ -12,6 +12,8 @@ This is the **master/orchestrator design doc**. It captures **what exists today*
 - **Frontend:** [`ui/ui-development-guide.md`](ui/ui-development-guide.md)
 - **Backend + deployment:** [`backend/backend-development-guide.md`](backend/backend-development-guide.md)
 
+**Current runtime reality.** Everything the app does today runs against an in-memory **mock backend** (`src/api/mock/backend.ts`, persisted to `localStorage`), which is **on by default** — `USE_MOCK` in `src/api/client.ts` treats an unset `VITE_USE_MOCK` as `true`. The Flask backend this doc designs (§3, §7, §8) is the next increment the frontend will point at, not what it currently talks to; §2 has the full mock/API-parity detail.
+
 **Scope / out of scope.** In scope: a decoupled React SPA + Flask JSON API + relational DB, JWT auth, the parking domain (lots, spaces, interest, assignments), and a single-instance AWS deployment. Out of scope (for now): direct student *self-claim* without admin approval (the PoC instead ships the in-scope request→approve flow — a single-spot pick with lock/withdraw, see §2), payments, notifications, multi-campus, and horizontal scale-out (the HA option is costed in the [deployment guide §B.13](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) but not built).
 
 ---
@@ -182,10 +184,10 @@ classDiagram
         +SpaceStatus status
         +int assigned_user_id
         +string assigned_student_id
-        +float pos_x
-        +float pos_y
-        +float pos_w
-        +float pos_h
+        +float x
+        +float y
+        +float w
+        +float h
         +float rotation
     }
 
@@ -202,8 +204,11 @@ classDiagram
     class Interest {
         +int id
         +int user_id
+        +string user_name
         +int lot_id
+        +string lot_name
         +int[] space_ids
+        +string[] space_labels
         +InterestStatus status
         +datetime created_at
     }
@@ -229,11 +234,11 @@ classDiagram
 
 **Enums:** `Role = {student, admin}`, `SpaceStatus = {available, disabled, assigned}`, `InterestStatus = {pending, fulfilled, cancelled}` (a student *withdraws* a pending request → `cancelled`), `ParkingStatus = {unassigned, valid, expired, suspended}` (the roster's view of whether a student currently holds/paid for a slot).
 
-**Space geometry (part of the base schema):** `pos_x`, `pos_y` are **normalized** positions and `pos_w`, `pos_h` the **normalized size** (all `0..1` of the lot's map image), with `rotation` in degrees — all nullable, so a space with no authored layout falls back to the front-end's config-table layout. Storing size as fractions (not fixed pixels) is what keeps a spot aligned *and correctly shaped* at any zoom/screen size — the map's zoom scale is never persisted. These columns are **designed into the initial schema (B2)** from the start — spot placement is a real property of a space — not bolted on by a later migration; nothing *writes* them until the drag-and-drop editor ships, which does so via `PUT /api/lots/:id/layout` (backend **B8**). New lots are created via `POST /api/lots` (backend **B9**) — see [§8.4 Phase 3](#84-the-crs-phase-by-phase-narrative--local-test-seed).
+**Space geometry (part of the base schema):** `x`, `y` are **normalized** positions and `w`, `h` the **normalized size** (all `0..1` fractions of the lot's map image, matching the frontend's `Space` fields), with `rotation` in degrees — all nullable, so a space with no authored layout falls back to the front-end's config-table layout. Storing size as fractions (not fixed pixels) is what keeps a spot aligned *and correctly shaped* at any zoom/screen size — the map's zoom scale is never persisted. These columns are **designed into the initial schema (B2)** from the start — spot placement is a real property of a space — not bolted on by a later migration; nothing *writes* them until the drag-and-drop editor ships, which does so via `PUT /api/lots/:id/layout` (backend **B8**). New lots are created via `POST /api/lots` (backend **B9**) — see [§8.4 Phase 3](#84-the-crs-phase-by-phase-narrative--local-test-seed).
 
 **Student roster (extension surfaced by the PoC).** `Student` is an admin-managed roster keyed by **`student_id`** (a school id string, *not* email), imported/exported as CSV. It is distinct from `User` (the login identity): the PoC links the two by convention `user.code == student.student_id`, and the real backend makes that a foreign key. A `Space` can be held either by a login `User` (`assigned_user_id`) **or** by a roster `Student` with no login account (`assigned_student_id`) — the two identity paths let an admin assign a CSV-imported student who has never logged in. `assigned_slot` mirrors the space a student holds and `parking_status` tracks their allocation lifecycle. Roster CRUD, CSV import (upsert)/export, and direct assign/move live on the **students endpoints** (see §5.2 and the backend API Reference); these are an **extension beyond the original B0–B9 plan** and are not yet on the CR tracker (§8.2).
 
-**Preferred spot on an interest.** A request carries `space_ids` — the specific spot the student picked (the PoC allows **exactly one**, so the array holds ≤ 1; kept as an array so the contract can widen to ranked choices later). A student has **one active request at a time** (upsert), may **withdraw** it while `pending` (`DELETE /api/interest/me` → `cancelled`), and it becomes read-only once `fulfilled`.
+**Preferred spot on an interest.** A request carries `space_ids` — the specific spot the student picked (the PoC allows **exactly one**, so the array holds ≤ 1; kept as an array so the contract can widen to ranked choices later). `space_ids`/`space_labels` are **optional**: a legacy lot-only request (no spot chosen) omits them and reads as "no specific spot," while `user_name`/`lot_name` are server-derived display fields the mock always populates for the admin's interest list. A student has **one active request at a time** (upsert), may **withdraw** it while `pending` (`DELETE /api/interest/me` → `cancelled`), and it becomes read-only once `fulfilled`.
 
 ### 5.2 Backend layering (component classes)
 
@@ -433,16 +438,18 @@ sequenceDiagram
     API-->>UI: [pending requests]
 
     A->>UI: pick request, Manual Assign -> click space
-    UI->>API: POST /api/assignments {space_id, user_id}
+    UI->>API: POST /api/assignments {spaceId, userId, interestId}
     API->>API: require_role('admin')
     API->>DB: BEGIN
     API->>DB: UPDATE spaces SET status='assigned', assigned_user_id=?
     API->>DB: INSERT assignment(active=1, assigned_by=admin)
-    API->>DB: UPDATE interest SET status='fulfilled'
+    API->>DB: UPDATE interest SET status='fulfilled' WHERE id=interestId
     API->>DB: COMMIT
     API-->>UI: 201 {assignment}
     UI-->>A: space shows assigned, request fulfilled
 ```
+
+The API also exposes an **unassign** path (`DELETE /api/assignments/:spaceId` — frees the space and re-queues the request) and a **move** path (`POST /api/assignments/move {fromSpaceId, toLotId}` — detailed in [§6.5](#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move)); both are already exercised by the frontend's `unassignSpace`/`moveAssignment` thunks against the mock.
 
 ### 6.4 Admin creates a lot, then arranges its spots (authoring)
 
@@ -555,7 +562,7 @@ Every CR that realizes this design, with its parent branch, cross-layer dependen
 | B5 | Admin enable/disable spaces (single + bulk) | `cr/b5-spaces` | B4 | — | [B5](backend/backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) | — | 📋 |
 | B6 | Student registers interest (+ admin list) | `cr/b6-interest` | B5 | — | [B6](backend/backend-development-guide.md#cr-b6--student-registers-interest) | — | 📋 |
 | B7 | Admin assigns a space (transactional) | `cr/b7-assignments` | B6 | — | [B7](backend/backend-development-guide.md#cr-b7--admin-assigns-a-space) | — | 📋 |
-| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `pos_x/pos_y/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
+| B8 | Save lot layout — spot positions (`PUT /api/lots/:id/layout`; writes `x/y/w/h/rotation`, columns defined in B2) | `cr/b8-layout` | B7 | — | [B8](backend/backend-development-guide.md#cr-b8--save-lot-layout-spot-positions) | — | 📋 |
 | B9 | Create a parking lot (`POST /api/lots`) | `cr/b9-create-lot` | B8 | — | [B9](backend/backend-development-guide.md#cr-b9--create-a-parking-lot) | — | 📋 |
 
 **Frontend (`U#`) — build in `ui/ui-development-guide.md`:**
@@ -587,7 +594,7 @@ The PoC (§2) validated four features beyond core U0–U9. The **frontend is alr
 | B16 | Move an assigned request to another lot | B7 | `POST /api/assignments/move {fromSpaceId, toLotId}` (transactional free-and-re-queue) | folded into U6 | 📋 |
 | U10 | Student Management (roster + CSV + direct assign/move) | B13, B14 | *(consumes B13/B14)* | [U10 lesson](ui/lessons/U10-student-management.md) | 📋 prototyped |
 
-*Also folded into existing CRs as contract additions (not separate CRs): `Lot.number` extends **B9/U9**; `pos_w`/`pos_h` size on layout save extends **B8/U8**; `assigned_user_name` in space serialization extends **B4/U3**.*
+*Also folded into existing CRs as contract additions (not separate CRs): `Lot.number` extends **B9/U9**; `w`/`h` size on layout save extends **B8/U8**; `assigned_user_name` in space serialization extends **B4/U3**.*
 
 **Deployment (`D#`) — run in `deploy/deployment-guide.md`:**
 
@@ -654,8 +661,8 @@ Every CR — backend and frontend — ships with a PR description in this shape.
   - **Local test:** with an admin token, `PATCH /api/spaces/1001 {"status":"disabled"}` → 200 and re-GET shows `disabled`; same call with a student token → 403; bulk PATCH returns `updated`/`skipped`.
 - **B6 — Interest registration API.** `POST /api/interest`, `GET /api/interest`, `GET /api/interest/me`.
   - **Local test:** student token `POST /api/interest {"lotId":1}` → 201 `pending`; `GET /api/interest/me` shows it; admin `GET /api/interest?status=pending` lists it; duplicate active request → 409.
-- **B7 — Assignment API.** `POST /api/assignments`, `DELETE /api/assignments/:id`, mark interest fulfilled (transactional, per §6.3).
-  - **Local test:** admin `POST /api/assignments {"spaceId":1001,"userId":1,"interestId":55}` → 201; verify space is now `assigned` and interest `fulfilled`; assigning an already-assigned space → 409; `DELETE` frees the space (`available`).
+- **B7 — Assignment API.** `POST /api/assignments`, `DELETE /api/assignments/:spaceId`, mark interest fulfilled (transactional, per §6.3).
+  - **Local test:** admin `POST /api/assignments {"spaceId":1001,"userId":1,"interestId":55}` → 201; verify space is now `assigned` and interest `fulfilled`; assigning an already-assigned space → 409; `DELETE /api/assignments/1001` frees the space (`available`).
 - **B8 — Save lot layout (spot positions).** `PUT /api/lots/:id/layout` (admin-only) full-replaces a lot's spot set — upsert listed spaces, delete omitted ids — inside one transaction (per §6.4). It writes the `pos_x/pos_y/rotation` columns that are **already defined on `spaces` in the B2 schema** (designed in from the start — no migration in B8). Positions are normalized fractions (0–1), so they survive zoom/resize.
   - **Local test:** admin `PUT /api/lots/1/layout` with a spaces array → 200 and re-GET `/api/lots/1/spaces` shows the saved `pos_x/pos_y/rotation`; a student token → 403; deleting a space that is currently `assigned` → 409 (no partial write); out-of-range coordinate → 400.
 - **B9 — Create a parking lot.** `POST /api/lots` (admin-only) inserts a lot and, if `capacity` is given, that many positionless `available` spaces; rejects blank/duplicate name.

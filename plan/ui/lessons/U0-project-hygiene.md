@@ -168,6 +168,8 @@ export const api = {
 - `return body.data` — the backend wraps every successful response as `{data: ...}`; this unwraps it so callers just get the useful part.
 - `export const api = { get, post, patch, del }` — four small named functions built on top of `request`, one per HTTP method you'll need. Every future lesson calls `api.get(...)`, `api.post(...)`, etc. instead of `fetch` directly.
 
+> **Heads-up — this is `client.ts`'s starting surface, not its final one.** The same "one place" file keeps growing as later lessons need more from it: **U7** adds a separate `uploadFile()` export for multipart uploads (a plain JSON `api` call can't carry binary data), and **U8** adds a `put` method for full-resource replacement. The shipped file also carries a `USE_MOCK` flag (**on** by default) that routes every call to an in-memory mock backend instead of real `fetch` — so the whole app runs standalone, without a live server — plus a `log()` call on every request/response for visibility. None of that changes how you call `api.get`/`api.post`/etc. today; it's just what the file becomes.
+
 ### Step 4 — Verify it compiles (~5 min)
 
 No behavior has changed yet — this just proves nothing broke:
