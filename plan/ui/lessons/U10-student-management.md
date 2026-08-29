@@ -91,55 +91,86 @@ export interface Student {
   parking_status: "unassigned" | "valid" | "expired" | "suspended";
 }
 
+// The editable fields the admin can send when creating or updating a student
+// (not `Partial<Student>` — the roster's identity/status fields are modeled explicitly here).
+export interface StudentDraft {
+  first: string; last: string; student_id: string;
+  email: string; grade: string; parking_status?: Student["parking_status"];
+}
+
+export interface ImportSummary { added: number; updated: number; errors: string[]; }
+
+interface StudentsState {
+  list: Student[]; query: string;
+  status: "idle" | "loading" | "error"; error: string | null;
+  lastImport: ImportSummary | null;
+}
+
 export const fetchStudents = createAsyncThunk(
   "students/fetch",
-  async (q: string = "") => (await api.get(`/api/students?q=${encodeURIComponent(q)}`)) as Student[]
+  (query: string = "") => api.get(`/api/students?q=${encodeURIComponent(query)}`) as Promise<Student[]>
 );
 
 export const createStudent = createAsyncThunk(
   "students/create",
-  async (body: Partial<Student>, { dispatch }) => {
-    const s = (await api.post("/api/students", body)) as Student;
-    await dispatch(fetchStudents());
-    return s;
+  async (draft: StudentDraft, { getState, dispatch }) => {
+    await api.post("/api/students", draft);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
   }
 );
 
 export const updateStudent = createAsyncThunk(
   "students/update",
-  async ({ id, patch }: { id: number; patch: Partial<Student> }, { dispatch }) => {
-    const s = (await api.patch(`/api/students/${id}`, patch)) as Student;
-    await dispatch(fetchStudents());
-    return s;
+  async (args: { id: number; changes: Partial<StudentDraft> }, { getState, dispatch }) => {
+    await api.patch(`/api/students/${args.id}`, args.changes);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
   }
 );
 
 export const deleteStudent = createAsyncThunk(
   "students/delete",
-  async (id: number, { dispatch }) => { await api.del(`/api/students/${id}`); await dispatch(fetchStudents()); return id; }
+  async (id: number, { getState, dispatch }) => {
+    await api.del(`/api/students/${id}`);
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+  }
 );
 
 // Place a roster student directly into a spot (Assign or Move).
-export const assignStudentToSpace = createAsyncThunk(
+export const assignStudent = createAsyncThunk(
   "students/assign",
-  async ({ id, spaceId }: { id: number; spaceId: number }, { dispatch }) => {
-    await api.post(`/api/students/${id}/assign`, { spaceId });
-    await dispatch(fetchStudents());
-    return { id, spaceId };
+  async (args: { id: number; spaceId: number }, { getState, dispatch }) => {
+    await api.post(`/api/students/${args.id}/assign`, { spaceId: args.spaceId });
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+  }
+);
+
+// POST /api/students/import (multipart CSV), via the `uploadFile()` helper from client.ts.
+export const importStudents = createAsyncThunk(
+  "students/import",
+  async (file: File, { getState, dispatch }) => {
+    const summary = (await uploadFile("/api/students/import", file)) as ImportSummary;
+    const query = (getState() as { students: StudentsState }).students.query;
+    await dispatch(fetchStudents(query));
+    return summary;
   }
 );
 ```
 
 **Explanation:**
-- Every mutating thunk ends with `dispatch(fetchStudents())` — the same **refetch-after-mutation** habit from U4/U6/U9, so the table always matches the server.
+- Every mutating thunk (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) ends with `dispatch(fetchStudents(getState().students.query))` — the same **refetch-after-mutation** habit from U4/U6/U9, but reading the *active search query* out of state first, so a mutation made while the admin has typed a filter doesn't silently clear it.
 - `fetchStudents(q)` passes the search box straight to the server (`?q=`), so the *server* does the filtering — the client never holds a "full list" it has to filter itself. Simpler and it scales.
-- `assignStudentToSpace` is the cross-entity piece: it doesn't create an *interest request*, it places the student directly (the server handles the "free their old spot first" move semantics).
+- `assignStudent` is the cross-entity piece: it doesn't create an *interest request*, it places the student directly (the server handles the "free their old spot first" move semantics).
+- `importStudents` is the CSV piece: it doesn't call `api.post` with a hand-built `FormData` — it uses the same `uploadFile()` multipart helper the `api` client exposes for file bodies (see Step 4).
 
-Handle the states in `extraReducers` the usual way (`pending` → loading + clear error; `fetchStudents.fulfilled` → store `action.payload` as `list`; `rejected` → `state.error = action.error.message`). Register the slice in `store.ts`.
+Handle the states in `extraReducers` the usual way (`pending` → loading + clear error; `fetchStudents.fulfilled` → store `action.payload` as `list`; `rejected` → `state.error = action.error.message`). The slice's state also carries `query` (the active search term, written by a `setQuery` reducer) and `lastImport` (the most recent `ImportSummary`, written by `importStudents.fulfilled` and cleared by a `clearImportSummary` reducer); a `clearStudentsError` reducer resets `error`. Register the slice in `store.ts`.
 
 ### Step 2 — The Students view: table + live search (~15 min)
 
-Create `src/StudentManagement.tsx` — an admin-only pane. Reach it from the Admin Control Board with a **👥 Students** button (admin-only, same gating as ➕ Add Lot) that shows this view instead of the map, or via an `/admin/students` route if you prefer (U2 routing).
+Create `src/StudentManagement.tsx` — an admin-only pane. It isn't a separate route: the Admin Control Board holds a `managingStudents` boolean in state, and a **👥 Student Management** sidebar button toggles it, rendering `<StudentManagement onClose={...} />` as an in-place **overlay** on top of the board (same admin-only gating as ➕ Add Lot) rather than navigating anywhere.
 
 ```tsx
 const StudentManagement = () => {
@@ -179,7 +210,7 @@ const StudentManagement = () => {
 Reuse the **modal + validated form** shape from U9's Create Lot and U6's assign modal:
 
 - An **➕ Add Student** button opens a modal with `first`, `last`, `student_id` (all required), `email`, `grade`. On submit, `dispatch(createStudent(...))`; only close on `createStudent.fulfilled.match(res)` so a **duplicate student ID** keeps the modal open with the server's `409` message in red.
-- An **Edit** action per row opens the same modal pre-filled; submit dispatches `updateStudent({ id, patch })`.
+- An **Edit** action per row opens the same modal pre-filled; submit dispatches `updateStudent({ id, changes })` — `changes` is a `Partial<StudentDraft>`, not a raw `Partial<Student>`.
 - A **Delete** action per row does a `window.confirm` then `dispatch(deleteStudent(s.id))`.
 
 There is nothing new here — it's the exact create/validate/refetch pattern from U9, applied to a second entity. The only twist is that the identity field (`student_id`) is editable and re-checked for uniqueness on the server.
@@ -189,17 +220,15 @@ There is nothing new here — it's the exact create/validate/refetch pattern fro
 **4a — Import.** A file input + a `POST /api/students/import` as **multipart** (not JSON):
 
 ```tsx
-const onImport = async (file: File) => {
-  const form = new FormData();
-  form.append("file", file);
-  const summary = await api.postForm("/api/students/import", form); // { added, updated, errors }
-  await dispatch(fetchStudents(query));
-  setImportSummary(summary);
+const onCsvChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (file) dispatch(importStudents(file)); // thunk refetches with the active query and stores lastImport
+  event.target.value = "";
 };
-// <input type="file" accept=".csv" onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
+// <input type="file" accept=".csv" onChange={onCsvChosen} />
 ```
 
-Show the returned `{ added, updated, errors }` so the admin sees exactly what happened (e.g. *"Added 12, updated 3, 1 error: row 7 missing Last"*).
+Show the stored `lastImport` (`{ added, updated, errors }`) so the admin sees exactly what happened (e.g. *"Added 12, updated 3, 1 error: row 7 missing Last"*), with a **Dismiss** button that clears it via `dispatch(clearImportSummary())`.
 
 **4b — Download.** Build the CSV in the browser from the currently displayed list and click a temporary link:
 
@@ -217,7 +246,7 @@ const downloadCsv = () => {
 ```
 
 **Explanation:**
-- Import uses `multipart/form-data` because a file isn't JSON. If your `api` client from U0 only does JSON, add a small `postForm(path, formData)` that sends the `FormData` **without** a `Content-Type` header (the browser sets the multipart boundary itself). → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
+- Import uses `multipart/form-data` because a file isn't JSON. The `importStudents` thunk calls a dedicated `uploadFile(path, file)` helper alongside the JSON `api` client — it builds the `FormData` and sends it **without** a `Content-Type` header (the browser sets the multipart boundary itself). → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
 - The import **upserts by `student_id`** and reports per-row errors instead of rejecting the whole file — one typo shouldn't lose 200 good rows.
 - Download quote-escapes every cell (`"` → `""`) so a name with a comma doesn't break the columns, and uses the **exact same header** as the import — that's what makes the export → edit → re-import round-trip clean. → [MDN: Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob).
 
@@ -225,7 +254,7 @@ const downloadCsv = () => {
 
 ### Step 5 — Assign / Move a student to a spot (~10 min)
 
-A per-row **Assign / Move** action (label it **Assign** when `assigned_slot` is null, **Move** otherwise). It opens a small picker: choose a **lot**, then an **available spot** in that lot (reuse `fetchLots` / `fetchSpaces` from U3), confirm, then `dispatch(assignStudentToSpace({ id, spaceId }))`.
+A per-row **Assign / Move** action (label it **Assign** when `assigned_slot` is null, **Move** otherwise). It opens a small picker: choose a **lot**, then an **available spot** in that lot (reuse `fetchLots` / `fetchSpaces` from U3), confirm, then `dispatch(assignStudent({ id, spaceId }))`.
 
 **Explanation:**
 - This is the direct-placement path U6 couldn't cover: it works for a student **with no login and no request** (the server sets `assigned_student_id`).

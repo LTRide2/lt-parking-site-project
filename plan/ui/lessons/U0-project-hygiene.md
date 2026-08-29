@@ -18,7 +18,7 @@ The plumbing every later frontend lesson needs, **without changing what the user
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `npm run dev` shows the site looking and behaving **exactly as before** — same fake Student/Admin login.
-- [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken`.
+- [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken` — this lesson's starting surface; `put` (U8) and a separate `uploadFile()` (U7) land later in the same file.
 - [ ] `.env` exists locally with `VITE_API_URL=http://localhost:8000`; `.env.example` has the same line and **is** tracked by Git; `.env` is **not**.
 - [ ] `npm run lint` and `npm run build` both finish with **no errors**.
 - [ ] Your work is committed on branch `cr/u0-hygiene` and pushed, PR base = `main`.
@@ -167,6 +167,8 @@ export const api = {
 - `if (!res.ok) { throw new Error(...) }` — `res.ok` is `true` only for 2xx status codes. If the request failed, we throw a real JavaScript `Error` with the backend's message (or a generic one), so any caller can wrap the call in `try/catch`.
 - `return body.data` — the backend wraps every successful response as `{data: ...}`; this unwraps it so callers just get the useful part.
 - `export const api = { get, post, patch, del }` — four small named functions built on top of `request`, one per HTTP method you'll need. Every future lesson calls `api.get(...)`, `api.post(...)`, etc. instead of `fetch` directly.
+
+> **Heads-up — this is `client.ts`'s starting surface, not its final one.** The same "one place" file keeps growing as later lessons need more from it: **U7** adds a separate `uploadFile()` export for multipart uploads (a plain JSON `api` call can't carry binary data), and **U8** adds a `put` method for full-resource replacement. The shipped file also carries a `USE_MOCK` flag (**on** by default) that routes every call to an in-memory mock backend instead of real `fetch` — so the whole app runs standalone, without a live server — plus a `log()` call on every request/response for visibility. None of that changes how you call `api.get`/`api.post`/etc. today; it's just what the file becomes.
 
 ### Step 4 — Verify it compiles (~5 min)
 

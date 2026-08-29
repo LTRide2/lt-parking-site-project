@@ -104,21 +104,16 @@ export const deleteLot = createAsyncThunk(
 Handle their states in `extraReducers`:
 
 ```ts
-.addCase(createLot.pending, (state) => { state.status = "loading"; state.error = null; })
 .addCase(createLot.fulfilled, (state, action) => {
-  state.status = "idle";
   state.selectedLotId = action.payload.id;   // jump to the new lot
 })
 .addCase(createLot.rejected, (state, action) => {
-  state.status = "error";
   state.error = action.error.message ?? "Could not create the lot";
 })
-.addCase(deleteLot.fulfilled, (state) => {
-  state.status = "idle";
-  state.selectedLotId = null;                 // back to Home after a delete
+.addCase(deleteLot.fulfilled, (state, action) => {
+  if (state.selectedLotId === action.payload) state.selectedLotId = null;   // back to Home, but only if the deleted lot was the one showing
 })
 .addCase(deleteLot.rejected, (state, action) => {
-  state.status = "error";
   state.error = action.error.message ?? "Could not remove the lot";
 });
 ```
@@ -273,7 +268,7 @@ Add this to the admin control panel, near **➕ Add Lot** (both are admin-only m
 **Explanation:**
 - The button only shows when a lot is selected (`selectedLotId != null`) — Home has nothing to remove.
 - `hasAssigned` checks the lot's spaces for an `assigned` one and **disables** the button with an explanatory note. This is UX only; the rule is really enforced by the server's `409`, which `deleteLot.rejected` would still surface if the state were stale. → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
-- `window.confirm` guards the destructive click. On success, `deleteLot.fulfilled` set `selectedLotId = null`, so the view returns to Home and `fetchLots()` has already dropped the lot from the nav.
+- `window.confirm` guards the destructive click. On success, `deleteLot.fulfilled` nulls `selectedLotId` — it only does that when the deleted lot was the one selected, which here it always is (you dispatched `deleteLot(selectedLotId)`) — so the view returns to Home, and `fetchLots()` has already dropped the lot from the nav.
 
 ---
 

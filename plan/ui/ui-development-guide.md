@@ -7,6 +7,8 @@
 > **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
 >
 > **The code you're editing lives in its own repo:** [`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project) (locally `~/workspace/LT_Proj/lt-parking-site-project`). This `plan/` folder lives in the **backend** repo (`LTR-Backend`); the guides describe the frontend, but the frontend source is cloned separately — see [A3](#a3-get-the-project-onto-your-computer) below.
+>
+> **Front-end-first, no backend required to follow along.** `src/api/client.ts` routes every call through an in-memory mock backend (`src/api/mock/backend.ts`, persisted to `localStorage`) whenever `VITE_USE_MOCK` isn't explicitly set to `"false"` — and it defaults **on**. So you can work through every CR below against the mock and see it behave like the real thing; point at a real backend only once you're ready to test that integration. Also: the CR-per-branch flow in **Part B/C** is the discipline we recommend, but it's not literally what happened here — the actual PoC history is a handful of squashed commits on one branch (`poc`).
 
 ---
 
@@ -224,7 +226,7 @@ When you open a Pull Request, paste this and fill it in:
 
 ## Part F — The UI CRs, step by step
 
-> **Before each CR:** make sure the backend is running if the CR needs data (see the backend guide). Start the frontend with `npm run dev`. The API base URL comes from a file called `.env` (created in U0) holding `VITE_API_URL=http://localhost:8000`.
+> **Before each CR:** start the frontend with `npm run dev` — that's enough, since `VITE_USE_MOCK` defaults to on and every CR below works against the built-in mock backend. Only start the real backend (see the backend guide) if you've set `VITE_USE_MOCK=false` to test against it. The API base URL (used when mocking is off) comes from a file called `.env` (created in U0) holding `VITE_API_URL=http://localhost:8000`.
 
 ### The "☁️ Cloud check" recipe (deploy a UI CR and test it on the real site)
 
@@ -314,6 +316,7 @@ git checkout -b cr/u0-hygiene
      del: (p: string) => request(p, { method: "DELETE" }),
    };
    ```
+   > **📸 What's already in the prototype:** the real `client.ts` on your screen is a bit bigger than this. It also has a `put` method on `api` (used from U8 on), a separate `uploadFile(path, file)` helper for multipart uploads (added in U7), a `log()` call around every request for console visibility, and — the big one — a `USE_MOCK` branch that routes every call through the in-memory mock backend (`src/api/mock/backend.ts`) instead of `fetch` whenever `VITE_USE_MOCK` isn't `"false"` (which is the default). None of that changes the shape above: `get`/`post`/`patch`/`del` behave exactly as described; you're just seeing more of the file than this step builds.
 
 4. **Make sure it compiles** (no behavior change yet):
    ```bash
@@ -1790,7 +1793,7 @@ The React SPA is organised as a thin **API client**, three core Redux **slices**
 
 ### B. Design conventions
 
-- **API client** (`src/api/client.ts`): a single `fetch` wrapper. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`. It is the **one place** that talks to the backend (built in **U0**).
+- **API client** (`src/api/client.ts`): exports `api = {get, post, patch, put, del}` plus a standalone `uploadFile(path, file)` for multipart uploads. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`; logs every call via a `log()` helper. A `USE_MOCK` flag (`VITE_USE_MOCK`, on by default) routes calls to the in-memory mock backend (`src/api/mock/backend.ts`) instead of the network. It is the **one place** that talks to the backend (built in **U0**).
 - **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**), and — PoC extension — `studentsSlice` (roster CRUD/CSV/direct-assign, **U10**).
 - **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
 - **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.

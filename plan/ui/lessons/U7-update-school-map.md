@@ -79,11 +79,19 @@ Your existing `api` helper always JSON-encodes. This upload needs a different bo
 ```ts
 // add to src/api/client.ts
 export async function uploadFile(path: string, file: File) {
-  const fd = new FormData();
-  fd.append("file", file);
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;   // NOTE: no Content-Type — the browser sets it
-  const res = await fetch(`${BASE}${path}`, { method: "POST", body: fd, headers });
+
+  if (USE_MOCK) {
+    const res = await mockUpload(path, file, headers);
+    const body = (await res.json()) as { data?: unknown; error?: { message?: string } };
+    if (!res.ok) throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
+    return body.data;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${BASE}${path}`, { method: "POST", body: formData, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
   return body.data;
@@ -91,11 +99,12 @@ export async function uploadFile(path: string, file: File) {
 ```
 
 **Explanation, line by line:**
-- `new FormData()` / `fd.append("file", file)` — builds the multipart body with one part named `"file"` holding the raw `File` object the browser gave you. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
 - The `Authorization` header is set the same way `api` does it — the admin's login token still needs to ride along so the server knows who's asking. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
-- **No `Content-Type` header is set here.** When `fetch`'s `body` is a `FormData` object, the browser automatically writes `Content-Type: multipart/form-data; boundary=...` for you — and it's the *only* one who knows the exact boundary string it's about to use. Setting `Content-Type` yourself would very likely break the upload.
-- `res.json().catch(() => ({}))` and the `!res.ok` check mirror the error-handling pattern `api` already uses, so a failed upload surfaces a readable message instead of an unhandled exception.
-- `token` and `BASE` are module-level variables already defined in `client.ts` (from earlier lessons), so this helper can read them directly without any new imports.
+- **`if (USE_MOCK) { ... }` — the same mock/real branch every other `api` call already takes.** With the PoC's mock backend on (the default), the upload goes to `mockUpload(path, file, headers)` — an in-memory stand-in that stores the file without touching the network — instead of a real multipart request. This is why the whole frontend, including file uploads, runs standalone with no live server.
+- **The real path builds the multipart body**: `new FormData()` / `formData.append("file", file)` puts the raw `File` object the browser gave you into one part named `"file"`. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
+- **No `Content-Type` header is set on the real `fetch` call.** When `fetch`'s `body` is a `FormData` object, the browser automatically writes `Content-Type: multipart/form-data; boundary=...` for you — and it's the *only* one who knows the exact boundary string it's about to use. Setting `Content-Type` yourself would very likely break the upload.
+- `res.json()...` and the `!res.ok` check mirror the error-handling pattern `api` already uses (in both branches), so a failed upload surfaces a readable message instead of an unhandled exception.
+- `token`, `BASE`, and `USE_MOCK` are module-level variables already defined in `client.ts` (from earlier lessons); `mockUpload` is imported from `src/api/mock/backend.ts`. This helper reads them directly without any new imports of its own beyond that.
 
 ### Step 2 — Add an upload thunk to `parkingSlice.ts` (~10 min)
 
