@@ -6,7 +6,7 @@ This folder turns the [Deployment Guide](../deployment-guide.md) into **6 self-c
 >
 > **💸 These lessons spend real money.** Standing up AWS resources costs a few dollars while they run. Every lesson tells you how to check cost and how to tear things down (`./deploy.sh down`). See the [cost model in Part 3](../deployment-guide.md#part-3--reference-architecture-iac--cost-model).
 >
-> **Do the backend (and ideally the frontend) first** — you're deploying the app you built in the [Backend](../../backend/lessons/README.md) and [UI](../../ui/lessons/README.md) tracks.
+> **Do the backend (and ideally the frontend) first** — you're deploying the app you built in the [Backend](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/lessons/README.md) and [UI](../../ui/lessons/README.md) tracks.
 
 ## Do them in order
 

@@ -332,7 +332,7 @@ export default App;
 
 ## 🧪 Prove it works — testing guide
 
-1. **Setup:** start the [backend](../../backend/backend-development-guide.md), through **B3**, seeded, and run `npm run dev`.
+1. **Setup:** start the [backend](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md), through **B3**, seeded, and run `npm run dev`.
 2. **Steps:**
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -364,7 +364,7 @@ Then open a Pull Request on GitHub with **base = `cr/u0-hygiene`** (not `main` �
 ## 🧯 If something breaks
 
 - **Blank page + `ReferenceError: Cannot access '…' before initialization` in the console** — a module-level value is computed before a function it depends on is defined; move the `let x = load()` below the function declarations.
-- **Browser console shows a CORS error** ("blocked by CORS policy") — the backend's `CORS_ORIGINS` setting doesn't include your frontend's address. Check the backend's `.env` has `CORS_ORIGINS=http://localhost:5173` (see backend [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md)) and restart the backend.
+- **Browser console shows a CORS error** ("blocked by CORS policy") — the backend's `CORS_ORIGINS` setting doesn't include your frontend's address. Check the backend's `.env` has `CORS_ORIGINS=http://localhost:5173` (see backend [Lesson B0](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/lessons/B0-clean-slate-and-safety.md)) and restart the backend.
 - **Every request fails with "Failed to fetch" / a network error** — either the backend isn't running, or your frontend `.env`'s `VITE_API_URL` doesn't match the backend's actual address/port. Confirm both terminals: backend running, and `VITE_API_URL=http://localhost:8000` in your `.env` (from U0).
 - **Login succeeds but every *next* request comes back `401 Unauthorized`** — the token isn't being attached. Open DevTools → Application tab → Local Storage and confirm a `token` key exists after login; if it's missing, double-check `setToken` is being called in the `loginOk` case in Step 1.
 - **Refreshing logs you out even after a successful login** — `fetchMe` is failing. Check the backend's `GET /api/auth/me` endpoint (from B3) is implemented and returns `200` for a valid token, and that the token in `localStorage` isn't stale from an earlier backend restart.

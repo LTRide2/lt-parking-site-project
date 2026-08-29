@@ -66,7 +66,7 @@ You need **U7** merged (or on your machine) and backend **B8** running — the e
 
 **The backend contract this lesson calls (backend B8):**
 
-- `GET /api/lots/:id/spaces` now returns each space with optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees). Legacy spaces have them `null`. (`w`/`h` map to the backend's `pos_w`/`pos_h` columns, added alongside `pos_x`/`pos_y`/`rotation`.)
+- `GET /api/lots/:id/spaces` now returns each space with optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees). Legacy spaces have them `null`. (These are stored and returned under the same `x`/`y`/`w`/`h`/`rotation` names — the mock backend keeps no separate column naming.)
 - `PUT /api/lots/:id/layout` — body `{ spaces: [{ id?: number, label: string, x: number, y: number, w: number, h: number, rotation?: number }] }`. The server **replaces** the lot's spot set in one transaction: entries with an `id` are updated, entries without one are created, and existing spaces missing from the list are deleted. It refuses to delete a space that is currently `assigned` (returns `409`), so you can't strand a student's spot. Returns the updated `Space[]`.
 
 **Make your branch.** U8 continues from U7:

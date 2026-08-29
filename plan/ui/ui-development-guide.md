@@ -2,7 +2,7 @@
 
 > **Who this is for:** someone brand new to coding. This guide is written so you can follow it **literally, line by line**. When you see a gray box, that's a command you type into your terminal. Type one line, press Enter, wait for it to finish, then do the next line.
 >
-> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](../backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
+> **What you are building:** the website students and admins see in their browser. It talks to the "backend" (the server + database) over the internet. The backend has its own guide: [`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md). Read the [overall plan](../plan.md) first for the big picture.
 >
 > **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
 >
@@ -189,7 +189,7 @@ src/
     └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
 ```
 
-> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
+> **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
 > **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
 > - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
@@ -592,7 +592,7 @@ export default App;
 ```
 
 **Local testing guide:**
-1. Setup: start the backend ([`../backend/backend-development-guide.md`](../backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
+1. Setup: start the backend ([`../backend/backend-development-guide.md`](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md), through **B3**, seeded) and `npm run dev`.
 2. Steps:
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -1127,10 +1127,11 @@ const initialState: InterestState = { mine: null, status: "idle", error: null };
 // GET /api/interest/me -> Interest | null
 export const fetchMyInterest = createAsyncThunk("interest/me", () => api.get("/api/interest/me") as Promise<Interest | null>);
 
-// POST /api/interest { lotId } -> Interest
+// POST /api/interest { lotId, spaceIds } -> Interest
 export const registerInterest = createAsyncThunk(
   "interest/register",
-  (lotId: number) => api.post("/api/interest", { lotId }) as Promise<Interest>
+  (args: { lotId: number; spaceIds: number[] }) =>
+    api.post("/api/interest", { lotId: args.lotId, spaceIds: args.spaceIds }) as Promise<Interest>
 );
 
 const interestSlice = createSlice({
@@ -1215,7 +1216,10 @@ export default function StudentDashboard() {
             <button
               key={lot.id}
               disabled={status === "loading"}
-              onClick={() => dispatch(registerInterest(lot.id))}
+              // The shipped StudentDashboard.tsx is map-based: the student clicks an available
+              // spot and it sends spaceIds: [picked] (see U5). This simplified guide snippet
+              // registers interest in the lot only (spaceIds: []).
+              onClick={() => dispatch(registerInterest({ lotId: lot.id, spaceIds: [] }))}
               style={{ marginRight: "8px" }}
             >
               Register interest — {lot.name}
@@ -1513,13 +1517,13 @@ PR base = `cr/u6-admin-assign`.
 
 **Goal:** today a spot's position on the map is **source code** — three hand-tuned tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`) that only a developer can change. Make positions **data an admin authors in the browser**: add a spot by clicking the map, drag it to place, rotate/delete it, and **Save Layout** to the server so it survives refresh and shows for everyone.
 
-> **Big idea / what changes:** a spot's position becomes **normalized** coordinates — `x`/`y` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing config tables — no regression.
+> **Big idea / what changes:** a spot's position (and size) becomes **normalized** coordinates — `x`/`y`/`w`/`h` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically, at the same shape, at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing config tables — no regression.
 
-> **📸 What's already in the prototype:** the three hard-coded position tables and the `MAP_ONLY_LOTS` set stay exactly as-is — they become the *fallback*. This CR adds a higher-priority path that draws from server `x`/`y` when present. Nothing from U3–U7 is removed.
+> **📸 What's already in the prototype:** the three hard-coded position tables and the `MAP_ONLY_LOTS` set stay exactly as-is — they become the *fallback*. This CR adds a higher-priority path that draws from server `x`/`y`/`w`/`h` when present. Nothing from U3–U7 is removed.
 
 **Backend contract (B8):**
-- `GET /api/lots/:id/spaces` gains optional `x`, `y` (floats `0..1`) and `rotation` (degrees) per space; legacy spaces send `null`.
-- `PUT /api/lots/:id/layout` — admin only. Body `{ spaces: [{ id?, label, x, y, rotation? }] }`. **Replaces** the lot's spot set in one transaction (entries with `id` updated, without `id` created, missing existing ids deleted); refuses to delete an `assigned` space (`409`). Returns the updated `Space[]`.
+- `GET /api/lots/:id/spaces` gains optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees) per space; legacy spaces send `null`.
+- `PUT /api/lots/:id/layout` — admin only. Body `{ spaces: [{ id?, label, x, y, w?, h?, rotation? }] }`. **Replaces** the lot's spot set in one transaction (entries with `id` updated, without `id` created, missing existing ids deleted); refuses to delete an `assigned` space (`409`). Returns the updated `Space[]`.
 
 **Branch:**
 ```bash
@@ -1527,12 +1531,12 @@ git checkout cr/u7-map-upload
 git checkout -b cr/u8-arrange-spots
 ```
 
-**Step 1 — Extend the `Space` type and add a `saveLayout` thunk in `parkingSlice.ts`.** Add `x?`, `y?`, `rotation?` to `Space`, add an `"arrange"` value to the `EditAction` union, and (if missing) a `put` method to `client.ts`. Then:
+**Step 1 — Extend the `Space` type and add a `saveLayout` thunk in `parkingSlice.ts`.** Add `x?`, `y?`, `w?`, `h?`, `rotation?` to `Space`, add an `"arrange"` value to the `EditAction` union. (`client.ts` already has the `put` method this thunk needs.) Then:
 ```ts
-// PUT /api/lots/:id/layout  body { spaces:[{id?,label,x,y,rotation?}] } -> Space[]
+// PUT /api/lots/:id/layout  body { spaces:[{id?,label,x,y,w?,h?,rotation?}] } -> Space[]
 export const saveLayout = createAsyncThunk(
   "parking/saveLayout",
-  async (args: { lotId: number; spaces: Array<Pick<Space, "id" | "label" | "x" | "y" | "rotation">> }, { dispatch }) => {
+  async (args: { lotId: number; spaces: Array<Pick<Space, "id" | "label" | "x" | "y" | "w" | "h" | "rotation">> }, { dispatch }) => {
     await api.put(`/api/lots/${args.lotId}/layout`, { spaces: args.spaces });
     await dispatch(fetchSpaces(args.lotId));   // reload the server's truth
     return args.lotId;
@@ -1589,7 +1593,7 @@ PR base = `cr/u7-map-upload`.
 
 > **📸 What's already in the prototype:** since **U3** the bottom nav is `lots.map(...)` fed by `fetchLots()`, not the hard-coded list. So a newly created lot appears for free once `fetchLots()` re-runs; this CR just adds the create path.
 
-**Backend contract (B9):** `POST /api/lots` — admin only. Body `{ name, capacity?, display_order? }`. Creates the lot (and, if `capacity` given, that many positionless `available` spaces to place in U8). Returns the new `Lot`. Rejects blank/duplicate `name` with `400`/`409` and the standard error envelope.
+**Backend contract (B9):** `POST /api/lots` — admin only. Body `{ name, number?, capacity? }`. Creates the lot (and, if `capacity` given, that many positionless `available` spaces to place in U8). Returns the new `Lot`. Rejects blank/duplicate `name` with `400`/`409` and the standard error envelope.
 
 **Branch:**
 ```bash
@@ -1785,7 +1789,7 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 
 ## Appendix — Frontend architecture reference
 
-> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
+> **Moved here from `plan.md §7.2` / §7.3** as part of the doc reorg — this is the frontend design detail behind the step-by-step CRs above. The master plan links here from [`../plan.md §7`](../plan.md#7-implementation-details-live-in-the-two-guides); the per-endpoint request/response contracts this code calls live in the backend guide's [API Reference](https://github.com/LTRide2/LTR-Backend/tree/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1).
 
 ### A. Module structure (target)
 
@@ -1816,7 +1820,7 @@ The React SPA is organised as a thin **API client**, three core Redux **slices**
 | Lots/spaces data | `parkingSlice.ts`, `ControlBoard.tsx` | [U3](#cr-u3--show-real-lots-and-spaces-data-driven-map) |
 | Persist enable/disable | `parkingSlice.ts` (`updateSpaces`) | [U4](#cr-u4--make-enabledisable-actually-save) |
 | Student self-service (pick one spot, submit/withdraw) | `interestSlice.ts` (`registerInterest`, `withdrawInterest`), `StudentDashboard.tsx` | [U5](#cr-u5--student-registers-interest-core-feature-1) |
-| Admin assignment (assign / unassign / move) | `interestSlice.ts`, `parkingSlice.ts` (`assignSpace`, `unassignSpace`, `moveAssignment`), `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
+| Admin assignment (assign / unassign / move) | `interestSlice.ts` (`createAssignment`, `unassignSpace`, `moveAssignment`), `ControlBoard.tsx` | [U6](#cr-u6--admin-assigns-spaces-core-feature-2) |
 | Map upload | `client.ts` (`uploadFile`), `parkingSlice.ts` | [U7](#cr-u7--update-the-school-map-image) |
 | Arrange spots (drag-drop layout) | `parkingSlice.ts` (`saveLayout`), `ControlBoard.tsx` | [U8](#cr-u8--place--arrange-parking-spots-drag-and-drop-layout-editor) |
 | Add / remove a parking lot | `parkingSlice.ts` (`createLot`, `deleteLot`), `ControlBoard.tsx` | [U9](#cr-u9--add-a-new-parking-lot-from-the-admin-ui) |
