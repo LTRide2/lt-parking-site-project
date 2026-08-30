@@ -1,6 +1,6 @@
 # Lesson B2 — Database schema & seed data
 
-> **Track:** Backend · **Lesson 3 of 8** (B0 → B7)
+> **Track:** Backend · **Lesson 3 of 10** (B0 → B9)
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (new tool — PostgreSQL — plus your first SQL)
 > **🧩 Prerequisites:** you've done [Lesson B1 — Health check](B1-health-check.md) (the server runs and `/api/health` works).
 > **🌿 CR branch:** `cr/b2-schema` (off `cr/b1-health`) · **📄 Source CR:** [backend guide → CR B2](../backend-development-guide.md#cr-b2--database-schema--seed-data) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -201,6 +201,8 @@ erDiagram
 ### Step 3 — Write the migration file (~15 min)
 
 Create the folder and file `webapp/sql/migrations/001_init.sql` with **exactly** this content:
+
+> **Heads up — stray template files in `webapp/sql/`.** The course template left two unrelated files in this folder: `schema.sql` and `data.sql` (an old SQLite `developer` table). Nothing in this project reads them — they're dead scaffolding. Ignore them, or delete them, so the only SQL that matters is `migrations/001_init.sql` (this step) and `seed.sql` (Step 5).
 
 ```sql
 -- webapp/sql/migrations/001_init.sql

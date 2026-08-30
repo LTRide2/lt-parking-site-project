@@ -1,6 +1,6 @@
 # Lesson B1 — Health check (prove the server runs)
 
-> **Track:** Backend · **Lesson 2 of 8** (B0 → B7)
+> **Track:** Backend · **Lesson 2 of 10** (B0 → B9)
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** gentle (one small file, one endpoint — but it's the pattern you'll repeat in every backend lesson from here on)
 > **🧩 Prerequisites:** you've finished [Lesson B0 — Clean slate & safety](B0-clean-slate-and-safety.md) (`.gitignore` in place, `webapp/requirements.txt` installed, `config.py` reading `SECRET_KEY`/`DATABASE_URL` from `.env`).
 > **🌿 CR branch:** `cr/b1-health` (off `cr/b0-hygiene`) · **📄 Source CR:** [backend guide → CR B1](../backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -181,6 +181,8 @@ flask run --port 8000
 **What this does & why:** `FLASK_APP=webapp.App` tells the `flask` command-line tool *which module* has your app object (`webapp/App/__init__.py`, imported as `webapp.App`). `flask run --port 8000` starts Flask's built-in development server listening on port `8000`. Leave this terminal running — it prints a log line for every request it receives — and do the next section in a **second** terminal. → Reference: [Flask CLI: `flask run`](https://flask.palletsprojects.com/en/stable/cli/#run-the-development-server)
 
 > If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where `ls` shows the `webapp/` folder).
+
+> **The reference repo's convenience wrapper — `webapp/bin/server`.** Typing `export FLASK_APP=…` and `flask run` every time gets tedious, so the shipped implementation includes a small script, `webapp/bin/server`, with `start` / `stop` / `restart` / `status` subcommands. It backgrounds the server, writes its process id and logs under `webapp/var/` (the folder you git-ignored in B0), and honors `LTRIDE_HOST` / `LTRIDE_PORT` overrides. You don't need it to finish this lesson — plain `flask run` is enough — but it's the script the day-to-day PoC workflow uses; full usage is in [running the PoC](../running-the-poc.md).
 
 ---
 
