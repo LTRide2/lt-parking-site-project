@@ -175,11 +175,25 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
 ## 🧪 Prove it works — testing guide
 
 1. **Setup:** the server running (`flask run --port 8000`). Get an **admin** token and a **student** token from B3's login endpoints and save both:
+
+   **macOS / Linux**
+
    ```bash
    export A=<paste-an-admin-token>
    export S=<paste-a-student-token>
    ```
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   $env:A = "<paste-an-admin-token>"
+   $env:S = "<paste-a-student-token>"
+   ```
+
 2. **Steps** (ids below are the seeded Lot 1 spaces: A1=1, A2=2, A3=3, A4=4 `disabled`, ... A8=8 `assigned` to Alice — see `webapp/sql/seed.sql`):
+
+   **macOS / Linux**
+
    ```bash
    # bulk-disable two AVAILABLE spaces (A2, A3) as admin
    curl -i -X PATCH http://localhost:8000/api/spaces \
@@ -208,6 +222,38 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
    # an invalid status must be rejected
    curl -i -X PATCH http://localhost:8000/api/spaces/2 \
      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' -d '{"status":"banana"}'
+   ```
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   # bulk-disable two AVAILABLE spaces (A2, A3) as admin
+   Invoke-RestMethod -Method Patch http://localhost:8000/api/spaces `
+     -Headers @{Authorization="Bearer $env:A"} -ContentType application/json `
+     -Body '{"ids":[2,3],"status":"disabled"}'
+
+   # confirm it stuck
+   Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $env:A"}
+
+   # bulk-disable that INCLUDES the assigned A8 (id 8) — whole call must be rejected
+   Invoke-RestMethod -Method Patch http://localhost:8000/api/spaces `
+     -Headers @{Authorization="Bearer $env:A"} -ContentType application/json `
+     -Body '{"ids":[1,8],"status":"disabled"}'
+
+   # confirm A1 (id 1) did NOT change — the rejected call touched nothing
+   Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $env:A"}
+
+   # single re-enable
+   Invoke-RestMethod -Method Patch http://localhost:8000/api/spaces/2 `
+     -Headers @{Authorization="Bearer $env:A"} -ContentType application/json -Body '{"status":"available"}'
+
+   # a student must NOT be allowed
+   Invoke-RestMethod -Method Patch http://localhost:8000/api/spaces/3 `
+     -Headers @{Authorization="Bearer $env:S"} -ContentType application/json -Body '{"status":"available"}'
+
+   # an invalid status must be rejected
+   Invoke-RestMethod -Method Patch http://localhost:8000/api/spaces/2 `
+     -Headers @{Authorization="Bearer $env:A"} -ContentType application/json -Body '{"status":"banana"}'
    ```
 3. **Expected:**
    - Bulk-disable `[2,3]` → `200` with `{"data":[<A2>,<A3>]}`, both `status: "disabled"`; re-reading the lot confirms it.
@@ -238,7 +284,7 @@ Then open a Pull Request on GitHub with **base = `cr/b4-lots`** — not `main` �
 - **`409` on a space you expected to disable** — that space's status is already `assigned`. That's the business rule working as intended; it can't be disabled until it's unassigned (the assign flow handles that).
 - **`409` on a bulk call where most ids looked fine** — check whether *any* id in the list is currently `assigned` (e.g. id 8 / A8 in the seed data). The bulk route rejects the entire call if even one target is assigned, so none of the ids changed — remove the offending id (or unassign it first) and resend.
 - **Both `PATCH` routes 404** — you likely skipped Step 3. Confirm `app.register_blueprint(spaces.bp)` is actually in `webapp/App/__init__.py`.
-- **`curl` seems to "hang" or do nothing on the PATCH commands** — you forgot `-X PATCH`; without it `curl` defaults to `GET`, which this route doesn't support.
+- **`curl` seems to "hang" or do nothing on the PATCH commands** — you forgot `-X PATCH`; without it `curl` defaults to `GET`, which this route doesn't support. On Windows, the equivalent mistake is forgetting `-Method Patch` on `Invoke-RestMethod` (it defaults to `GET` too).
 
 ---
 

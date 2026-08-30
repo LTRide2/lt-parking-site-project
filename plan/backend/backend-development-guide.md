@@ -89,17 +89,29 @@ webapp/
 
 1. **VS Code** — <https://code.visualstudio.com> (same editor as the frontend).
 2. **Python 3.11+** — macOS may already have it. Check:
+
+   **macOS / Linux**
    ```bash
    python3 --version
    ```
-   If it's missing or older than 3.11, install with Homebrew (see 0.2) via `brew install python@3.12`.
-3. **Homebrew** (the macOS app installer we'll reuse for everything) — if `brew --version` fails, install it from <https://brew.sh> (paste their one-line command).
+   **Windows (PowerShell)**
+   ```powershell
+   python --version
+   ```
+   If it's missing or older than 3.11, install with Homebrew (see 0.2) via `brew install python@3.12`. **Windows:** `winget install Python.Python.3.12`.
+3. **Homebrew** (the macOS app installer we'll reuse for everything) — if `brew --version` fails, install it from <https://brew.sh> (paste their one-line command). **Windows** has no Homebrew equivalent needed here — the steps below use `winget` (bundled with Windows 10/11) instead.
 4. **Git** — check `git --version` (same as the frontend guide).
 5. **PostgreSQL** — the database itself *and* its command-line tools (`psql`, `createdb`). Install it now; you'll **start it and put it on your PATH** in CR B2 (there's a full step-by-step box there):
+
+   **macOS / Linux**
    ```bash
    brew install postgresql@16
    ```
-   > `psql` is the terminal program for talking to the database; `createdb` makes a new database. They arrive with this install but need two extra one-time steps (start the server + add to PATH) — all covered in the **"Installing and starting PostgreSQL"** box in CR B2.
+   **Windows (PowerShell)**
+   ```powershell
+   winget install PostgreSQL.PostgreSQL.16   # installs & starts the "postgresql-x64-16" service
+   ```
+   > `psql` is the terminal program for talking to the database; `createdb` makes a new database. They arrive with this install but need two extra one-time steps (start the server + add to PATH) — all covered in the **"Installing and starting PostgreSQL"** box in CR B2. (On Windows, `winget install` starts the service and installs the tools, but you'll still need the PATH step there — see that box for the `C:\Program Files\PostgreSQL\16\bin` addition.)
 
 ### 0.2 Tell Git who you are (skip if you already did this for the frontend)
 
@@ -110,8 +122,15 @@ git config --global user.email "you@example.com"
 
 ### 0.3 Get the backend project
 
+**macOS / Linux**
 ```bash
 cd ~/workspace
+cd LTR-Backend
+ls
+```
+**Windows (PowerShell)**
+```powershell
+cd $HOME\workspace
 cd LTR-Backend
 ls
 ```
@@ -121,11 +140,19 @@ You should see folders like `webapp/`, `plan/`, `deploy/`.
 
 A **virtual environment** (venv) is a private folder of Python libraries just for this project, so it never clashes with the rest of your computer.
 
+**macOS / Linux**
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
-After the second line your prompt shows `(.venv)` at the start. That means it's active. **You must run `source .venv/bin/activate` every time you open a new terminal** to work on the backend.
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+> If activation fails with a script-execution error, run `Set-ExecutionPolicy -Scope Process RemoteSigned` first, then retry.
+
+After the second line your prompt shows `(.venv)` at the start. That means it's active. **You must activate the venv every time you open a new terminal** to work on the backend (`source .venv/bin/activate` on macOS/Linux, `.venv\Scripts\Activate.ps1` on Windows).
 
 To turn it off later: type `deactivate`.
 
@@ -133,11 +160,16 @@ To turn it off later: type `deactivate`.
 
 The list of libraries lives in **`webapp/requirements.txt`** (not the repo root — there's also an older copy in `BK/`, ignore that one). From the repo root (`~/workspace/LTR-Backend`), with the venv active, run:
 
+**macOS / Linux**
 ```bash
 pip install -r webapp/requirements.txt
 ```
+**Windows (PowerShell)**
+```powershell
+pip install -r webapp\requirements.txt
+```
 
-> **Tip:** if you'd rather not type the `webapp/` path each time, you can `cd webapp` first and then run `pip install -r requirements.txt`. Just remember which folder you're in — `pwd` tells you.
+> **Tip:** if you'd rather not type the `webapp/` path each time, you can `cd webapp` first and then run `pip install -r requirements.txt`. Just remember which folder you're in — `pwd` tells you (both platforms — PowerShell has a `pwd` alias too).
 
 ---
 
@@ -166,6 +198,10 @@ Each CR below ends with two test passes:
 **One-time prerequisite (do this once, before your first cloud check).** The AWS server has to exist before you can deploy to it. That setup lives in **Part 2** — jump ahead and do **D0** (AWS account + CLI), **D1** (templates), and **D2** (`./deploy.sh up`) one time. It takes ~15 min and ~a few dollars/month while it's running (or `./deploy.sh down` between sessions). Come back here once `./deploy.sh outputs` prints a public IP.
 
 **The repeatable recipe — run this after committing any CR you want to verify in the cloud:**
+
+> **Windows note:** `release.sh` and `deploy.sh` are `#!/bin/bash` scripts — run them from **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**, not PowerShell/`cmd`. This applies everywhere this recipe is referenced below.
+
+**macOS / Linux (and Git Bash / WSL on Windows)**
 ```bash
 # 1) make sure your CR is committed and pushed (release.sh pulls from git on the server)
 git push
@@ -177,7 +213,12 @@ cd ~/workspace/LTR-Backend/deploy
 # 3) find your server address
 ./deploy.sh outputs           # note the ElasticIp / PublicIp
 ```
-Then run that CR's **☁️ Cloud check** line below, swapping `http://localhost:8000` for `http://<ElasticIp>`. That's the only difference from local testing — same endpoints, real server.
+**Windows (PowerShell), if you'd rather set up the path before dropping into Git Bash**
+```powershell
+cd $HOME\workspace\LTR-Backend\deploy
+# then run steps 1-3 above from Git Bash or WSL
+```
+Then run that CR's **☁️ Cloud check** line below, swapping `http://localhost:8000` for `http://<ElasticIp>`. That's the only difference from local testing — same endpoints, real server. On Windows, prefer `Invoke-RestMethod http://<ElasticIp>/api/...` over `curl` for a plain GET (see the note in each CR's cloud check).
 
 > **Tip:** if a cloud check fails but the local test passed, it's almost always (a) a migration that didn't run on the server, (b) a missing env var in the server's `.env`, or (c) CORS. See **Part 3 — Operating & troubleshooting**.
 
@@ -229,8 +270,14 @@ git checkout -b cr/b0-hygiene
    gunicorn>=21.2
    ```
    Then install them (venv active):
+
+   **macOS / Linux**
    ```bash
    pip install -r webapp/requirements.txt
+   ```
+   **Windows (PowerShell)**
+   ```powershell
+   pip install -r webapp\requirements.txt
    ```
    > **Troubleshooting — install errors on a modern Python.** If `pip install` fails with build errors or "no matching distribution," you likely still have old pinned lines (`Flask==2.2.2`, `Werkzeug==2.2.2`, …) mixed in below the new ones — those exact old versions don't install on current Python. Re-open the file and confirm it holds **only** the seven `>=` lines above, nothing else.
 
@@ -308,10 +355,19 @@ git checkout -b cr/b1-health
 **Steps:**
 
 1. **Clear the old template routes.** `webapp/App/` still has dead weight from the course-template scaffold that would otherwise conflict with the factory you're about to write. Delete it now:
+
+   **macOS / Linux**
    ```bash
    rm webapp/App/model.py webapp/App/index.py
    rm webapp/App/views/index.py webapp/App/views/root.py webapp/App/views/images.py
    ```
+   **Windows (PowerShell)**
+   ```powershell
+   Remove-Item webapp\App\model.py, webapp\App\index.py
+   Remove-Item webapp\App\views\index.py, webapp\App\views\root.py, webapp\App\views\images.py
+   ```
+   > `Remove-Item` needs a comma-separated list for multiple paths (unlike bash `rm`'s space-separated args), and forward slashes become backslashes.
+
    Then replace `webapp/App/views/__init__.py` with a one-line docstring (it just marks the folder as a package — each view module below registers its own routes):
    ```python
    # webapp/App/views/__init__.py
@@ -371,28 +427,49 @@ git checkout -b cr/b1-health
    ```
 
 **Run the server (do this in its own terminal, venv active, from the repo root):**
+
+**macOS / Linux**
 ```bash
 export FLASK_APP=webapp.App
 flask run --port 8000
 ```
-> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where the `webapp/` folder is visible with `ls`).
+**Windows (PowerShell)**
+```powershell
+$env:FLASK_APP = "webapp.App"
+flask run --port 8000
+```
+> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where the `webapp/` folder is visible with `ls`). **Windows:** `cd $HOME\workspace\LTR-Backend`.
 >
 > **Troubleshooting — `ImportError: cannot import name 'index' from 'App.views'` (or similar for `root`/`images`).** Something still references a template route you deleted in step 1 — usually a stray `.pyc` in `__pycache__` or `views/__init__.py` not yet reduced to the one-line docstring. Delete `webapp/App/**/__pycache__` and confirm `views/__init__.py` holds only the docstring, then retry.
 
 **Local testing guide:**
 1. Setup: venv active; `.env` exists (from B0); `flask run --port 8000` in one terminal.
 2. Steps: in a **second** terminal:
+
+   **macOS / Linux**
    ```bash
    curl -i http://localhost:8000/api/health
    curl -i http://localhost:8000/api/does-not-exist
    ```
+   **Windows (PowerShell)**
+   ```powershell
+   Invoke-RestMethod http://localhost:8000/api/health
+   curl.exe -i http://localhost:8000/api/does-not-exist
+   ```
+   > **Why `curl.exe` for the second line?** `Invoke-RestMethod` throws an exception on any non-2xx response instead of printing the body, so it can't show you a `404`. `curl.exe` (bundled with Windows 10+) behaves like Linux `curl` and prints the status + body as-is — use it whenever a step is deliberately checking an error status code. Later CRs reuse this same split.
 3. Expected:
    - The first returns `200` and `{"data":{"status":"ok","time":"...."}}`.
    - The second returns `404` and `{"error":{"code":"not_found","message":"Not found"}}` — proving the error envelope works.
 
 **☁️ Cloud check (optional):** run the recipe (`git push` → `./release.sh backend` → `./deploy.sh outputs`), then:
+
+**macOS / Linux**
 ```bash
 curl -i http://<ElasticIp>/api/health     # expect 200 {"data":{"status":"ok",...}}
+```
+**Windows (PowerShell)**
+```powershell
+Invoke-RestMethod http://<ElasticIp>/api/health     # expect {"data":{"status":"ok",...}}
 ```
 This is the best first cloud check — if `/api/health` works on the server, your whole deploy pipeline (git pull → gunicorn → nginx) is healthy.
 
@@ -490,10 +567,15 @@ erDiagram
 
 #### Step 1 — Create the database (one time)
 
+**macOS / Linux**
 ```bash
 createdb ltride_dev
 ```
-> If `createdb` says "command not found", Postgres isn't on your PATH yet — see the **"Installing and starting PostgreSQL"** box at the end of this CR, do that, then come back.
+**Windows (PowerShell)**
+```powershell
+createdb ltride_dev
+```
+> If `createdb` says "command not found", Postgres isn't on your PATH yet — see the **"Installing and starting PostgreSQL"** box at the end of this CR, do that, then come back. (Windows: add `C:\Program Files\PostgreSQL\16\bin` to your `PATH`.)
 
 #### Step 2 — Write the schema file
 
@@ -719,15 +801,21 @@ COMMIT;
 
 #### Step 5 — Run them
 
+**macOS / Linux**
 ```bash
 psql ltride_dev -f webapp/sql/migrations/001_init.sql
 psql ltride_dev -f webapp/sql/seed.sql
 ```
+**Windows (PowerShell)**
+```powershell
+psql ltride_dev -f webapp\sql\migrations\001_init.sql
+psql ltride_dev -f webapp\sql\seed.sql
+```
 Each should print a list of `CREATE TABLE` / `INSERT` lines and no `ERROR`.
 
 **Local testing guide:**
-1. Setup: Postgres running (`brew services start postgresql@16`); both files run with no error.
-2. Steps:
+1. Setup: Postgres running (**macOS/Linux:** `brew services start postgresql@16`; **Windows:** `net start postgresql-x64-16`); both files run with no error.
+2. Steps: (identical on both OSes — `psql` takes the same arguments)
    ```bash
    psql ltride_dev -c "\dt"                                          # list tables
    psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY id;"
@@ -767,6 +855,7 @@ git push -u origin cr/b2-schema
 >
 > `psql` and `createdb` are command-line tools that come **with PostgreSQL**. In §0.1 you ran `brew install postgresql@16`, which installs them — but two things often trip people up: the database **server isn't running yet**, and the tools **aren't on your PATH**. Fix both:
 >
+> **macOS / Linux:**
 > 1. **Start the database server** (and have it auto-start on login):
 >    ```bash
 >    brew services start postgresql@16
@@ -787,6 +876,19 @@ git push -u origin cr/b2-schema
 > 4. The very first connection sometimes fails with *"role does not exist"*. If so, create a database user matching your Mac username once:
 >    ```bash
 >    createuser -s "$(whoami)"
+>    ```
+>
+> **Windows (PowerShell):**
+> 1. `winget install PostgreSQL.PostgreSQL.16` installs the tools **and** starts the `postgresql-x64-16` service (no separate start step, unlike Homebrew). If it's ever stopped, restart with `net start postgresql-x64-16` or from `services.msc`.
+> 2. **Put the tools on your PATH:** add `C:\Program Files\PostgreSQL\16\bin` to your `PATH` environment variable (Windows Settings → "Edit environment variables for your account", or `[Environment]::SetEnvironmentVariable("PATH", "$env:PATH;C:\Program Files\PostgreSQL\16\bin", "User")` in PowerShell), then open a new terminal.
+> 3. **Verify:**
+>    ```powershell
+>    psql --version        # should print "psql (PostgreSQL) 16.x"
+>    createdb --version
+>    ```
+> 4. If the first connection fails with *"role does not exist"*, create a database user matching your Windows username once:
+>    ```powershell
+>    createuser -s "$env:USERNAME"
 >    ```
 >
 > **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride_dev` opens a session connected to the `ltride_dev` database; `psql ltride_dev -f file.sql` runs a file against it; `psql ltride_dev -c "SQL..."` runs one command. Type `\q` to quit an interactive session.
@@ -1009,6 +1111,8 @@ In `webapp/App/__init__.py`, next to where you registered `health`, add:
 **Local testing guide:**
 1. Setup: DB seeded (B2); `flask run --port 8000` running.
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    # valid student
    curl -i -X POST http://localhost:8000/api/auth/student \
@@ -1020,10 +1124,26 @@ In `webapp/App/__init__.py`, next to where you registered `health`, add:
    curl -i -X POST http://localhost:8000/api/auth/admin \
      -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}'
    ```
+   **Windows (PowerShell)** — using `curl.exe` since these deliberately check a `401`:
+   ```powershell
+   curl.exe -i -X POST http://localhost:8000/api/auth/student `
+     -H "Content-Type: application/json" -d '{"code":"STU001"}'
+   curl.exe -i -X POST http://localhost:8000/api/auth/student `
+     -H "Content-Type: application/json" -d '{"code":"NOPE"}'
+   curl.exe -i -X POST http://localhost:8000/api/auth/admin `
+     -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}'
+   ```
    Copy the `token` value from a successful response, then:
+
+   **macOS / Linux**
    ```bash
    curl -i http://localhost:8000/api/auth/me -H "Authorization: Bearer <paste-token>"
    curl -i http://localhost:8000/api/auth/me     # no token
+   ```
+   **Windows (PowerShell)**
+   ```powershell
+   curl.exe -i http://localhost:8000/api/auth/me -H "Authorization: Bearer <paste-token>"
+   curl.exe -i http://localhost:8000/api/auth/me     # no token
    ```
 3. Expected:
    - Valid student/admin → `200` with `{"data":{"token":"...","user":{...}}}`.
@@ -1031,9 +1151,16 @@ In `webapp/App/__init__.py`, next to where you registered `health`, add:
    - `/me` with token → `200` and your user; `/me` without token → `401`.
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
+
+**macOS / Linux**
 ```bash
 curl -i -X POST http://<ElasticIp>/api/auth/student \
   -H 'Content-Type: application/json' -d '{"code":"STU001"}'
+```
+**Windows (PowerShell)**
+```powershell
+Invoke-RestMethod -Method Post http://<ElasticIp>/api/auth/student `
+  -ContentType application/json -Body '{"code":"STU001"}'
 ```
 Expect `200` with a token. A `500` here usually means `SECRET_KEY`/`DATABASE_URL` aren't set in the server's `.env` (`Part 3`).
 
@@ -1193,13 +1320,22 @@ def lot_spaces(lot_id):
 ```
 
 **Local testing guide:**
-1. Setup: server running; a token from B3 (`export T=<token>` makes the commands shorter).
+1. Setup: server running; a token from B3 (`export T=<token>` makes the commands shorter — **Windows:** `$T = "<token>"`, no `export` needed; PowerShell double-quoted strings interpolate `$T` the same way, so the `curl.exe`/`Invoke-RestMethod` lines below work unchanged with this variable. Later CRs use the same `$T`/`$A`/`$S` pattern without repeating this note).
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    curl -i http://localhost:8000/api/lots -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots/999/spaces -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots          # no token
+   ```
+   **Windows (PowerShell)** — `curl.exe` since these check `404`/`401`:
+   ```powershell
+   curl.exe -i http://localhost:8000/api/lots -H "Authorization: Bearer $T"
+   curl.exe -i http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $T"
+   curl.exe -i http://localhost:8000/api/lots/999/spaces -H "Authorization: Bearer $T"
+   curl.exe -i http://localhost:8000/api/lots          # no token
    ```
 3. Expected:
    - `/api/lots` → `200`; Lot 1 shows `"number":1, "capacity":8, "available_count":6` (A4 disabled, A8 assigned).
@@ -1207,8 +1343,14 @@ def lot_spaces(lot_id):
    - Lot `999` → `404`; no token → `401`.
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, with a token from the server's `/api/auth/student`:
+
+**macOS / Linux**
 ```bash
 curl -s http://<ElasticIp>/api/lots -H "Authorization: Bearer $T"
+```
+**Windows (PowerShell)**
+```powershell
+Invoke-RestMethod http://<ElasticIp>/api/lots -Headers @{Authorization="Bearer $T"}
 ```
 Expect the same lots JSON the local server returned (assuming RDS was seeded).
 
@@ -1307,8 +1449,10 @@ def bulk_update_spaces():
 ```
 
 **Local testing guide:**
-1. Setup: server running. Get an **admin** token (`export A=<admin-token>`) and a **student** token (`export S=<student-token>`).
+1. Setup: server running. Get an **admin** token (`export A=<admin-token>`) and a **student** token (`export S=<student-token>` — **Windows:** `$A = "<admin-token>"` / `$S = "<student-token>"`, no `export`).
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    # bulk disable spaces 1,2,3 (A1,A2,A3 — all available) as admin
    curl -i -X PATCH http://localhost:8000/api/spaces \
@@ -1326,6 +1470,20 @@ def bulk_update_spaces():
    # a student must NOT be allowed
    curl -i -X PATCH http://localhost:8000/api/spaces/2 \
      -H "Authorization: Bearer $S" -H 'Content-Type: application/json' -d '{"status":"available"}'
+   ```
+   **Windows (PowerShell)** — `curl.exe` since these check `409`/`403`:
+   ```powershell
+   curl.exe -i -X PATCH http://localhost:8000/api/spaces `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" `
+     -d '{"ids":[1,2,3],"status":"disabled"}'
+   curl.exe -s http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $A"
+   curl.exe -i -X PATCH http://localhost:8000/api/spaces/1 `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" -d '{"status":"available"}'
+   curl.exe -i -X PATCH http://localhost:8000/api/spaces `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" `
+     -d '{"ids":[2,8],"status":"disabled"}'
+   curl.exe -i -X PATCH http://localhost:8000/api/spaces/2 `
+     -H "Authorization: Bearer $S" -H "Content-Type: application/json" -d '{"status":"available"}'
    ```
 3. Expected:
    - Bulk `[1,2,3]` → `200` with the three serialized spaces, all now `disabled`.
@@ -1486,8 +1644,10 @@ def list_interest():
 ```
 
 **Local testing guide:**
-1. Setup: server running; `$S` = student token, `$A` = admin token. Lot 4 (id 2) has open spots.
+1. Setup: server running; `$S` = student token, `$A` = admin token (**Windows:** same `$S`/`$A` variable-assignment note as B4/B5). Lot 4 (id 2) has open spots.
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    curl -i -X POST http://localhost:8000/api/interest \
      -H "Authorization: Bearer $S" -H 'Content-Type: application/json' \
@@ -1499,6 +1659,19 @@ def list_interest():
    curl -s "http://localhost:8000/api/interest?status=pending" -H "Authorization: Bearer $A"
    curl -i -X DELETE http://localhost:8000/api/interest/me -H "Authorization: Bearer $S"
    curl -s http://localhost:8000/api/interest/me -H "Authorization: Bearer $S"
+   ```
+   **Windows (PowerShell)** — all happy-path calls, so `Invoke-RestMethod` is fine throughout:
+   ```powershell
+   Invoke-RestMethod -Method Post http://localhost:8000/api/interest `
+     -Headers @{Authorization="Bearer $S"} -ContentType application/json `
+     -Body '{"lotId":2,"spaceIds":[9]}'
+   Invoke-RestMethod -Method Post http://localhost:8000/api/interest `
+     -Headers @{Authorization="Bearer $S"} -ContentType application/json `
+     -Body '{"lotId":2,"spaceIds":[10]}'   # change of mind -> updates the same row
+   Invoke-RestMethod http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+   Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @{Authorization="Bearer $A"}
+   Invoke-RestMethod -Method Delete http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+   Invoke-RestMethod http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
    ```
 3. Expected:
    - First POST → `201`, `status:"pending"`, `space_ids:[9]`.
@@ -1730,6 +1903,8 @@ def _label(cursor, space_id):
 **Local testing guide:**
 1. Setup: server running; `$A` = admin token; first register interest as a student (B6) so there's a `pending` request. Use a known student (Andrew, user id `4`, pending on Lot 4) and an available space id there (e.g. `10`).
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    curl -i -X POST http://localhost:8000/api/assignments \
      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
@@ -1748,6 +1923,22 @@ def _label(cursor, space_id):
      -d '{"fromSpaceId":10,"toLotId":3}'
    # undo an existing assignment (space id, not assignment id) -- e.g. seeded A8 (space 8)
    curl -i -X DELETE http://localhost:8000/api/assignments/8 -H "Authorization: Bearer $A"
+   ```
+   **Windows (PowerShell)** — `curl.exe` for the line that checks `409`; `Invoke-RestMethod` is fine for the rest:
+   ```powershell
+   Invoke-RestMethod -Method Post http://localhost:8000/api/assignments `
+     -Headers @{Authorization="Bearer $A"} -ContentType application/json `
+     -Body '{"spaceId":10,"userId":4}'
+   Invoke-RestMethod http://localhost:8000/api/lots/2/spaces -Headers @{Authorization="Bearer $A"}
+   Invoke-RestMethod http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+   # try to assign the SAME space again -> 409
+   curl.exe -i -X POST http://localhost:8000/api/assignments `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" `
+     -d '{"spaceId":10,"userId":3}'
+   Invoke-RestMethod -Method Post http://localhost:8000/api/assignments/move `
+     -Headers @{Authorization="Bearer $A"} -ContentType application/json `
+     -Body '{"fromSpaceId":10,"toLotId":3}'
+   Invoke-RestMethod -Method Delete http://localhost:8000/api/assignments/8 -Headers @{Authorization="Bearer $A"}
    ```
 3. Expected:
    - POST → `201` `{"space_id":10,"user_id":4,"interest_id":...}`; space 10 becomes `assigned` with `assigned_user_id:4`, `assigned_student_id` set to Andrew's code; his roster row gets `assigned_slot`/`parking_status:"valid"`; his interest becomes `fulfilled`.
@@ -1878,6 +2069,8 @@ def _is_frac(value):
 **Local testing guide:**
 1. Setup: server running; `$A` = admin token; `$S` = student token; pick a lot id (e.g. `1`).
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    # save a two-spot layout (no ids => both are new spaces; A2 uses a custom size)
    curl -i -X PUT http://localhost:8000/api/lots/1/layout \
@@ -1892,6 +2085,18 @@ def _is_frac(value):
    # out-of-range coordinate -> 400
    curl -i -X PUT http://localhost:8000/api/lots/1/layout \
      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+     -d '{"spaces":[{"label":"X","x":9,"y":0.1}]}'
+   ```
+   **Windows (PowerShell)** — `curl.exe` for the lines that check `403`/`400`:
+   ```powershell
+   Invoke-RestMethod -Method Put http://localhost:8000/api/lots/1/layout `
+     -Headers @{Authorization="Bearer $A"} -ContentType application/json `
+     -Body '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"rotation":0},{"label":"A2","x":0.6,"y":0.4,"w":0.08,"h":0.05,"rotation":90}]}'
+   Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $A"}
+   curl.exe -i -X PUT http://localhost:8000/api/lots/1/layout `
+     -H "Authorization: Bearer $S" -H "Content-Type: application/json" -d '{"spaces":[]}'
+   curl.exe -i -X PUT http://localhost:8000/api/lots/1/layout `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" `
      -d '{"spaces":[{"label":"X","x":9,"y":0.1}]}'
    ```
 3. Expected:
@@ -2050,6 +2255,8 @@ def upload_map(lot_id):
 **Local testing guide:**
 1. Setup: server running; `$A` = admin token; `$S` = student token.
 2. Steps:
+
+   **macOS / Linux**
    ```bash
    curl -i -X POST http://localhost:8000/api/lots \
      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
@@ -2071,6 +2278,30 @@ def upload_map(lot_id):
    curl -i -X DELETE http://localhost:8000/api/lots/7 -H "Authorization: Bearer $A"
    # deleting a lot with an assigned space -> 409 (Lot 1)
    curl -i -X DELETE http://localhost:8000/api/lots/1 -H "Authorization: Bearer $A"
+   ```
+
+   **Windows (PowerShell)** — `curl.exe` (bundled with Windows 10+) keeps the `-i` status view and the `-F` upload identical; only `curl`→`curl.exe` and the line-continuation char (`` ` `` instead of `\`) change. The single-quoted JSON bodies pass through PowerShell literally, and `$A`/`$S` interpolate the same way:
+   ```powershell
+   curl.exe -i -X POST http://localhost:8000/api/lots `
+     -H "Authorization: Bearer $A" -H "Content-Type: application/json" `
+     -d '{"name":"North Lot","number":20,"capacity":10}'
+   curl.exe -s http://localhost:8000/api/lots -H "Authorization: Bearer $A"   # new lot listed
+   # blank name -> 400 ; duplicate name -> 409 ; duplicate number -> 409 ; student -> 403
+   curl.exe -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $A" `
+     -H "Content-Type: application/json" -d '{"name":"   "}'
+   curl.exe -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $A" `
+     -H "Content-Type: application/json" -d '{"name":"North Lot"}'
+   curl.exe -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $A" `
+     -H "Content-Type: application/json" -d '{"name":"Another Lot","number":20}'
+   curl.exe -i -X POST http://localhost:8000/api/lots -H "Authorization: Bearer $S" `
+     -H "Content-Type: application/json" -d '{"name":"Sneaky"}'
+   # upload a map for the new lot (use the id from the first response, e.g. 7)
+   curl.exe -i -X POST http://localhost:8000/api/lots/7/map `
+     -H "Authorization: Bearer $A" -F "file=@lot20.jpg;type=image/jpeg"
+   # delete it (no assigned spaces yet)
+   curl.exe -i -X DELETE http://localhost:8000/api/lots/7 -H "Authorization: Bearer $A"
+   # deleting a lot with an assigned space -> 409 (Lot 1)
+   curl.exe -i -X DELETE http://localhost:8000/api/lots/1 -H "Authorization: Bearer $A"
    ```
 3. Expected:
    - First POST → `201` with the new lot (`number:20`); `GET /api/lots` now lists it and `GET /api/lots/<newId>/spaces` returns 10 positionless spaces labeled `20-1`..`20-10`.
@@ -2114,6 +2345,7 @@ Each CR above had a "Local testing guide" that poked **one endpoint** with `curl
 
 #### Step 1 — Start PostgreSQL + the backend (Terminal 1)
 
+**macOS / Linux**
 ```bash
 cd ~/workspace/LTR-Backend
 brew services start postgresql@16          # the version you installed in B2
@@ -2126,14 +2358,36 @@ psql "$DATABASE_URL" -f webapp/sql/seed.sql
 export FLASK_APP=webapp.App
 flask run --port 8000
 ```
+
+**Windows (PowerShell)**
+```powershell
+cd $HOME\workspace\LTR-Backend
+net start postgresql-x64-16                # the service from B2 (usually already running)
+
+.venv\Scripts\Activate.ps1                 # virtualenv from Part 0
+# reset to clean, predictable data so the login codes/passwords are known:
+psql $env:DATABASE_URL -f webapp\sql\migrations\001_init.sql
+psql $env:DATABASE_URL -f webapp\sql\seed.sql
+
+$env:FLASK_APP = "webapp.App"
+flask run --port 8000
+```
 Sanity check (new terminal):
+
+**macOS / Linux**
 ```bash
 curl -s http://localhost:8000/api/health        # -> {"data":{"status":"ok"}}
+```
+**Windows (PowerShell)**
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health   # -> {"data":{"status":"ok"}}
 ```
 
 #### Step 2 — Confirm the API works on its own (no UI yet)
 
 Before bringing in the browser, prove the full chain with `curl`. This isolates "is it the backend or the frontend?" if anything later fails.
+
+**macOS / Linux**
 ```bash
 # 1) student logs in -> capture the token
 STU_TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/student \
@@ -2151,12 +2405,39 @@ ADM_TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/admin \
 # 4) admin sees the pending request
 curl -s "http://localhost:8000/api/interest?status=pending" -H "Authorization: Bearer $ADM_TOKEN"
 ```
+
+**Windows (PowerShell)** — `Invoke-RestMethod` parses the JSON for you, so `.data.token` replaces the `python3` extraction pipeline:
+```powershell
+# 1) student logs in -> capture the token
+$STU_TOKEN = (Invoke-RestMethod -Method Post http://localhost:8000/api/auth/student `
+  -ContentType application/json -Body '{"code":"STU001"}').data.token
+
+# 2) student picks a spot in lot 1 (space id 1 = A1, available)
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest `
+  -Headers @{ Authorization = "Bearer $STU_TOKEN" } -ContentType application/json `
+  -Body '{"lotId":1,"spaceIds":[1]}'
+
+# 3) admin logs in -> capture token
+$ADM_TOKEN = (Invoke-RestMethod -Method Post http://localhost:8000/api/auth/admin `
+  -ContentType application/json -Body '{"username":"admin","password":"admin123"}').data.token
+
+# 4) admin sees the pending request
+Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @{ Authorization = "Bearer $ADM_TOKEN" }
+```
 Expect: step 2 returns the new interest with `"status":"pending"`; step 4 lists it. If these work, the backend is sound and any later failure is in the UI wiring.
 
 #### Step 3 — Start the frontend (Terminal 2)
 
+**macOS / Linux**
 ```bash
 cd ~/workspace/lt-parking-site-project
+# .env must contain: VITE_API_URL=http://localhost:8000
+npm run dev
+```
+
+**Windows (PowerShell)**
+```powershell
+cd $HOME\workspace\lt-parking-site-project
 # .env must contain: VITE_API_URL=http://localhost:8000
 npm run dev
 ```
@@ -2180,10 +2461,18 @@ Watch **Terminal 1** while you click — you'll see the Flask request log (`POST
 
 #### Step 5 — Tear down
 
+**macOS / Linux**
 ```bash
 # Terminal 2: Ctrl-C   (Vite)
 # Terminal 1: Ctrl-C   (Flask)
 brew services stop postgresql@16     # optional
+```
+
+**Windows (PowerShell)**
+```powershell
+# Terminal 2: Ctrl-C   (Vite)
+# Terminal 1: Ctrl-C   (Flask)
+net stop postgresql-x64-16     # optional
 ```
 
 #### If something fails
@@ -2210,10 +2499,10 @@ Deployment now lives in its own sibling document: **[`../deploy/deployment-guide
 
 ## Part 4 — Daily backend checklist
 
-1. `cd ~/workspace/LTR-Backend`
-2. `source .venv/bin/activate` (prompt shows `(.venv)`)
+1. `cd ~/workspace/LTR-Backend`  *(Windows: `cd $HOME\workspace\LTR-Backend`)*
+2. `source .venv/bin/activate` (prompt shows `(.venv)`)  *(Windows: `.venv\Scripts\Activate.ps1`)*
 3. `git status` (right branch? clean?)
-4. `flask run --port 8000` in one terminal; test with `curl` in another.
+4. `flask run --port 8000` in one terminal; test with `curl` in another *(Windows: `Invoke-RestMethod`)*.
 5. Commit often: `git add -A && git commit -m "..."`.
 6. `git push` when the CR is ready → open the PR against the parent branch.
 7. To deploy: `cd deploy && ./release.sh all`.

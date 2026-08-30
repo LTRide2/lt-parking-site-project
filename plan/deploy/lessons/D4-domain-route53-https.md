@@ -5,6 +5,12 @@
 > **🧩 Prerequisites:** you've finished [Lesson D3 — Release the application code](D3-release-application-code.md) — the app is live and reachable at `http://<ElasticIp>`.
 > **🌿 CR branch:** `cr/d4-dns-tls` (off `cr/d3-release`) · **📄 Source CR:** [deployment guide → CR D4](../deployment-guide.md#cr-d4--buy-a-domain-wire-it-to-route-53-and-turn-on-https) · **🗺 Big picture:** [plan.md §10](../../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 
+> **Windows note:** `deploy.sh` and `release.sh` are `#!/usr/bin/env bash` scripts and
+> do not run in PowerShell or `cmd`. On Windows, run them from **Git Bash** (bundled
+> with [Git for Windows](https://git-scm.com/download/win)) or **WSL** — the bash
+> snippets that call them work unchanged there. The AWS CLI, `ssh`, and the DNS/HTTP
+> checks in this lesson have native PowerShell equivalents shown alongside each step.
+
 ---
 
 ## 🎯 Goal — what you'll have at the end
@@ -56,8 +62,19 @@ You'll need: a working site at `http://<ElasticIp>` (D3 done), a credit card if 
 
 **Open your terminal and make your branch:**
 
+**macOS / Linux**
+
 ```bash
 cd ~/workspace/LTR-Backend
+git checkout cr/d3-release
+git pull
+git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
+```
+
+**Windows (PowerShell)**
+
+```powershell
+cd $HOME\workspace\LTR-Backend
 git checkout cr/d3-release
 git pull
 git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
@@ -88,10 +105,21 @@ A hosted zone is the container in Route 53 that holds your domain's DNS records.
 4. AWS immediately shows an **NS record** with 4 nameservers (like `ns-123.awsdns-45.com`). **Copy these four** — you'll need them in Step 2 if you bought elsewhere. Also copy the **Hosted zone ID** (looks like `Z0123456789ABCDEFGHIJ`).
 
 **CLI way (equivalent):**
+
+**macOS / Linux**
+
 ```bash
 aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(date +%s)"
 aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(Get-Date -UFormat %s)"
+aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
+```
+
 **What this does:** `create-hosted-zone` makes the empty phone book; `get-hosted-zone` reads back the 4 nameservers AWS assigned it. → Reference: [Route 53: create a hosted zone](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html).
 
 Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `release.sh` can find it:
@@ -111,9 +139,17 @@ Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `rele
 1. Log into your registrar and find the domain's **Nameservers** setting.
 2. Choose **Custom nameservers**, delete the registrar's defaults, and paste the 4 nameservers from Step 1 (one per field, no trailing dots).
 3. **Save.** Propagation is usually minutes but can take up to 24–48 hours. Check progress:
+
+   **macOS / Linux**
    ```bash
    dig NS example.com +short        # should eventually list the 4 awsdns nameservers
    ```
+
+   **Windows (PowerShell)**
+   ```powershell
+   Resolve-DnsName -Type NS example.com    # should eventually list the 4 awsdns nameservers
+   ```
+
    **What this does:** `dig NS` asks the internet "who's authoritative for this domain's DNS?" — once it answers with the AWS nameservers, the hand-off is complete. → Reference: [dig command basics](https://linux.die.net/man/1/dig).
 
 > **Common mistake:** don't add DNS records at the registrar *and* delegate to Route 53. Once nameservers point at Route 53, the registrar's own records are ignored — every record from now on goes in Route 53 (Step 3).
@@ -129,16 +165,35 @@ cd ~/workspace/LTR-Backend/deploy
 **What this does:** `deploy.sh up` re-runs CloudFormation for all four stacks; `04-dns.yaml`'s `HasHostedZone` condition is now true (you filled in a real `HostedZoneId`), so it creates an `AWS::Route53::RecordSet` — an **A record** — mapping `ltride.example.com → <ElasticIp>`. → Reference: [Route 53: A records](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#AFormat).
 
 Verify:
+
+**macOS / Linux**
 ```bash
 dig ltride.example.com +short                   # should print your Elastic IP
 curl -I http://ltride.example.com/api/health    # should reach your server (200)
 ```
 
+**Windows (PowerShell)**
+```powershell
+Resolve-DnsName ltride.example.com                                     # should print your Elastic IP
+(Invoke-WebRequest http://ltride.example.com/api/health).StatusCode   # should reach your server (200)
+```
+
 ### Step 4 — Update the app for the new hostname (~10 min)
 
 1. **Tell the backend to trust the new origin.** SSH in and edit the server's `.env`:
+
+   **macOS / Linux**
    ```bash
    ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
+   ```
+
+   **Windows (PowerShell)**
+   ```powershell
+   ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp>
+   ```
+
+   Once you're in, the rest is the same Linux shell regardless of your laptop's OS:
+   ```bash
    sudo nano /home/ltride/app/.env    # set CORS_ORIGINS=https://ltride.example.com
    sudo systemctl restart ltride
    ```
@@ -151,8 +206,19 @@ curl -I http://ltride.example.com/api/health    # should reach your server (200)
 
 ### Step 5 — Get a free TLS certificate with certbot (~15 min)
 
+**macOS / Linux**
 ```bash
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
+```
+
+**Windows (PowerShell)**
+```powershell
+ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp>
+```
+
+Once you're in, the rest runs on the Linux server the same way regardless of your
+laptop's OS:
+```bash
 sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d ltride.example.com
 ```
@@ -166,10 +232,18 @@ Answer certbot's prompts: your email (for renewal notices), agree to the terms, 
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux**
 ```bash
 dig ltride.example.com +short                 # → your Elastic IP
 curl -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
 curl -I http://ltride.example.com             # → 301 redirect to https
+```
+
+**Windows (PowerShell)**
+```powershell
+Resolve-DnsName ltride.example.com                                          # → your Elastic IP
+(Invoke-WebRequest https://ltride.example.com/api/health).StatusCode       # → 200, valid cert
+(Invoke-WebRequest http://ltride.example.com -MaximumRedirection 0 -ErrorAction Ignore).StatusCode  # → 301 redirect to https
 ```
 
 Then open `https://ltride.example.com` in a browser and log in as a seeded student.

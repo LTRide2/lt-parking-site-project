@@ -19,7 +19,7 @@ An AWS account that is **ready for the deploy lessons** and **safe to leave runn
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `aws sts get-caller-identity` prints your account ID and an `arn` containing the IAM user you created (not `:root`).
-- [ ] `ls -l ~/.ssh/ltride-key.pem` shows permissions `-rw-------` (owner read/write only).
+- [ ] `ls -l ~/.ssh/ltride-key.pem` shows permissions `-rw-------` (owner read/write only) — on Windows, `icacls $HOME\.ssh\ltride-key.pem` shows only your account.
 - [ ] `deploy/params/prod.json` has your real `AdminCidr` and `KeyName` filled in (no more placeholder values).
 - [ ] You know where to click to see your AWS bill, and you've set a billing alarm (or at least know how you'll check spend).
 
@@ -78,9 +78,18 @@ Never use the root login (the one tied to your email/password from Step 1) for d
 
 The deploy scripts in this repo call the AWS CLI, so your laptop needs it installed and pointed at your new IAM user's keys.
 
+**macOS / Linux**
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh validate           # this auto-installs awscli via brew if missing
+aws configure                  # paste your Access key, Secret, region us-east-1, output json
+```
+
+**Windows (PowerShell)** — `deploy.sh` is a bash script and needs Git Bash/WSL; `aws configure` runs natively:
+```powershell
+winget install Amazon.AWSCLI   # if aws isn't already installed
+cd $HOME\workspace\LTR-Backend\deploy
+bash ./deploy.sh validate
 aws configure                  # paste your Access key, Secret, region us-east-1, output json
 ```
 
@@ -99,12 +108,19 @@ Later lessons SSH into your server to check on it. That requires a key pair crea
 3. Download the file — it downloads once as `ltride-key.pem` and AWS never shows it again.
 4. Move it to where the scripts expect it, and lock down its permissions:
 
+**macOS / Linux**
 ```bash
 mv ~/Downloads/ltride-key.pem ~/.ssh/ltride-key.pem
 chmod 600 ~/.ssh/ltride-key.pem
 ```
 
-**What this does & why:** `chmod 600` sets the file's permissions to "owner can read and write, nobody else can do anything" — SSH itself refuses to use a private key that's readable by other users on your machine, as a safety check against a key being casually copied by another local account. → Reference: [chmod / file permission numbers](https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation) · [AWS: Create a key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html).
+**Windows (PowerShell)** — OpenSSH keys live under `$HOME\.ssh`; use `icacls` (there's no `chmod`) to restrict the file to your own account:
+```powershell
+Move-Item $HOME\Downloads\ltride-key.pem $HOME\.ssh\ltride-key.pem
+icacls $HOME\.ssh\ltride-key.pem /inheritance:r /grant:r "$($env:USERNAME):(R)"
+```
+
+**What this does & why:** `chmod 600` sets the file's permissions to "owner can read and write, nobody else can do anything" — SSH itself refuses to use a private key that's readable by other users on your machine, as a safety check against a key being casually copied by another local account. `icacls` is the Windows equivalent: it strips inherited permissions and grants read-only access to just your account. → Reference: [chmod / file permission numbers](https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation) · [AWS: Create a key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html).
 
 ### Step 5 — Fill in `deploy/params/prod.json` (~10 min)
 
@@ -138,11 +154,17 @@ Check the `Arn` field: it should end in `user/ltride-admin` (or whatever you nam
 
 Also confirm your SSH key's permissions are locked down:
 
+**macOS / Linux**
 ```bash
 ls -l ~/.ssh/ltride-key.pem
 ```
 
-**Expected:** the permission string starts with `-rw-------` (only the owner can read/write). If it shows anything more permissive (like `-rw-r--r--`), re-run `chmod 600 ~/.ssh/ltride-key.pem`.
+**Windows (PowerShell)**
+```powershell
+icacls $HOME\.ssh\ltride-key.pem
+```
+
+**Expected:** macOS/Linux — the permission string starts with `-rw-------` (only the owner can read/write); if it shows anything more permissive (like `-rw-r--r--`), re-run `chmod 600 ~/.ssh/ltride-key.pem`. Windows — the ACL listing shows only your account with `(R)` (read); if `BUILTIN\Users` or `Everyone` is listed, re-run the `icacls` command from Step 4.
 
 ---
 

@@ -310,6 +310,8 @@ In `webapp/App/__init__.py`, next to where you registered `health` in B1, add:
 
 **Setup:** DB seeded (B2) and `flask run --port 8000` running.
 
+**macOS / Linux**
+
 ```bash
 # valid student
 curl -i -X POST http://localhost:8000/api/auth/student \
@@ -322,12 +324,36 @@ curl -i -X POST http://localhost:8000/api/auth/admin \
   -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}'
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+# valid student
+Invoke-RestMethod -Method Post http://localhost:8000/api/auth/student `
+  -ContentType application/json -Body '{"code":"STU001"}'
+# invalid student
+Invoke-RestMethod -Method Post http://localhost:8000/api/auth/student `
+  -ContentType application/json -Body '{"code":"NOPE"}'
+# admin (password from B2 seed)
+Invoke-RestMethod -Method Post http://localhost:8000/api/auth/admin `
+  -ContentType application/json -Body '{"username":"admin","password":"admin123"}'
+```
+
 Copy the `token` value from a successful response, then:
+
+**macOS / Linux**
 
 ```bash
 curl -i http://localhost:8000/api/auth/me -H "Authorization: Bearer <paste-token>"
 curl -i http://localhost:8000/api/auth/me     # no token
 curl -i -X POST http://localhost:8000/api/auth/logout   # stateless: always 204
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/auth/me -Headers @{Authorization="Bearer <paste-token>"}
+Invoke-RestMethod http://localhost:8000/api/auth/me     # no token
+Invoke-RestMethod -Method Post http://localhost:8000/api/auth/logout   # stateless: always 204
 ```
 
 **What you should see:**
@@ -339,9 +365,18 @@ curl -i -X POST http://localhost:8000/api/auth/logout   # stateless: always 204
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
 
+**macOS / Linux**
+
 ```bash
 curl -i -X POST http://<ElasticIp>/api/auth/student \
   -H 'Content-Type: application/json' -d '{"code":"STU001"}'
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod -Method Post http://<ElasticIp>/api/auth/student `
+  -ContentType application/json -Body '{"code":"STU001"}'
 ```
 
 Expect `200` with a token. A `500` here usually means `SECRET_KEY`/`DATABASE_URL` aren't set in the server's `.env` (Part 3).

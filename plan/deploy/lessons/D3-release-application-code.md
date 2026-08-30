@@ -5,6 +5,12 @@
 > **🧩 Prerequisites:** you've done [Lesson D2 — Stand up the infrastructure](D2-stand-up-infrastructure.md) and your AWS infrastructure is live (`./deploy.sh outputs` shows a public IP); your backend code is committed and pushed (ideally through B7).
 > **🌿 CR branch:** `cr/d3-release` (off `cr/d2-provision`) · **📄 Source CR:** [CR D3](../deployment-guide.md#cr-d3--release-the-application-code) · **🗺 Big picture:** [plan.md §10](../../plan.md#10-aws-deployment--ec2--rds-via-cloudformation)
 
+> **Windows note:** `release.sh` is a `#!/usr/bin/env bash` script and does not run in
+> PowerShell or `cmd`. On Windows, run it from **Git Bash** (bundled with
+> [Git for Windows](https://git-scm.com/download/win)) or **WSL** — the bash snippets
+> below work unchanged there. The `curl` health check has a native PowerShell
+> equivalent shown where it's used below.
+
 ---
 
 ## 🎯 Goal — what you'll have at the end
@@ -100,9 +106,18 @@ cd ~/workspace/LTR-Backend/deploy
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux**
+
 ```bash
 ./release.sh all
 curl http://<ElasticIp>/api/health
+```
+
+**Windows (PowerShell)** — run `release.sh all` from Git Bash or WSL first (see the
+Windows note above), then check the endpoint natively:
+
+```powershell
+Invoke-RestMethod http://<ElasticIp>/api/health
 ```
 
 **What you should see:**

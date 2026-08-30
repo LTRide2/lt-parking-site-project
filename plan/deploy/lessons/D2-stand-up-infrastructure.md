@@ -5,6 +5,12 @@
 > **🧩 Prerequisites:** you've done [Lesson D1b — Server configuration files](D1b-server-config-files.md); D0 is complete (AWS CLI configured, SSH key created) and D1's four templates validate.
 > **🌿 CR branch:** `cr/d2-provision` (off D1's branch, `cr/d1-cfn-templates`) — this CR is mostly running the scripts D1 wrote; the only "code" you might touch is a small template fix if a stack fails. **📄 Source CR:** [deployment guide → CR D2](../deployment-guide.md#cr-d2--stand-up-the-infrastructure) · **🗺 Big picture:** [plan.md §10](../../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 
+> **Windows note:** `deploy.sh` is a `#!/usr/bin/env bash` script and does not run in
+> PowerShell or `cmd`. On Windows, run it from **Git Bash** (bundled with
+> [Git for Windows](https://git-scm.com/download/win)) or **WSL** — the bash snippets
+> below work unchanged there. `ssh` has a native PowerShell equivalent shown where it's
+> used below.
+
 ---
 
 ## 🎯 Goal — what you'll have at the end
@@ -106,11 +112,20 @@ Behind the scenes, `03-compute.yaml`'s UserData already used the RDS endpoint an
 
 **Steps:**
 
+**macOS / Linux**
+
 ```bash
 ./deploy.sh up
 ./deploy.sh status
 ./deploy.sh outputs
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp-from-outputs>
+```
+
+**Windows (PowerShell)** — run the three `deploy.sh` commands from Git Bash or WSL
+(see the Windows note above), then SSH natively from PowerShell:
+
+```powershell
+ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp-from-outputs>
 ```
 
 **Expected:**

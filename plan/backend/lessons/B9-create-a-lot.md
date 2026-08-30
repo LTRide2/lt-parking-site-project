@@ -220,6 +220,8 @@ def upload_map(lot_id):
 
 **Setup:** server running; `$A` = admin token; `$S` = student token.
 
+**macOS / Linux**
+
 ```bash
 # create: name + number + capacity -> 201, seeded spaces
 curl -i -X POST http://localhost:8000/api/lots \
@@ -245,6 +247,36 @@ curl -i -X DELETE http://localhost:8000/api/lots/1 -H "Authorization: Bearer $A"
 # map upload: PNG -> 200 with an absolute map_image_url
 curl -i -X POST http://localhost:8000/api/lots/1/map \
   -H "Authorization: Bearer $A" -F "file=@/path/to/image.png"
+```
+
+**Windows (PowerShell)** — `Invoke-RestMethod` throws on 4xx/5xx by default; add `-SkipHttpErrorCheck` (PowerShell 7.4+) to see the response body for the error-case steps below, the way `curl -i` does:
+
+```powershell
+# create: name + number + capacity -> 201, seeded spaces
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' `
+  -Body '{"name":"North Lot","number":20,"capacity":10}'
+Invoke-RestMethod http://localhost:8000/api/lots -Headers @{Authorization="Bearer $A"}          # new lot listed
+Invoke-RestMethod http://localhost:8000/api/lots/<newId>/spaces -Headers @{Authorization="Bearer $A"}  # 20-1 .. 20-10
+
+# blank name -> 400 ; duplicate name -> 409 ; duplicate number -> 409 ; student -> 403
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"name":"   "}'
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"name":"North Lot"}'
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"name":"South Lot","number":20}'
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"name":"Sneaky"}'
+
+# delete: empty lot -> 204 ; lot with an assigned space -> 409
+Invoke-RestMethod -Method Delete http://localhost:8000/api/lots/<newId> -Headers @{Authorization="Bearer $A"}
+Invoke-RestMethod -Method Delete http://localhost:8000/api/lots/1 -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"}   # Lot 1 has A8 assigned
+
+# map upload: PNG -> 200 with an absolute map_image_url
+Invoke-RestMethod -Method Post http://localhost:8000/api/lots/1/map `
+  -Headers @{Authorization="Bearer $A"} -Form @{file=Get-Item 'C:\path\to\image.png'}
 ```
 
 **What you should see:**

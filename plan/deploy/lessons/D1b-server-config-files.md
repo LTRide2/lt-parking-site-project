@@ -56,8 +56,17 @@ nginx is the only thing exposed to the internet. gunicorn listens on `127.0.0.1`
 
 **Open your terminal and branch off D1** — D1b depends on D1's CloudFormation templates, so it stacks on top of that branch, not `main`:
 
+**macOS / Linux**
 ```bash
 source .venv/bin/activate           # your prompt should now start with (.venv)
+git checkout cr/d1-cfn-templates
+git pull                            # make sure you start from the latest D1 branch
+git checkout -b cr/d1b-server-config   # create + switch to this lesson's branch
+```
+
+**Windows (PowerShell)**
+```powershell
+.venv\Scripts\Activate.ps1          # your prompt should now start with (.venv)
 git checkout cr/d1-cfn-templates
 git pull                            # make sure you start from the latest D1 branch
 git checkout -b cr/d1b-server-config   # create + switch to this lesson's branch
@@ -177,11 +186,18 @@ At the top of the script, **set `REPO_URL`** to your repo's real clone URL — w
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux**
 ```bash
 cd deploy/server
 bash -n provision.sh                 # shell-syntax check (no execution)
 # if you have nginx locally (brew install nginx), sanity-test the config too:
 nginx -t -c "$PWD/nginx-ltride.conf" 2>&1 | head    # may warn about paths off-server; syntax is what matters
+```
+
+**Windows (PowerShell)** — `bash -n` needs bash itself; run it from Git Bash/WSL (nginx for Windows is uncommon, so skip the optional `nginx -t` sanity check here — the real proof is `sudo nginx -t` on the server anyway):
+```powershell
+cd deploy\server
+bash -n provision.sh
 ```
 
 **What you should see:**
