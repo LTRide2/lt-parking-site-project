@@ -54,10 +54,21 @@ Right now your site works, but it lives at something like `http://54.12.34.56` �
 
 You'll need: a working site at `http://<ElasticIp>` (D3 done), a credit card if you're buying a domain today, and SSH access to the server (`~/.ssh/ltride-key.pem`).
 
+> **Windows note (applies to this whole lesson).** `git`, `ssh`, and `curl.exe` all ship with Windows 10/11, so most commands work in **PowerShell** as-is — only the key *path* changes (`$HOME\.ssh\ltride-key.pem`). Two swaps: use **`Resolve-DnsName`** wherever this lesson shows `dig`, and run the repo's `.sh` scripts (`deploy.sh`, `release.sh`) from **Git Bash** or **WSL** (PowerShell can't execute `.sh`). Everything you do *after* `ssh`-ing into the server runs on the **Ubuntu** box and is identical no matter your laptop's OS.
+
 **Open your terminal and make your branch:**
 
+**macOS / Linux (bash/zsh):**
 ```bash
 cd ~/workspace/LTR-Backend
+git checkout cr/d3-release
+git pull
+git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
+```
+
+**Windows (PowerShell):**
+```powershell
+cd $HOME\workspace\LTR-Backend
 git checkout cr/d3-release
 git pull
 git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
@@ -87,12 +98,20 @@ A hosted zone is the container in Route 53 that holds your domain's DNS records.
 3. **Type:** Public hosted zone → **Create**.
 4. AWS immediately shows an **NS record** with 4 nameservers (like `ns-123.awsdns-45.com`). **Copy these four** — you'll need them in Step 2 if you bought elsewhere. Also copy the **Hosted zone ID** (looks like `Z0123456789ABCDEFGHIJ`).
 
-**CLI way (equivalent):**
+**CLI way (equivalent).** The `aws` commands are identical on every platform; only the "make a unique string" trick in `--caller-reference` differs (bash `$(date +%s)` vs PowerShell's Unix-time call):
+
+**macOS / Linux (bash/zsh):**
 ```bash
 aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(date +%s)"
 aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
 ```
-**What this does:** `create-hosted-zone` makes the empty phone book; `get-hosted-zone` reads back the 4 nameservers AWS assigned it. → Reference: [Route 53: create a hosted zone](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html).
+
+**Windows (PowerShell):**
+```powershell
+aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$([DateTimeOffset]::Now.ToUnixTimeSeconds())"
+aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
+```
+**What this does:** `create-hosted-zone` makes the empty phone book (`--caller-reference` just needs to be any string you haven't used before — the timestamp guarantees that); `get-hosted-zone` reads back the 4 nameservers AWS assigned it. → Reference: [Route 53: create a hosted zone](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html).
 
 Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `release.sh` can find it:
 ```json
@@ -110,11 +129,15 @@ Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `rele
 **If you bought it ELSEWHERE** (Namecheap, Cloudflare, GoDaddy, etc.) — this is the actual "connect my name to Route 53" step:
 1. Log into your registrar and find the domain's **Nameservers** setting.
 2. Choose **Custom nameservers**, delete the registrar's defaults, and paste the 4 nameservers from Step 1 (one per field, no trailing dots).
-3. **Save.** Propagation is usually minutes but can take up to 24–48 hours. Check progress:
+3. **Save.** Propagation is usually minutes but can take up to 24–48 hours. Check progress (macOS/Linux `dig`, or PowerShell `Resolve-DnsName`):
    ```bash
-   dig NS example.com +short        # should eventually list the 4 awsdns nameservers
+   dig NS example.com +short                    # macOS/Linux
    ```
-   **What this does:** `dig NS` asks the internet "who's authoritative for this domain's DNS?" — once it answers with the AWS nameservers, the hand-off is complete. → Reference: [dig command basics](https://linux.die.net/man/1/dig).
+   ```powershell
+   Resolve-DnsName example.com -Type NS         # Windows
+   ```
+   both should eventually list the 4 `awsdns` nameservers.
+   **What this does:** it asks the internet "who's authoritative for this domain's DNS?" — once it answers with the AWS nameservers, the hand-off is complete. → Reference: [dig command basics](https://linux.die.net/man/1/dig).
 
 > **Common mistake:** don't add DNS records at the registrar *and* delegate to Route 53. Once nameservers point at Route 53, the registrar's own records are ignored — every record from now on goes in Route 53 (Step 3).
 
@@ -122,37 +145,54 @@ Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `rele
 
 Now create the A record: the phone-book entry mapping your domain to your server's Elastic IP. The `04-dns.yaml` stack (from D1) does this from `params/prod.json`:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh up            # picks up 04-dns.yaml using DomainName + HostedZoneId
 ```
+
+**Windows (Git Bash / WSL):** `deploy.sh` is a shell script — run it from Git Bash or WSL (PowerShell can't execute `.sh`):
+```bash
+cd $HOME/workspace/LTR-Backend/deploy
+./deploy.sh up
+```
 **What this does:** `deploy.sh up` re-runs CloudFormation for all four stacks; `04-dns.yaml`'s `HasHostedZone` condition is now true (you filled in a real `HostedZoneId`), so it creates an `AWS::Route53::RecordSet` — an **A record** — mapping `ltride.example.com → <ElasticIp>`. → Reference: [Route 53: A records](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#AFormat).
 
-Verify:
+Verify (`curl` ships with Windows as `curl.exe`; `dig` → `Resolve-DnsName`):
+
+**macOS / Linux (bash/zsh):**
 ```bash
 dig ltride.example.com +short                   # should print your Elastic IP
 curl -I http://ltride.example.com/api/health    # should reach your server (200)
 ```
 
+**Windows (PowerShell):**
+```powershell
+Resolve-DnsName ltride.example.com -Type A       # should print your Elastic IP
+curl.exe -I http://ltride.example.com/api/health # should reach your server (200)
+```
+
 ### Step 4 — Update the app for the new hostname (~10 min)
 
-1. **Tell the backend to trust the new origin.** SSH in and edit the server's `.env`:
+1. **Tell the backend to trust the new origin.** SSH in and edit the server's `.env`. `ssh` ships with Windows too — only the key path changes (`$HOME\.ssh\ltride-key.pem` in PowerShell); everything after the `ssh` line runs **on the Ubuntu server** and is identical on every OS:
    ```bash
-   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
+   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>   # Windows: -i $HOME\.ssh\ltride-key.pem
+   # --- from here on you're on the Ubuntu server ---
    sudo nano /home/ltride/app/.env    # set CORS_ORIGINS=https://ltride.example.com
    sudo systemctl restart ltride
    ```
    **Why:** `CORS_ORIGINS` is the allow-list Flask checks before letting a browser page call the API (you set this up in backend lesson B0/B1). Without the `https://` domain added here, the browser will block API calls with a CORS error even though the page itself loads. → Reference: [MDN: CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
-2. **Rebuild the frontend** so it calls the domain instead of the raw IP. `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` once `DomainName` is set in `params/prod.json`:
+2. **Rebuild the frontend** so it calls the domain instead of the raw IP. `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` once `DomainName` is set in `params/prod.json` (a `.sh` script — run it from Git Bash/WSL on Windows):
    ```bash
-   cd ~/workspace/LTR-Backend/deploy
+   cd ~/workspace/LTR-Backend/deploy     # Windows (Git Bash/WSL): cd $HOME/workspace/LTR-Backend/deploy
    ./release.sh frontend
    ```
 
 ### Step 5 — Get a free TLS certificate with certbot (~15 min)
 
 ```bash
-ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
+ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>   # Windows: -i $HOME\.ssh\ltride-key.pem
+# --- the two commands below run on the Ubuntu server, same on every OS ---
 sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d ltride.example.com
 ```
@@ -166,10 +206,18 @@ Answer certbot's prompts: your email (for renewal notices), agree to the terms, 
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux (bash/zsh):**
 ```bash
 dig ltride.example.com +short                 # → your Elastic IP
 curl -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
 curl -I http://ltride.example.com             # → 301 redirect to https
+```
+
+**Windows (PowerShell):**
+```powershell
+Resolve-DnsName ltride.example.com -Type A        # → your Elastic IP
+curl.exe -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
+curl.exe -I http://ltride.example.com             # → 301 redirect to https
 ```
 
 Then open `https://ltride.example.com` in a browser and log in as a seeded student.

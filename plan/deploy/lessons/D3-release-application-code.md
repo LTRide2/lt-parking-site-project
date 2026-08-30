@@ -64,6 +64,9 @@ git checkout -b cr/d3-release   # this lesson's branch
 
 ### Step 1 — Release the backend (~20 min)
 
+> **💻 Windows note — read once, applies to every `release.sh` / `deploy.sh` command in this lesson.** These are **shell scripts**, so PowerShell and `cmd` can't execute them. On Windows, run them from **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL** — and inside either, every `cd ~/…`, `./release.sh …`, and `curl …` command shown below works **exactly as written**, no translation needed. macOS/Linux users run them in any terminal. That's why the blocks in this lesson show a single form: it's identical across macOS, Linux, and a Windows Git Bash/WSL shell.
+
+**macOS / Linux (any terminal) · Windows (Git Bash or WSL):**
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./release.sh backend
@@ -79,6 +82,7 @@ cd ~/workspace/LTR-Backend/deploy
 
 ### Step 2 — Release the frontend (~20 min)
 
+**macOS / Linux (any terminal) · Windows (Git Bash or WSL):**
 ```bash
 ./release.sh frontend
 ```
@@ -90,6 +94,7 @@ cd ~/workspace/LTR-Backend/deploy
 
 ### Step 3 — Do both at once with `./release.sh all` (~10 min)
 
+**macOS / Linux (any terminal) · Windows (Git Bash or WSL):**
 ```bash
 ./release.sh all
 ```
@@ -100,10 +105,13 @@ cd ~/workspace/LTR-Backend/deploy
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux (any terminal) · Windows (Git Bash or WSL):**
 ```bash
 ./release.sh all
 curl http://<ElasticIp>/api/health
 ```
+
+> **Running the health check from Windows PowerShell instead of Git Bash?** In PowerShell, `curl` is an alias for `Invoke-WebRequest` (different output and flags), so call the real tool explicitly — `curl.exe http://<ElasticIp>/api/health` — or use `Invoke-RestMethod http://<ElasticIp>/api/health`. (`release.sh` itself still needs Git Bash/WSL.)
 
 **What you should see:**
 1. `release.sh` prints a green `✓` for both the backend health check and the frontend upload, ending in `release complete`.
@@ -128,6 +136,8 @@ Open a Pull Request on GitHub with **base = `cr/d2-provision`**. Paste your `cur
 ---
 
 ## 🧯 If something breaks
+
+> The `sudo journalctl …`, `sudo systemctl …`, and "SSH in and check…" commands below all run **on the Ubuntu server** (after `ssh`-ing in), so they're the same whether your laptop is macOS, Linux, or Windows — you're typing them in the server's Linux shell, not your own. On Windows, `ssh` ships with Windows 10+ (or use Git Bash/WSL); the key path is `$HOME\.ssh\ltride-key.pem` in PowerShell, `~/.ssh/ltride-key.pem` in Git Bash/WSL.
 
 - **Migration didn't run / `psql` errors out** — check that `sql/migrations/*.sql` has valid SQL and that a file that already ran isn't being re-applied in a way that conflicts (e.g., `CREATE TABLE` without `IF NOT EXISTS`). SSH in and check the server's `.env` has the right `DATABASE_URL`, then re-run `./release.sh backend`.
 - **Missing server `.env` var → gunicorn won't start** — `sudo journalctl -u ltride -n 50` will show something like `KeyError: 'SECRET_KEY'`, exactly the "fail loud" behavior from backend lesson B0, just on the server. The server's `.env` lives at `/home/ltride/app/.env`, written by D1b's provisioning — confirm it exists and has every key `config.py` requires.

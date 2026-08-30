@@ -23,6 +23,13 @@ This guide has three parts:
 >
 > You should have finished at least backend B1 (a working backend locally, see the [backend guide](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs)) before deploying. The full deep-dive on each CloudFormation stack — architecture, IaC layout, every stack's snippets, the AWS-services inventory, and the cost model — lives in [**Part 3 — Reference**](#part-3--reference-architecture-iac--cost-model) below. This Part 1 is the click-by-click version.
 
+> **💻 Windows note (applies to this whole guide).** The commands below are written for **macOS / Linux**; the handful that differ on Windows show a **PowerShell** block alongside. Three rules cover almost everything:
+> 1. **`git`, `ssh`, `scp`, and `curl` all ship with Windows 10/11** (curl is invoked as `curl.exe` in PowerShell). Only the SSH key *path* changes — `$HOME\.ssh\ltride-key.pem` instead of `~/.ssh/ltride-key.pem`.
+> 2. **The repo's `.sh` scripts (`deploy.sh`, `release.sh`) can't run in PowerShell** — run them from **Git Bash** or **WSL**, where the macOS/Linux commands work verbatim.
+> 3. **Everything you run *after* `ssh`-ing into the server is on the Ubuntu box** — those commands are identical no matter what your laptop runs. And **all AWS provisioning happens on Amazon's Linux servers**, so the whole architecture below is unaffected by your OS.
+>
+> Two local swaps worth memorizing: use **`Resolve-DnsName`** wherever this guide shows `dig`, and `$HOME\` wherever it shows `~/`.
+
 ### Deployment vocabulary
 
 - **EC2** — a virtual computer in Amazon's data center.
@@ -39,16 +46,32 @@ This guide has three parts:
 
 1. **Create an AWS account** at <https://aws.amazon.com> (a credit card is required; the small instances we use cost a few dollars a month — **remember to run `./deploy.sh down` when you're done experimenting** to stop charges).
 2. **Create an admin IAM user** (don't use the root account day-to-day). In the AWS Console → IAM → Users → create a user with programmatic access and `AdministratorAccess` (for a school project this is acceptable; tighten later). Save the **Access key ID** and **Secret access key**.
-3. **Install & configure the AWS CLI.** Our script installs it for you, but you must give it your keys:
+3. **Install & configure the AWS CLI.** Our script installs it for you (on macOS via brew), but you must give it your keys. `deploy.sh` is a shell script — run it from Git Bash/WSL on Windows.
+
+   **macOS / Linux (bash/zsh):**
    ```bash
    cd ~/workspace/LTR-Backend/deploy
    ./deploy.sh validate           # this auto-installs awscli via brew if missing
    aws configure                  # paste your Access key, Secret, region us-east-1, output json
    ```
+   **Windows:** install the AWS CLI yourself (`winget install -e --id Amazon.AWSCLI`, or the MSI from AWS), then run the script from **Git Bash / WSL**:
+   ```bash
+   cd $HOME/workspace/LTR-Backend/deploy
+   ./deploy.sh validate           # from Git Bash or WSL (PowerShell can't run .sh)
+   aws configure                  # same on every OS — paste keys, region us-east-1, output json
+   ```
 4. **Create an SSH key pair** named `ltride-key` (AWS Console → EC2 → Key Pairs → Create), download `ltride-key.pem`, and move it where the scripts expect:
+
+   **macOS / Linux (bash/zsh):**
    ```bash
    mv ~/Downloads/ltride-key.pem ~/.ssh/ltride-key.pem
    chmod 600 ~/.ssh/ltride-key.pem
+   ```
+   **Windows (PowerShell):** move it into `%USERPROFILE%\.ssh`, then lock it down with `icacls` (the Windows equivalent of `chmod 600` — remove inherited permissions, grant read to just you):
+   ```powershell
+   New-Item -ItemType Directory -Force $HOME\.ssh | Out-Null
+   Move-Item $HOME\Downloads\ltride-key.pem $HOME\.ssh\ltride-key.pem
+   icacls $HOME\.ssh\ltride-key.pem /inheritance:r /grant:r "$($env:USERNAME):R"
    ```
 5. **Fill in `deploy/params/prod.json`** with your real values:
    - `AdminCidr` — your home IP followed by `/32` (find it at <https://whatismyip.com>); this restricts SSH to you.
@@ -76,7 +99,7 @@ This guide has three parts:
 
 **Local testing guide:**
 1. Setup: AWS CLI configured (D0); `cd deploy`.
-2. Steps:
+2. Steps (on Windows, run from Git Bash / WSL — `deploy.sh` is a shell script):
    ```bash
    ./deploy.sh validate
    ```
@@ -191,7 +214,7 @@ This is what `03-compute.yaml`'s UserData runs (roughly) on a fresh instance, an
 
 **Local testing guide:**
 1. Setup: `cd deploy/server`.
-2. Steps:
+2. Steps (these use `bash`/`nginx`; on Windows run them from Git Bash / WSL, or just skip them — the real validation is on the Ubuntu server after D2/D3):
    ```bash
    # config files are static — validate them without a server:
    bash -n provision.sh                 # shell-syntax check (no execution)
@@ -216,7 +239,7 @@ PR base = `cr/d1-cfn-templates`.
 
 **Goal:** actually create the network, database, and server in AWS.
 
-**Steps:**
+**Steps** (`deploy.sh` is a shell script — on Windows run these from Git Bash / WSL, using `$HOME` for `~`):
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh up            # validates, then creates all stacks in order
@@ -227,9 +250,10 @@ This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the 
 
 **Local testing guide:**
 1. Setup: D0 complete; templates valid (D1).
-2. Steps: run the three commands above; then SSH in to confirm:
+2. Steps: run the three commands above; then SSH in to confirm (`ssh` ships with Windows — in PowerShell use the key path `$HOME\.ssh\ltride-key.pem`):
    ```bash
    ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp-from-outputs>
+   # Windows (PowerShell): ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp-from-outputs>
    ```
 3. Expected: all stacks reach `CREATE_COMPLETE`; `outputs` shows a public IP; you can SSH into the server. Type `exit` to leave.
 
@@ -243,7 +267,7 @@ This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the 
 
 **Goal:** put your actual backend + frontend onto the running server using `release.sh`.
 
-**Steps:**
+**Steps** (`release.sh` is a shell script — on Windows run these from Git Bash / WSL):
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./release.sh all          # builds the UI, ships both, migrates DB, restarts services
@@ -257,10 +281,10 @@ What it does (so you understand it, from `release.sh`):
 
 **Local testing guide:**
 1. Setup: D2 done (`./deploy.sh outputs` shows an IP); your code committed and pushed.
-2. Steps:
+2. Steps (run `release.sh` from Git Bash/WSL on Windows; `curl` is `curl.exe` in PowerShell):
    ```bash
    ./release.sh all
-   curl http://<ElasticIp>/api/health
+   curl http://<ElasticIp>/api/health      # Windows PowerShell: curl.exe http://<ElasticIp>/api/health
    ```
    Then open `http://<ElasticIp>` (or your domain) in a browser and log in as a seeded student.
 3. Expected: the health curl returns `{"data":{"status":"ok"}}`; the website loads; login works against the real server.
@@ -310,10 +334,17 @@ A "hosted zone" is the container in Route 53 that holds your domain's DNS record
    ```
    **Copy these four** — you need them in Step 2. Also copy the **Hosted zone ID** (looks like `Z0123456789ABCDEFGHIJ`).
 
-**CLI way (equivalent):**
+**CLI way (equivalent).** The `aws` commands are identical everywhere; only the "unique string" trick in `--caller-reference` differs:
+
+**macOS / Linux (bash/zsh):**
 ```bash
 aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(date +%s)"
 # then read the nameservers + zone id back:
+aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
+```
+**Windows (PowerShell):**
+```powershell
+aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$([DateTimeOffset]::Now.ToUnixTimeSeconds())"
 aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
 ```
 
@@ -349,9 +380,12 @@ This is the step that actually "connects" your purchased name to Route 53. You'r
    ```
 4. **Save.** Propagation usually takes minutes but can take **up to 24–48 hours**. Check progress:
    ```bash
-   dig NS example.com +short        # should eventually list the 4 awsdns nameservers
+   dig NS example.com +short                 # macOS/Linux — should list the 4 awsdns nameservers
    ```
-   When `dig` shows the AWS nameservers, the hand-off is done — the internet now asks Route 53 for your domain.
+   ```powershell
+   Resolve-DnsName example.com -Type NS      # Windows equivalent
+   ```
+   When it shows the AWS nameservers, the hand-off is done — the internet now asks Route 53 for your domain.
 
 > **Common mistake:** people add an "A record" at the registrar AND set Route 53 nameservers. Don't. Once you delegate nameservers to Route 53, the registrar's own DNS records are ignored — **all records go in Route 53** from now on (Step 3).
 
@@ -359,7 +393,7 @@ This is the step that actually "connects" your purchased name to Route 53. You'r
 
 #### Step 3 — Point the domain at your server (A record in Route 53)
 
-Now create the record that maps your name → your server's Elastic IP. Our `04-dns.yaml` stack does this from `params/prod.json`:
+Now create the record that maps your name → your server's Elastic IP. Our `04-dns.yaml` stack does this from `params/prod.json` (`deploy.sh` is a shell script — run from Git Bash/WSL on Windows):
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh up            # picks up 04-dns.yaml using DomainName + HostedZoneId
@@ -368,10 +402,17 @@ cd ~/workspace/LTR-Backend/deploy
 
 **Or do it by hand** in the Console: Route 53 → your hosted zone → **Create record** → Record name `ltride` (or leave blank for the root), Type **A**, Value = your Elastic IP, TTL 300 → Create.
 
-Verify:
+Verify (`dig` → `Resolve-DnsName`, `curl` → `curl.exe` on Windows):
+
+**macOS / Linux (bash/zsh):**
 ```bash
 dig ltride.example.com +short    # should print your Elastic IP
 curl -I http://ltride.example.com/api/health   # should reach your server (200)
+```
+**Windows (PowerShell):**
+```powershell
+Resolve-DnsName ltride.example.com -Type A       # should print your Elastic IP
+curl.exe -I http://ltride.example.com/api/health # should reach your server (200)
 ```
 
 ---
@@ -379,13 +420,14 @@ curl -I http://ltride.example.com/api/health   # should reach your server (200)
 #### Step 4 — Update the app for the new hostname, then add HTTPS
 
 1. **Tell the backend to trust the new origin.** Edit the server's `.env` `CORS_ORIGINS` to include `https://ltride.example.com`, then `sudo systemctl restart ltride`. (Locally you set this in `params`/`.env`; on the server it's in `/home/ltride/app/.env`.)
-2. **Rebuild the frontend** so it calls the domain, not the IP: `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` when `DomainName` is set in `params/prod.json`. Re-run:
+2. **Rebuild the frontend** so it calls the domain, not the IP: `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` when `DomainName` is set in `params/prod.json`. Re-run (from Git Bash/WSL on Windows):
    ```bash
    ./release.sh frontend
    ```
-3. **Get a free TLS certificate** with certbot (Let's Encrypt). SSH in and run:
+3. **Get a free TLS certificate** with certbot (Let's Encrypt). SSH in and run (`ssh` ships with Windows; in PowerShell use `-i $HOME\.ssh\ltride-key.pem`):
    ```bash
-   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
+   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>   # Windows: -i $HOME\.ssh\ltride-key.pem
+   # --- the two commands below run on the Ubuntu server, identical on every OS ---
    sudo apt-get install -y certbot python3-certbot-nginx
    sudo certbot --nginx -d ltride.example.com
    ```
@@ -396,10 +438,18 @@ curl -I http://ltride.example.com/api/health   # should reach your server (200)
 **Local testing guide:**
 1. Setup: hosted zone created (Step 1); nameservers delegated (Step 2, if 3rd-party) and `dig NS` shows AWS; A record live (Step 3); certbot run (Step 4).
 2. Steps:
+
+   **macOS / Linux (bash/zsh):**
    ```bash
    dig ltride.example.com +short                 # → your Elastic IP
    curl -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
    curl -I http://ltride.example.com             # → 301 redirect to https
+   ```
+   **Windows (PowerShell):**
+   ```powershell
+   Resolve-DnsName ltride.example.com -Type A        # → your Elastic IP
+   curl.exe -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
+   curl.exe -I http://ltride.example.com             # → 301 redirect to https
    ```
    Then open `https://ltride.example.com` in a browser and log in.
 3. Expected:
@@ -426,12 +476,12 @@ PR base = `cr/d3-release`.
 
 ## Part 2 — Operating & troubleshooting the live server
 
-**Log into the server:**
+**Log into the server** (`ssh` ships with Windows — in PowerShell use `-i $HOME\.ssh\ltride-key.pem`):
 ```bash
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
 ```
 
-**Useful commands once you're on the server:**
+**Useful commands once you're on the server** (these all run on the Ubuntu box, so they're identical no matter what your laptop runs):
 ```bash
 sudo systemctl status ltride       # is the backend running?
 sudo journalctl -u ltride -n 50    # last 50 lines of backend logs
@@ -499,6 +549,8 @@ Rather than typing four `aws cloudformation deploy` commands, **`deploy/deploy.s
 Region/profile come from `AWS_REGION` / `AWS_PROFILE`; stack parameters live in `deploy/params/<env>.json` (e.g. `AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`). Cross-stack wiring uses `Outputs` + `Fn::ImportValue` (e.g. network exports `VpcId`, `WebSubnetId`, `WebSecurityGroupId`, `DbSecurityGroupId`; database exports the RDS endpoint).
 
 The script is self-bootstrapping: a `preflight` step checks for the AWS CLI and **only installs it (via `brew install awscli`) if it is missing on macOS** — an existing AWS CLI is detected and left untouched. It also verifies credentials (`sts get-caller-identity`) before making any changes.
+
+> **On Windows:** `deploy.sh`/`release.sh` are Bash scripts — run them from **Git Bash** or **WSL** (PowerShell can't execute `.sh`). The brew auto-install is macOS-only, so install the AWS CLI yourself first (`winget install -e --id Amazon.AWSCLI`, or the MSI); the script then detects it and proceeds. Once inside Git Bash/WSL, every command in this section works verbatim.
 
 ### B.3 Network stack (`01-network.yaml`)
 Provisions: a VPC (`10.0.0.0/16`), two public subnets + two private subnets across two AZs, an Internet Gateway + public route table, and two security groups:
@@ -617,9 +669,20 @@ curl http://127.0.0.1:8000/api/health
 ```
 
 ### B.7 Build & place the frontend
-The SPA build is an app artifact, not infrastructure, so it stays a CI step. On your machine (or in CI): `VITE_API_URL=https://<your-domain> npm run build` → produces `dist/`. Copy it to the server:
+The SPA build is an app artifact, not infrastructure, so it stays a CI step. The inline-env-var build syntax differs by shell (`release.sh` handles all of this for you — this manual form is for debugging):
+
+**macOS / Linux (bash/zsh):**
 ```bash
+VITE_API_URL=https://<your-domain> npm run build     # produces dist/
 rsync -avz -e "ssh -i ltride-key.pem" dist/ ubuntu@<elastic-ip>:/tmp/dist/
+```
+**Windows (PowerShell):** PowerShell can't set an env var inline before a command, and `rsync` isn't native — set it separately, then ship with `scp` (which ships with Windows):
+```powershell
+$env:VITE_API_URL="https://<your-domain>"; npm run build   # produces dist/
+scp -i ltride-key.pem -r dist/* ubuntu@<elastic-ip>:/tmp/dist/
+```
+Then, **on the server**, put the files in place (identical on every OS):
+```bash
 sudo mkdir -p /var/www/ltride && sudo cp -r /tmp/dist/* /var/www/ltride/
 ```
 *(Alternative: a separate CloudFormation stack provisions an S3 bucket + CloudFront distribution; CI syncs `dist/` to S3 and invalidates the cache. nginx then only proxies `/api`.)* The frontend-side build/serve details also live in the [UI guide's Deployment section](../ui/ui-development-guide.md#part-f3--deployment-frontend).

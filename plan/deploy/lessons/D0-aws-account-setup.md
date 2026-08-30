@@ -19,7 +19,7 @@ An AWS account that is **ready for the deploy lessons** and **safe to leave runn
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `aws sts get-caller-identity` prints your account ID and an `arn` containing the IAM user you created (not `:root`).
-- [ ] `ls -l ~/.ssh/ltride-key.pem` shows permissions `-rw-------` (owner read/write only).
+- [ ] `ls -l ~/.ssh/ltride-key.pem` shows `-rw-------` (macOS/Linux), or `icacls $HOME\.ssh\ltride-key.pem` lists only your user with `(R)` (Windows) — owner-only access either way.
 - [ ] `deploy/params/prod.json` has your real `AdminCidr` and `KeyName` filled in (no more placeholder values).
 - [ ] You know where to click to see your AWS bill, and you've set a billing alarm (or at least know how you'll check spend).
 
@@ -60,7 +60,7 @@ There's also a **money** reason this lesson matters more than the others: AWS is
 
 Go to <https://aws.amazon.com> and sign up. You'll need an email address and a credit card — AWS requires a card on file even to use free-tier resources, as identity/fraud verification. The small instances this project uses cost a few dollars a month, and you'll learn exactly how to stop that spend in a moment.
 
-> **Remember to run `./deploy.sh down` when you're done experimenting** — that's the command (covered in lesson D2) that deletes the AWS resources so they stop billing. Say it out loud now; you'll want the habit before you create anything expensive.
+> **Remember to run `./deploy.sh down` when you're done experimenting** — that's the command (covered in lesson D2) that deletes the AWS resources so they stop billing. Say it out loud now; you'll want the habit before you create anything expensive. *(All `deploy.sh` commands in this track are shell scripts — on **Windows** run them from **Git Bash** or **WSL**; macOS/Linux run them in any terminal.)*
 
 ### Step 2 — Create an admin IAM user (~10 min)
 
@@ -78,14 +78,22 @@ Never use the root login (the one tied to your email/password from Step 1) for d
 
 The deploy scripts in this repo call the AWS CLI, so your laptop needs it installed and pointed at your new IAM user's keys.
 
+**macOS / Linux (bash/zsh):**
 ```bash
 cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh validate           # this auto-installs awscli via brew if missing
 aws configure                  # paste your Access key, Secret, region us-east-1, output json
 ```
 
+**Windows (Git Bash / WSL):** `deploy.sh` is a shell script, so run it from **Git Bash** or **WSL** — PowerShell can't execute `.sh` directly. There's no Homebrew on Windows, so install the AWS CLI **first** (in PowerShell: `winget install -e --id Amazon.AWSCLI`, or use the [MSI installer](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)); then in Git Bash/WSL:
+```bash
+cd $HOME/workspace/LTR-Backend/deploy
+./deploy.sh validate
+aws configure                  # identical on every platform
+```
+
 **What this does & why:**
-- `./deploy.sh validate` — the deploy script's own preflight check. Part of what it does is notice the AWS CLI isn't installed yet and install it for you via Homebrew, so you don't have to hunt down the right installer yourself. → Reference: [Installing the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+- `./deploy.sh validate` — the deploy script's own preflight check. On **macOS/Linux** it notices the AWS CLI isn't installed yet and installs it for you via Homebrew, so you don't have to hunt down the right installer. On **Windows** there's no Homebrew, so install the CLI manually first (`winget install -e --id Amazon.AWSCLI` or the MSI) and run `deploy.sh` from Git Bash/WSL. → Reference: [Installing the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
 - `aws configure` — an interactive prompt that writes your Access key ID, Secret access key, default region, and default output format to `~/.aws/credentials` and `~/.aws/config`. Every later `aws` and `deploy.sh` command reads from these files. → Reference: [Configuring the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html).
 - **Region `us-east-1`:** this project's templates assume this region. A region is a physical location for your resources (e.g. Virginia, USA); mixing regions later causes "resource not found" errors that are confusing to debug. → Reference: [Regions and Availability Zones](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html).
 - **Output format `json`:** how the CLI prints responses to your terminal; `json` is the default the scripts expect.
@@ -99,12 +107,20 @@ Later lessons SSH into your server to check on it. That requires a key pair crea
 3. Download the file — it downloads once as `ltride-key.pem` and AWS never shows it again.
 4. Move it to where the scripts expect it, and lock down its permissions:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 mv ~/Downloads/ltride-key.pem ~/.ssh/ltride-key.pem
 chmod 600 ~/.ssh/ltride-key.pem
 ```
 
-**What this does & why:** `chmod 600` sets the file's permissions to "owner can read and write, nobody else can do anything" — SSH itself refuses to use a private key that's readable by other users on your machine, as a safety check against a key being casually copied by another local account. → Reference: [chmod / file permission numbers](https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation) · [AWS: Create a key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html).
+**Windows (PowerShell):**
+```powershell
+if (-not (Test-Path $HOME\.ssh)) { New-Item -ItemType Directory $HOME\.ssh | Out-Null }
+Move-Item $HOME\Downloads\ltride-key.pem $HOME\.ssh\ltride-key.pem
+icacls $HOME\.ssh\ltride-key.pem /inheritance:r /grant:r "$($env:USERNAME):R"
+```
+
+**What this does & why:** `chmod 600` sets the file's permissions to "owner can read and write, nobody else can do anything" — SSH itself refuses to use a private key that's readable by other users on your machine, as a safety check against a key being casually copied by another local account. On **Windows**, `icacls ... /inheritance:r /grant:r "$($env:USERNAME):R"` is the equivalent: `/inheritance:r` strips inherited permissions and `/grant:r` grants **only** your user read — Windows OpenSSH refuses an over-permissive key the same way Unix `ssh` does. → Reference: [chmod / file permission numbers](https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation) · [icacls](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls) · [AWS: Create a key pair](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html).
 
 ### Step 5 — Fill in `deploy/params/prod.json` (~10 min)
 
@@ -138,11 +154,17 @@ Check the `Arn` field: it should end in `user/ltride-admin` (or whatever you nam
 
 Also confirm your SSH key's permissions are locked down:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 ls -l ~/.ssh/ltride-key.pem
 ```
-
 **Expected:** the permission string starts with `-rw-------` (only the owner can read/write). If it shows anything more permissive (like `-rw-r--r--`), re-run `chmod 600 ~/.ssh/ltride-key.pem`.
+
+**Windows (PowerShell):**
+```powershell
+icacls $HOME\.ssh\ltride-key.pem
+```
+**Expected:** only your own user listed, with `(R)` — no `BUILTIN\Users`, `Everyone`, or inherited entries. If others appear, re-run the `icacls ... /inheritance:r /grant:r` command from Step 4.
 
 ---
 

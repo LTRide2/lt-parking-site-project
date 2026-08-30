@@ -62,6 +62,8 @@ git checkout -b cr/d1-cfn-templates   # create + switch to this lesson's branch
 
 **What this does & why:** same stacked-CR routine as every backend lesson — isolate this lesson's change on its own branch so it's reviewable as one small unit. → Reference: [Git Branching basics](https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell).
 
+> **🪟 Windows note (applies to the whole Deploy track).** `git`, `aws <subcommand>`, and editing the YAML/JSON files work identically in any shell on macOS, Linux, and Windows. The one thing that differs is the **`deploy.sh` / `release.sh` scripts**: they're Bash, and Windows PowerShell can't run `.sh` files directly. On Windows, run every `deploy.sh`/`release.sh` command in these lessons from **Git Bash** (ships with [Git for Windows](https://git-scm.com/download/win)) or **WSL** (`wsl --install`). Install the AWS CLI inside whichever one you use. macOS/Linux run them in any terminal.
+
 ---
 
 ## 🛠 Build it, step by step
@@ -215,6 +217,13 @@ Resources:
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux (bash/zsh):**
+```bash
+cd deploy
+./deploy.sh validate
+```
+
+**Windows (Git Bash / WSL):** same commands — run them in Git Bash or WSL, not PowerShell (see the Windows note above).
 ```bash
 cd deploy
 ./deploy.sh validate
@@ -254,7 +263,8 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 - **`Parameter ... does not exist` or similar** — a template you edited is missing one of the six required parameters (`AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`, `WebInstanceType`, `DbInstanceClass`). Every template must declare all six, even unused ones.
 - **A generic "Template format error"** — YAML is whitespace-sensitive; a stray tab or a misaligned list item is the usual cause. Check the indentation immediately around the line CloudFormation reports.
 - **You forgot to change `RepoUrl`** — this won't fail `validate` (it's just a string to CloudFormation), but the server will fail to clone your code on first boot in lesson D2. Double-check it now before you deploy anything.
-- **`./deploy.sh validate` hangs or times out** — check `AWS_REGION`/`AWS_PROFILE`; the script defaults to `us-east-1` and whatever profile `aws configure` set up.
+- **`./deploy.sh validate` hangs or times out** — check `AWS_REGION`/`AWS_PROFILE`; the script defaults to `us-east-1` and whatever profile `aws configure` set up. (To set them for a session: `export AWS_REGION=us-east-1` in Bash/WSL, or `$env:AWS_REGION = "us-east-1"` in PowerShell — though on Windows you'll be running the script from Git Bash/WSL anyway, so use the `export` form there.)
+- **`./deploy.sh: command not found` or `cannot execute` on Windows** — you're in PowerShell or CMD. Open **Git Bash** or a **WSL** shell and re-run from there; `.sh` scripts don't run in PowerShell.
 
 ---
 
