@@ -173,16 +173,19 @@ Handle the states in `extraReducers` the usual way (`pending` → loading + clea
 Create `src/StudentManagement.tsx` — an admin-only pane. It isn't a separate route: the Admin Control Board holds a `managingStudents` boolean in state, and a **👥 Student Management** sidebar button toggles it, rendering `<StudentManagement onClose={...} />` as an in-place **overlay** on top of the board (same admin-only gating as ➕ Add Lot) rather than navigating anywhere.
 
 ```tsx
-const StudentManagement = () => {
+export function StudentManagement({ onClose }: { onClose: () => void }) {
   const dispatch = useAppDispatch();
-  const list = useAppSelector((s) => s.students.list);
-  const [query, setQuery] = useState("");
+  const { list, query } = useAppSelector((s) => s.students);
 
-  useEffect(() => { dispatch(fetchStudents(query)); }, [dispatch, query]);
+  useEffect(() => { dispatch(fetchStudents("")); }, [dispatch]);   // initial load
+
+  // Search updates the *store's* query, then fetches with it — see the note below.
+  const onSearch = (term: string) => { dispatch(setQuery(term)); dispatch(fetchStudents(term)); };
 
   return (
     <div>
-      <input value={query} onChange={(e) => setQuery(e.target.value)}
+      <button onClick={onClose}>✕ Close</button>
+      <input value={query} onChange={(e) => onSearch(e.target.value)}
         placeholder="Search name or student ID…" />
       <table>
         <thead><tr><th>Name</th><th>Student ID</th><th>Grade</th><th>Email</th><th>Status</th><th>Slot</th><th></th></tr></thead>
@@ -198,11 +201,12 @@ const StudentManagement = () => {
       </table>
     </div>
   );
-};
+}
 ```
 
 **Explanation:**
-- Fetching in a `useEffect` keyed on `query` is the one place a `useEffect` *is* right — it's an external-data sync, not derived state. (Contrast with the "don't set state in an effect" rule you met in U3/U8.) → [React: You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect).
+- **Why the search term lives in the store, not `useState`.** Every mutating thunk (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) re-fetches the list when it finishes, and it reads the *current* filter from `getState().students.query` to do so. If the term lived only in local component state, those thunks would re-fetch with an empty query and silently drop whatever filter the admin had typed. So `onSearch` dispatches `setQuery` (updates the store) **and** `fetchStudents(term)` (reflects it immediately).
+- The one-time `useEffect(() => dispatch(fetchStudents("")), [dispatch])` just loads the full roster on open; after that, `onSearch` drives every fetch — no effect keyed on `query`.
 - The server filters via `?q=`, so typing narrows the list without any client-side filtering code.
 
 ### Step 3 — Add, edit, delete a student (~12 min)

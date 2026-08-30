@@ -29,7 +29,7 @@ This is the idea of a **single source of truth**. Today, if you disabled a space
 
 This lesson only makes the map **show** real data. Actually *changing* that data (disable/enable, and later assigning a space to a student) is deliberately left for lesson U4 and U6 — one change at a time, so each CR is small and easy to review. That's the same stacked-CR discipline from [Lesson U2](U2-routing.md), applied to data instead of routes.
 
-> **Heads up if your files look bigger than the snippets below:** if `parkingSlice.ts` already has an `assignedSpaces` field, or `ControlBoard.tsx` already draws all 17 lots from a `LOT_CONFIGS` table over photos, that's expected — later work has already landed on top of this lesson's starting point. Keep that lot-photo code; this lesson only replaces **where the data comes from** (hard-coded strings → the server's numeric ids and `status`).
+> **Heads up if your files look bigger than the snippets below:** if `parkingSlice.ts` already has an `assignedSpaces` field, or `ControlBoard.tsx` already draws lots from uploaded map photos with spaces positioned by the server's `x`/`y` (falling back to a grid of coloured boxes), that's expected — later work has already landed on top of this lesson's starting point. Keep that lot-photo code; this lesson only replaces **where the data comes from** (hard-coded strings → the server's numeric ids and `status`).
 
 ---
 

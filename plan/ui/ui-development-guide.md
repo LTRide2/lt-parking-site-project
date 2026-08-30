@@ -137,7 +137,7 @@ The current app is a **prototype** — it looks right but has no real data and f
 | `src/ControlBoard.tsx` | The shared screen for **both** roles: campus map + all 17 lots + edit mode. Admins get the control panel; students can click a spot to claim/unclaim it. |
 | `src/store/index.ts` | The Redux "store" (central data) + typed hooks. |
 | `src/store/authSlice.ts` | Login/logout state (currently fake). |
-| `src/store/parkingSlice.ts` | Selected lot, edit mode, selected/disabled spaces, and `assignedSpaces` (which student claimed/was-assigned each spot). All local-only — it resets on refresh. |
+| `src/store/parkingSlice.ts` | Selected lot, edit mode, selected spaces, and the server-fetched lots/spaces (`fetchLots` / `fetchSpaces` / `updateSpaces` / `saveLayout` / `createLot` / `deleteLot`). Assignment is server state (`status: "assigned"`), not a local map. |
 
 > **Redux in one sentence:** it's a single shared box of data (`state`) that any component can read with `useAppSelector`, and change by `dispatch`-ing an action. Don't worry about mastering it — you'll copy the existing patterns.
 
@@ -149,9 +149,9 @@ The current app is a **prototype** — it looks right but has no real data and f
 
 ### The source structure you're building toward
 
-The left side is what's in `src/` today; the right side is where you're heading. Each CR adds a little of the right.
+The left side is the **conceptual starting point** these CRs build from (a click-only, browser-only prototype); the right side is where they land. Each CR adds a little of the right. Note: the code actually shipped in `src/` is already at (or beyond) the right-hand target — it's fully server-backed through the mock — so these two trees describe the *tutorial's* arc, not two states of the current repo.
 
-**Today (a click-only prototype):**
+**Starting point (a click-only prototype):**
 ```
 lt-parking-site-project/
 ├── public/
@@ -176,26 +176,29 @@ src/
 ├── App.tsx               # defines <Routes>, restores session on load          (U1, U2)
 ├── ProtectedRoute.tsx    # blocks pages you're not allowed to see              (U2)
 ├── Login.tsx             # real login form, shows errors                       (U1)
-├── StudentDashboard.tsx  # student: see availability, register interest        (U5)
-├── ControlBoard.tsx      # admin: data-driven map, disable, assign,
-│                         #        arrange spots (drag-drop), add lot           (U3,U4,U6,U7,U8,U9)
+├── StudentDashboard.tsx  # student: see availability, pick a spot, register    (U5)
+├── ControlBoard.tsx      # admin: data-driven map, disable, assign to spot,
+│                         #        arrange spots (drag-drop), add/remove lot     (U3,U4,U6,U7,U8,U9)
+├── StudentManagement.tsx # admin: student roster + CSV import (overlay pane)    (U10)
 ├── api/
 │   └── client.ts         # the ONE place that talks to the backend            (U0)
 └── store/
     ├── index.ts          # registers the slices below
     ├── authSlice.ts      # real login thunks + token                           (U1)
-    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces /
-    │                     #   saveLayout / createLot thunks                     (U3,U4,U8,U9)
-    └── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
+    ├── parkingSlice.ts   # fetchLots / fetchSpaces / updateSpaces / saveLayout /
+    │                     #   createLot / deleteLot thunks                       (U3,U4,U8,U9)
+    ├── interestSlice.ts  # registerInterest / fetchInterest / assign thunks    (U5,U6)
+    └── studentsSlice.ts  # fetchStudents / create/update/delete / import       (U10)
 ```
 
 > **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
-> **⚠️ Heads-up — the prototype has grown past this guide in one spot.** Since these CRs were first written, someone added a **local-only "assigned spaces" feature** to the prototype:
-> - `parkingSlice.ts` now has an extra `assignedSpaces` field (a `{spaceId: studentId}` map) plus `assignSpace` / `unassignSpace` reducers.
-> - `ControlBoard.tsx` now (a) draws **all 17 lots** from a `LOT_CONFIGS` table over cropped lot photos, (b) lets a **student click an open spot to claim it** (with a confirmation pop-up, one spot max), and (c) makes the admin's **Manual Assign** button work locally by typing a student ID.
+> **⚠️ Heads-up — the shipped prototype is *ahead* of these CRs.** The code you're looking at is the finished PoC: it's already **fully server-backed through the mock** (`src/api/mock/backend.ts`), so it is well past the "browser-only, resets on refresh" stages some CRs below describe as a starting point. In particular:
+> - `parkingSlice.ts` has **no** `assignedSpaces` map — assignment lives on the server (`status: "assigned"` + `assigned_user_id`); it also carries a `deleteLot` thunk (**Remove Lot**).
+> - `ControlBoard.tsx` draws lots from uploaded map photos with spaces positioned by the server's `x`/`y` (falling back to a flex-wrap grid of coloured boxes), and its admin panel already has **Assign to Spot** (pick a pending request → click a space), **Arrange Spots** (place/resize/rotate + Save Layout, **U8**), **Remove Lot**, and a **Student Management** pane (**U10**).
+> - Students **pick one available spot** and submit it as their interest request, rather than a lot-only request.
 >
-> This all lives **only in the browser and resets on refresh** — there's still no backend behind it. The CRs below (especially **U3, U4, U6**) are the plan to make it *real* (data-driven + saved on the server). Where a CR says "replace the whole file" or shows a "BEFORE", expect the file on your screen to have these extra `assignedSpaces` bits — that's fine, the CR's new version intentionally supersedes them. Each affected CR has a short **"📸 What's already in the prototype"** note so you're not surprised.
+> The CRs below rebuild that end state step by step. Where a CR shows a "BEFORE" or says "replace the whole file", expect your on-screen file to already be ahead — that's fine, follow the CR's target version. Each affected CR has a short **"📸 What's already in the prototype"** note so you're not surprised.
 
 ---
 
@@ -268,8 +271,9 @@ git checkout -b cr/u0-hygiene
 2. **Create the environment file.** In the project root (next to `package.json`) make a file named `.env`:
    ```dotenv
    VITE_API_URL=http://localhost:8000
+   VITE_USE_MOCK=true
    ```
-   Also create `.env.example` with the same line — this one *is* committed so the next person knows the setting exists. Then confirm `.gitignore` ignores your real `.env`:
+   The committed template is `env.example.txt` (no leading dot, `.txt` so it's always tracked) — it already ships in the repo with the same lines so the next person knows the settings exist. The shipped repo leaves the real `.env` **untracked but not ignored**, so add it to `.gitignore` to be safe:
    ```bash
    grep -q '^\.env$' .gitignore || echo '.env' >> .gitignore
    ```
@@ -586,7 +590,7 @@ export default App;
 │    Login     │   │  Student Login   │   │  Student Login   │
 │              │   │  Code: [______]  │   │  Code: [NOPE___] │
 │ [Student]    │   │     [ Login ]    │   │     [ Login ]    │
-│ [Admin]      │   │     [ Back ]     │   │  Invalid code    │ ← red
+│ [Admin]      │   │     [ Back ]     │   │Invalid student code│ ← red
 │              │   │                  │   │     [ Back ]     │
 └──────────────┘   └──────────────────┘   └──────────────────┘
 ```
@@ -637,19 +641,24 @@ import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
 import { BrowserRouter } from "react-router-dom";
 import { store } from "./store";
+import { ErrorBoundary } from "./ErrorBoundary";
 import "./index.css";
 import App from "./App.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Provider store={store}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </Provider>
+    <ErrorBoundary>
+      <Provider store={store}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </Provider>
+    </ErrorBoundary>
   </StrictMode>,
 );
 ```
+
+> `ErrorBoundary` (a small class component in `src/ErrorBoundary.tsx`) is wired **outermost of all** — around `Provider` *and* `BrowserRouter` — so a render crash anywhere in the app surfaces as a fallback message instead of a blank page. See [Lesson U2](lessons/U2-routing.md) for the component itself.
 
 **Step 2 — Create the guard `src/ProtectedRoute.tsx`:**
 ```tsx
@@ -765,7 +774,7 @@ PR base = `cr/u1-real-auth`.
 
 > **Big idea / what changes:** the old slice tracked spaces as strings (`selectedSpaces: string[]`, `disabledSpaces: string[]`). The backend gives every space a **numeric `id`** and a **`status`** (`available` / `disabled` / `assigned`). So in this CR selection becomes `number[]`, and "disabled" is no longer a separate list — it's just `status === "disabled"` coming from the server. U4 then makes changes *save*.
 
-> **📸 What's already in the prototype:** the file on your screen has grown since this CR was written. `parkingSlice.ts` has an extra `assignedSpaces: Record<string, string>` field with `assignSpace`/`unassignSpace` reducers, and `ControlBoard.tsx` already draws **all 17 lots** from a `LOT_CONFIGS` table over photos in `public/lots/`. **That's expected.** The "replace the whole file" step below throws away the *string-based, browser-only* version on purpose — the server (`status: "assigned"`) becomes the single source of truth for who has which spot. Keep the 17-lot `LOT_CONFIGS` / photo-drawing code; only the **data source** (strings → server ids + status) changes. The claim/assign *behaviour* gets rebuilt properly against the backend in **U6**.
+> **📸 What's already in the prototype:** the file on your screen is well past this CR. `parkingSlice.ts` is already fully server-backed — there's **no** `assignedSpaces` map; assignment is server state (`status: "assigned"`). `ControlBoard.tsx` draws each lot's uploaded map photo and positions spaces from the server's `x`/`y` (falling back to a flex-wrap grid of coloured boxes for spaces without coordinates). **That's expected** — this CR is the step that first moves the data source from hard-coded strings to the server's numeric ids + `status`; the shipped code is the end state of that move. Keep the map-photo / positioning code; only the **data source** changes here.
 
 **Branch:**
 ```bash
@@ -907,10 +916,10 @@ useEffect(() => { if (selectedLotId != null) dispatch(fetchSpaces(selectedLotId)
 **Step 4 — Draw spaces from data.** Replace `renderParkingLot()` and the `spaceColor` helper so they read the fetched spaces and colour by `status`:
 ```tsx
 const spaceColor = (space: Space) => {
-  if (selectedSpaces.includes(space.id)) return '#f5c542';  // currently selected (yellow)
+  if (selectedSpaces.includes(space.id)) return '#f5c542';   // selected (gold)
   if (space.status === 'disabled') return '#aaa';            // grey
   if (space.status === 'assigned') return '#7aa7ff';         // blue = taken
-  return 'white';                                            // available
+  return '#ffeb3b';                                          // available (yellow, not white — white washes out on a light map photo)
 };
 
 const renderParkingLot = () => {
@@ -961,7 +970,7 @@ Then in the canvas body, the campus map shows when `selectedLotId === null`, and
 │ LTRide                                                  ☰  │
 ├───────────────┬──────────────────────────────────────────┤
 │ ┌───────────┐ │   ▢ ▢ ▢ ▣ ▢ ▢   ▦ ▢ ▢ ▢                   │
-│ │Admin Ctrl │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▢ ▢ ▢ ▢                   │  ▢ available (white)
+│ │Admin Ctrl │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▢ ▢ ▢ ▢                   │  ▢ available (yellow)
 │ │ (dimmed   │ │   ▢ ▣ ▢ ▢ ▢ ▢                              │  ▣ disabled (grey)
 │ │  until    │ │                                            │  ▦ assigned (blue)
 │ │  Edit on) │ │   hover a space → "A-04 — available"       │
@@ -1013,7 +1022,7 @@ export const updateSpaces = createAsyncThunk(
   }
 );
 ```
-And handle its states in `extraReducers` (optimistic: recolour immediately, roll back on failure):
+And handle its states in `extraReducers` (optimistic: recolour immediately; on failure, surface the error — the optimistic colour is corrected by the next `fetchSpaces`, not auto-reverted here):
 ```ts
 .addCase(updateSpaces.pending, (state, action) => {
   // optimistic: flip the affected spaces right away
@@ -1033,38 +1042,30 @@ And handle its states in `extraReducers` (optimistic: recolour immediately, roll
 });
 ```
 
-**Step 2 — Wire the buttons in `ControlBoard.tsx`.** Replace the old `enableSelectedSpaces` / `disableSelectedSpaces` dispatches (which no longer exist) with `updateSpaces`. The **Enable** button:
+**Step 2 — Wire the buttons in `ControlBoard.tsx`.** Replace the old `enableSelectedSpaces` / `disableSelectedSpaces` dispatches (which no longer exist) with `updateSpaces`. **Disable** and **Enable** live in a sub-panel under the **"Slot Enable/Disable"** mode button, and each saves **immediately on click** — there's no separate "Done" step. The **Disable** button:
 ```tsx
 onClick={() => {
   if (selectedLotId != null)
-    dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'available' }));
-}}
-```
-The green **Done** button's disable branch:
-```tsx
-onClick={() => {
-  if (editAction === 'disable' && selectedLotId != null) {
     dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'disabled' }));
-  } else {
-    dispatch(setIsEditMode(false));
-  }
 }}
 ```
+The **Enable** button is identical except for the status it sends (`'available'`). The only button in the edit-mode chrome is **Cancel ✕**, which just closes Edit Mode (`dispatch(setIsEditMode(false))`) and never calls the server.
+
 Add `updateSpaces` to the import list from `./store/parkingSlice`.
 
-**Step 3 — UI mock (after this phase).** Admin in Edit Mode, two spaces selected, about to press **Done** to disable them. After Done + refresh, those two stay grey.
+**Step 3 — UI mock (after this phase).** Admin in the Slot Enable/Disable sub-panel, two spaces selected, about to press **Disable**. The instant they click, those two turn grey (optimistic); after a refresh they stay grey.
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ LTRide                                                  ☰  │
 ├───────────────┬──────────────────────────────────────────┤
-│ ┌───────────┐ │                       [ Cancel X ][ Done ✓]│  ← Done saves to server
+│ ┌───────────┐ │                                  [ Cancel X ]│  ← just closes Edit Mode
 │ │Admin Ctrl │ │   ▢ ▢ ▣ ▢ ▢ ▢   ▢ ▢ ▢ ▢ ▢ ▢               │
-│ │ Single ▣  │ │   ▢ ▣ ▢ ▢ ▨ ▨   ▢ ▢ ▢ ▢ ▢ ▢               │  ▢ available
-│ │ Group     │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▣ ▢ ▢ ▢ ▢ ▢               │  ▨ selected (yellow)
-│ │ Disable ▣ │ │                                            │  ▣ disabled (grey)
-│ │ Enable    │ │                                            │  ▦ assigned (blue)
-│ │ Manual    │ │   [Home][Lot A][Lot B]                     │
-│ │ Update Map│ │                                            │
+│ │Slot En/Dis│ │   ▢ ▣ ▢ ▢ ▨ ▨   ▢ ▢ ▢ ▢ ▢ ▢               │  ▢ available (yellow)
+│ │  Disable ▣│ │   ▢ ▢ ▢ ▢ ▢ ▢   ▣ ▢ ▢ ▢ ▢ ▢               │  ▨ selected (gold)
+│ │  Enable   │ │                                            │  ▣ disabled (grey)
+│ │Assign Spot│ │                                            │  ▦ assigned (blue)
+│ │Arrange    │ │   [Home][Lot A][Lot B]                     │
+│ │Remove Lot │ │                                            │
 │ └───────────┘ │   Edit Mode ●——                            │
 │ [👤 My Acct]  │                                       LT   │
 └───────────────┴──────────────────────────────────────────┘
@@ -1072,11 +1073,11 @@ Add `updateSpaces` to the import list from `./store/parkingSlice`.
 
 **Local testing guide:**
 1. Setup: backend running (through **B5**); `npm run dev`; admin logged in.
-2. Steps: toggle **Edit Mode** on → **Single Select** → click 2–3 white spaces (they turn yellow) → **Disable** → **Done ✓**; then **refresh the page**. Repeat with **Enable** to turn them back.
+2. Steps: select a lot → **Slot Enable/Disable** → click 2–3 available (yellow) spaces (they turn gold) → **Disable** (in the sub-panel); then **refresh the page**. Repeat with **Enable** to turn them back.
 3. Expected:
-   - Right after **Done**, the spaces turn grey **immediately** (optimistic), edit mode closes.
+   - Right after clicking **Disable**, the spaces turn grey **immediately** (optimistic), the selection clears, and edit mode closes.
    - After **refresh**, they're **still grey** — it saved to the database.
-   - If you stop the backend and try again, the colour change **rolls back** and a red error appears.
+   - If you stop the backend and try again, a red error appears; the optimistic grey stays on screen (it isn't auto-reverted) until the next load re-fetches the real state.
    - A space that's already `assigned` can't be disabled — the server returns 409 and you see the error (don't select assigned/blue spaces).
 
 **☁️ Cloud check (optional):** needs backend **B5** deployed. `./release.sh frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
@@ -1110,8 +1111,11 @@ import { api } from "../api/client";
 export interface Interest {
   id: number;
   user_id: number;
+  user_name?: string | null;   // student's name, so the admin can tell requests apart (U6)
   lot_id: number;
   lot_name?: string;
+  space_ids?: number[];        // the spot(s) the student picked (U5)
+  space_labels?: string[];     // their labels, for display
   status: "pending" | "fulfilled" | "cancelled";
   created_at: string;
 }
@@ -1274,9 +1278,7 @@ PR base = `cr/u4-save-status`.
 
 **Goal:** the admin sees the list of pending student interest and **assigns** a space to a student. The space flips to `assigned` (blue) and the student's request flips to `fulfilled`.
 
-> **📸 What's already in the prototype:** `ControlBoard.tsx` already has a **local** Manual Assign (select a space → a modal asks you to type a student ID → it writes to `assignedSpaces`) **and** a **student self-claim** flow (a student clicks an open spot, confirms a pop-up, and claims it). Both are browser-only and vanish on refresh. This CR **replaces the local Manual Assign** with the real server-backed one below: instead of *typing* a student ID, the admin picks a **pending interest request** (which already knows the student) and clicks a space. The old `assignSpace`/`unassignSpace` reducers and the type-in-ID modal can be deleted once this is wired.
->
-> **What about the student self-claim?** That's a *different* idea from the plan's "student registers interest, admin assigns" flow (see [`../plan.md` §6](../plan.md#6-runtime-views-sequence-diagrams)). For now, the plan keeps **admin-assigns** as the real feature; a student-self-claim endpoint isn't in the API yet. Leave the prototype's claim UI as-is or remove it — it won't conflict with this CR. If the team decides self-claim should be the real product, that's a **new backend CR** (a student-facing `POST /api/assignments` with its own rules), not part of U6.
+> **📸 What's already in the prototype:** this is exactly what the shipped `ControlBoard.tsx` does — the admin button is labelled **Assign to Spot** (its internal `editAction` value is still `'manual'`, which is what the code below checks). It already works the server-backed way described here: pick a **pending interest request** (which carries the student's name and the spot they picked), then click a space. There is no local type-in-ID modal or `assignedSpaces` map in the shipped code; assignment is server state (`status: "assigned"`). The **Assign to Spot** mode also lets the admin **unassign** (click an assigned/blue spot) and **move** an assignment to another lot.
 
 **Branch:**
 ```bash
@@ -1312,7 +1314,7 @@ Add `all: []` to `initialState` and handle `fetchInterest.fulfilled` in `extraRe
 .addCase(fetchInterest.fulfilled, (s, a) => { s.status = "idle"; s.all = a.payload; })
 ```
 
-**Step 2 — Track the chosen request in `ControlBoard.tsx`.** When the admin clicks **Manual Assign** they first pick a request, then click a space. Use local state for the picked request:
+**Step 2 — Track the chosen request in `ControlBoard.tsx`.** When the admin clicks **Assign to Spot** (internally `editAction === 'manual'`) they first pick a request, then click a space. Use local state for the picked request:
 ```tsx
 import { fetchInterest, createAssignment, type Interest } from './store/interestSlice';
 // ...
@@ -1363,14 +1365,14 @@ onClick={() => {
 ```
 Add `fetchSpaces` to the parkingSlice import if it isn't already there.
 
-**Step 5 — UI mock (after this phase).** Admin in Manual Assign: request `#1 → Lot A` is picked (yellow), about to click an available space, which then turns blue (assigned).
+**Step 5 — UI mock (after this phase).** Admin in Assign to Spot: request `#1 → Lot A` is picked (gold), about to click an available space, which then turns blue (assigned).
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ LTRide                                                  ☰  │
 ├───────────────┬──────────────────────────────────────────┤
 │ ┌───────────┐ │                                            │
 │ │Admin Ctrl │ │   ▢ ▢ ▦ ▢ ▢ ▢   ▢ ▢ ▢ ▢                   │  ▢ available
-│ │ Manual ▣  │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▢ ▢ ▢ ▢                   │  ▦ assigned (blue)
+│ │ Assign ▣  │ │   ▢ ▢ ▢ ▢ ▢ ▢   ▢ ▢ ▢ ▢                   │  ▦ assigned (blue)
 │ └───────────┘ │   ▢ ▢ ▢ ▢ ▢ ▢                              │  ▣ disabled
 │ ┌───────────┐ │                                            │
 │ │Pending req│ │       ↑ click any ▢ to assign it           │
@@ -1384,7 +1386,7 @@ Add `fetchSpaces` to the parkingSlice import if it isn't already there.
 
 **Local testing guide:**
 1. Setup: backend running (through **B7**); at least one student has registered interest (do U5's flow first, or seed it); log in as **admin**.
-2. Steps: **Edit Mode** on → **Manual Assign** → click a request in "Pending requests" (it highlights yellow) → click an available (white) space in that lot.
+2. Steps: select a lot → **Assign to Spot** → click a request in "Pending requests" (it highlights gold) → click an available (yellow) space in that lot.
 3. Expected:
    - The clicked space turns **blue** (`assigned`); the request disappears from the pending list (now `fulfilled`).
    - Log in separately as that student → their dashboard shows **status: fulfilled**.
@@ -1394,7 +1396,7 @@ Add `fetchSpaces` to the parkingSlice import if it isn't already there.
 
 **Commit & push:**
 ```bash
-git add -A && git commit -m "U6: admin interest panel + Manual Assign via POST /api/assignments" && git push -u origin cr/u6-admin-assign
+git add -A && git commit -m "U6: admin interest panel + Assign to Spot via POST /api/assignments" && git push -u origin cr/u6-admin-assign
 ```
 PR base = `cr/u5-student-interest`.
 
@@ -1515,11 +1517,11 @@ PR base = `cr/u6-admin-assign`.
 
 **Depends on:** U7 and backend **B8** (`PUT /api/lots/:id/layout` — persist a lot's spot layout). **Branch off U7.**
 
-**Goal:** today a spot's position on the map is **source code** — three hand-tuned tables (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`) that only a developer can change. Make positions **data an admin authors in the browser**: add a spot by clicking the map, drag it to place, rotate/delete it, and **Save Layout** to the server so it survives refresh and shows for everyone.
+**Goal:** today a spot only appears on the map if the server already gave it `x`/`y`; any space without coordinates drops into a plain flex-wrap grid of coloured boxes below the photo, with no way to line it up with the painted space. Make positions **data an admin authors in the browser**: add a spot by clicking the map, drag it to place, resize/rotate/delete it, and **Save Layout** to the server so it survives refresh and shows for everyone.
 
-> **Big idea / what changes:** a spot's position (and size) becomes **normalized** coordinates — `x`/`y`/`w`/`h` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically, at the same shape, at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing config tables — no regression.
+> **Big idea / what changes:** a spot's position (and size) becomes **normalized** coordinates — `x`/`y`/`w`/`h` are fractions `0..1` of the map image (plus `rotation` in degrees), so the same numbers place the spot identically, at the same shape, at any zoom or screen size (the same instinct as the existing `MAP_DISPLAY_SCALE` math, promoted to real data). Lots **with** a saved layout render from it; lots **without** one keep rendering from the existing flex-wrap grid of coloured boxes — no regression.
 
-> **📸 What's already in the prototype:** the three hard-coded position tables and the `MAP_ONLY_LOTS` set stay exactly as-is — they become the *fallback*. This CR adds a higher-priority path that draws from server `x`/`y`/`w`/`h` when present. Nothing from U3–U7 is removed.
+> **📸 What's already in the prototype:** the shipped `ControlBoard.tsx` already draws spots two ways — an absolute-positioned overlay when the server's spaces carry `x`/`y`/`w`/`h`, and otherwise a flex-wrap grid of status-coloured boxes below the map photo (there are no hard-coded pixel tables). This CR makes the overlay path *authorable* — Add Spot / drag / resize / rotate / Save Layout — and the grid stays as the fallback for spaces without coordinates. Nothing from U3–U7 is removed.
 
 **Backend contract (B8):**
 - `GET /api/lots/:id/spaces` gains optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees) per space; legacy spaces send `null`.
@@ -1547,7 +1549,7 @@ Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
 
 **Step 2 — Add an "Arrange Spots" edit action + an editable canvas in `ControlBoard.tsx`.** A new sidebar button dispatches `setEditAction('arrange')`. While arranging, hold the working layout in local state (`draft`, seeded from `spacesByLot[selectedLotId]`) and measure the map wrapper with a `ref`. Convert a mouse point to a fraction, render each draft spot absolutely-positioned, and wire click-to-add + pointer-capture drag. (Full code — the `toNorm` helper, `renderArrangeCanvas`, and pointer handlers — is in [Lesson U8](lessons/U8-place-and-arrange-spots.md#step-2--add-the-arrange-spots-mode-and-an-editable-canvas-25-min).)
 
-**Step 3 — Add rotate, delete, and Save Layout; render saved layouts in normal view.** A small toolbar (shown only while arranging) rotates/deletes the picked spot and, on **Save Layout**, maps the draft to the PUT body (dropping temporary negative ids so the server creates those spaces) and dispatches `saveLayout`. Update `renderParkingLot` to prefer a saved layout (`spaces.some(s => s.x != null)`) — a read-only version of the arrange canvas — and otherwise fall through to the existing config/fan rendering.
+**Step 3 — Add resize, rotate, delete, and Save Layout; render saved layouts in normal view.** A small toolbar (shown only while arranging) resizes the picked spot (Bigger/Smaller/Wider/Taller), rotates it clockwise/counter-clockwise by an editable **degrees-per-click** step (default `15`), deletes it, and, on **Save Layout**, maps the draft to the PUT body (dropping temporary negative ids so the server creates those spaces) and dispatches `saveLayout`. Update `renderParkingLot` to prefer a saved layout (`spaces.some(s => s.x != null)`) — a read-only version of the arrange canvas — and otherwise fall through to the existing flex-wrap grid of coloured boxes.
 
 **UI mock (after this phase):** the selected lot's map becomes an editable canvas — click to add, drag to move, a picked spot outlined in gold, a toolbar to rotate/delete/save.
 ```
@@ -1559,7 +1561,7 @@ Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
 │ │ Arrange ▣ │ │   │     ▧◀picked (drag me)   ▭          │  │  ▧ picked
 │ └───────────┘ │   │   ▭     click empty map = add ↑     │  │
 │ ┌───────────┐ │   └────────────────────────────────────┘  │
-│ │ Rotate15° │ │                                            │
+│ │Bigger ↺ ↻ │ │                                            │
 │ │ Delete    │ │   [Home][Lot A][Lot B][North Lot]          │
 │ │ [Save Lay]│ │   Edit Mode ●——                            │
 │ └───────────┘ │                                       LT   │
@@ -1568,12 +1570,12 @@ Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
 
 **Local testing guide:**
 1. Setup: backend running through **B8** (seeded); `npm run dev`; admin logged in; a lot selected.
-2. Steps: **Edit Mode** → **Arrange Spots** → click the map to add spots → drag one → pick it, **Rotate 15°**, **Delete** another → **Save Layout**; then **refresh** and **resize the window**.
+2. Steps: select a lot → **Arrange Spots** → **➕ Add Spot** (or click the map) to add spots → drag one → pick it, resize (Bigger/Wider/Taller), rotate **↺/↻** by the step (default 15°), **Delete** another → **Save Layout**; then **refresh** and **resize the window**.
 3. Expected:
    - Click-to-add drops a spot where you clicked; drag moves it and it stays on release; rotate/delete work.
    - After **Save Layout** the spots render in place; after **refresh** they're unchanged (persisted); after **resize** they stay put relative to the map (normalized coords).
    - Deleting an **assigned** spot and saving surfaces a red error (`409`) — nothing lost.
-   - A never-arranged lot still draws via the old config tables.
+   - A never-arranged lot still draws via the flex-wrap grid of coloured boxes below the photo.
 
 **☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS; a second browser sees the same arrangement (it's server data now).
 
@@ -1603,7 +1605,9 @@ git checkout -b cr/u9-add-lot
 
 **Step 1 — Add a `createLot` thunk to `parkingSlice.ts`** (next to `fetchLots`): POST the body, `await dispatch(fetchLots())` to refresh the nav, and return the new `Lot`. In `extraReducers`, set `state.selectedLotId = action.payload.id` on `createLot.fulfilled` (land on the new lot) and write the message to `state.error` on `rejected`.
 
-**Step 2 — Add the button + Create Lot modal in `ControlBoard.tsx`.** An **➕ Add Lot** button inside the `isAdmin` control panel (admin-only; not gated by Edit Mode) opens a modal mirroring U6's Manual Assign modal: a required **Name** and optional **Capacity**, a red inline error from `state.error`, and a **Create** button disabled until the name is non-blank. On click, `await dispatch(createLot(...))` and close the modal only if `createLot.fulfilled.match(res)` — so a rejected create keeps the modal open with the error. (Full modal JSX is in [Lesson U9](lessons/U9-add-a-parking-lot.md#step-2--add-the-button-and-the-create-lot-modal-in-controlboardtsx-20-min).)
+**Step 2 — Add the button + Create Lot modal in `ControlBoard.tsx`.** An **➕ Add Lot** button inside the `isAdmin` control panel (admin-only; not gated by Edit Mode) opens a small modal: a required **Name**, an optional **Number** (used as the prefix for auto-generated spot labels, e.g. `7-1`, `7-2`), and an optional **Capacity**, plus a red inline error from `state.error` and a **Create** button disabled until the name is non-blank. On click, `await dispatch(createLot(...))` and close the modal only if `createLot.fulfilled.match(res)` — so a rejected create keeps the modal open with the error. (Full modal JSX is in [Lesson U9](lessons/U9-add-a-parking-lot.md#step-2--add-the-button-and-the-create-lot-modal-in-controlboardtsx-20-min).)
+
+**Step 2b — Remove Lot (already in the shipped panel).** The admin panel also has a **🗑 Remove Lot** button (enabled only when a lot is selected, and only if none of its spaces are `assigned`). It dispatches a `deleteLot` thunk in `parkingSlice.ts` (`DELETE /api/lots/:id`, then `fetchLots()` to refresh the nav); the server refuses with a `409` if any space is assigned. Guard it behind a `window.confirm` so a mis-click can't wipe a lot.
 
 **Step 3 — Hand off to map + arrange.** `createLot.fulfilled` already selected the new lot, so the canvas switches to it. Show a hint when the selected lot has no spaces yet, pointing the admin at **Update School Map** (U7) then **Arrange Spots** (U8).
 
@@ -1612,8 +1616,9 @@ git checkout -b cr/u9-add-lot
    click ➕ Add Lot                 after Create
 ┌───────────────┐        ┌────────────────────────────┐
 │ │➕ Add Lot  │◀─────── │  Create Parking Lot         │
-│ │ Single    │ │        │  Name     [North Lot____]   │
-│ │ Arrange   │ │        │  Capacity [ 20 ]            │
+│ │Assign Spot│ │        │  Name     [North Lot____]   │
+│ │Arrange    │ │        │  Number   [ 7 ]  (optional) │
+│ │Remove Lot │ │        │  Capacity [ 20 ] (optional) │
 │ └───────────┘ │        │        [Cancel] [Create]    │
 └───────────────┘        └────────────────────────────┘
   ▶ nav: [Home][Lot A]…[Lot 17][North Lot]  ← new, selected
@@ -1635,6 +1640,60 @@ git checkout -b cr/u9-add-lot
 git add -A && git commit -m "U9: admin creates a new lot (POST /api/lots) + hand off to map/arrange" && git push -u origin cr/u9-add-lot
 ```
 PR base = `cr/u8-arrange-spots`.
+
+---
+
+### CR U10 — Student roster management (search / add / edit / delete / CSV import)
+
+**Depends on:** U9 and backend **B10** (student CRUD + CSV import + direct assign). **Branch off U9.**
+
+**Goal:** give the admin a **Student Management** pane to search the roster, add/edit/delete a student, bulk-import from a CSV, and assign a student directly to a spot — without leaving the Control Board. It's not a route: a **👥 Student Management** sidebar button (admin-only, same gating as ➕ Add Lot) toggles a `managingStudents` boolean and renders `<StudentManagement onClose={...} />` as an in-place overlay.
+
+> **📸 What's already in the prototype:** `StudentManagement.tsx` and `studentsSlice.ts` already ship. The pane reads its search term from the **store** (`state.students.query`), not local `useState` — see the note in Step 1 for why.
+
+**Backend contract (B10):**
+- `GET /api/students?q=<term>` → `Student[]` (server-side filter on name / student id).
+- `POST /api/students` (create), `PATCH /api/students/:id` (edit), `DELETE /api/students/:id` — standard error envelope; duplicate `student_id` → `409`.
+- `POST /api/students/:id/assign` body `{ spaceId }` — place the student directly (frees their old spot first if moving).
+- `POST /api/students/import` (multipart CSV via the `uploadFile()` helper) → an `ImportSummary` (`{ created, updated, errors }`).
+
+**Branch:**
+```bash
+git checkout cr/u9-add-lot
+git checkout -b cr/u10-student-management
+```
+
+**Step 1 — Add `studentsSlice.ts`.** State: `list`, `query`, `status`, `error`, `lastImport`. A `fetchStudents(q)` thunk, plus `createStudent` / `updateStudent` / `deleteStudent` / `assignStudent` / `importStudents`. **Every mutating thunk re-fetches when it finishes, reading the *active* filter out of state first** — `dispatch(fetchStudents(getState().students.query))` — so a mutation made while a filter is typed doesn't silently drop it. Reducers: `setQuery` (writes `state.query`), `clearImportSummary`, `clearStudentsError`. Register the slice in `store.ts`.
+
+**Step 2 — Build `StudentManagement.tsx`.** The component takes an `onClose` prop and reads `query` from the store (not local state):
+```tsx
+export function StudentManagement({ onClose }: { onClose: () => void }) {
+  const dispatch = useAppDispatch();
+  const { list, query } = useAppSelector((s) => s.students);
+  useEffect(() => { dispatch(fetchStudents("")); }, [dispatch]);        // initial load
+  const onSearch = (term: string) => { dispatch(setQuery(term)); dispatch(fetchStudents(term)); };
+  // search box: value={query} onChange={(e) => onSearch(e.target.value)}
+  // + a table of students, an ➕ Add Student modal, per-row edit/delete/assign, and a CSV import button
+  // ...
+}
+```
+Search updates the store's `query` *and* fetches with it, so the two stay in lock-step and later mutations reuse the same filter.
+
+**Step 3 — Wire it into `ControlBoard.tsx`.** Add a `managingStudents` boolean, a **👥 Student Management** admin button that sets it true, and render `{managingStudents && <StudentManagement onClose={() => setManagingStudents(false)} />}` as an overlay.
+
+**Local testing guide:**
+1. Setup: backend through **B10** (seeded); `npm run dev`; admin logged in.
+2. Steps: **👥 Student Management** → type in the search box → **➕ Add Student** (try a duplicate id) → edit a row → assign a row to a spot → import a small CSV → **✕ Close**.
+3. Expected:
+   - Typing filters the roster server-side; a duplicate `student_id` keeps the add modal open with the `409` message.
+   - Edit/delete update the row; **while a filter is typed**, the list stays filtered after each change (the mutation re-fetched with the active query).
+   - CSV import shows a `created / updated / errors` summary.
+
+**Commit & push:**
+```bash
+git add -A && git commit -m "U10: student roster management pane (CRUD + CSV import + assign)" && git push -u origin cr/u10-student-management
+```
+PR base = `cr/u9-add-lot`.
 
 ---
 
@@ -1671,7 +1730,9 @@ curl -s http://localhost:8000/api/health
 In the **frontend** repo (`~/workspace/LT_Proj/lt-parking-site-project`):
 ```bash
 cd ~/workspace/LT_Proj/lt-parking-site-project
-# .env must point at the backend you just started:
+# For a REAL end-to-end test you must turn the mock OFF and point at the backend.
+# The app defaults to VITE_USE_MOCK=true, so without this it never touches Flask:
+#   VITE_USE_MOCK=false
 #   VITE_API_URL=http://localhost:8000
 npm run dev
 ```
@@ -1688,9 +1749,9 @@ Use a normal window **and** a private/incognito window so a student and an admin
 | 1 | Normal | Log in as student `STU001` | Lands on `/student`, sees availability list |
 | 2 | Normal | Click **Register interest — Lot A** | "Your request: Lot A — **pending**" |
 | 3 | Incognito | Log in as admin (`admin` / `admin123`) | Lands on `/admin`, sees the lot map |
-| 4 | Incognito | Edit Mode → **Manual Assign** → pick request `#…→Lot A` → click a white space | That space turns **blue**; request leaves the pending list |
+| 4 | Incognito | **Assign to Spot** → pick request `#…→Lot A` → click an available (yellow) space | That space turns **blue**; request leaves the pending list |
 | 5 | Normal | **Refresh** the student window | "Your request: Lot A — **fulfilled**" ✅ |
-| 6 | Incognito | Edit Mode → select the same space → **Disable** → Done, then refresh | (Negative check) an *assigned* space can't be disabled — red error / 409 |
+| 6 | Incognito | **Slot Enable/Disable** → select the same space → **Disable** | (Negative check) an *assigned* space can't be disabled — red error / 409 |
 
 If steps 1–5 all pass, the **core end-to-end flow works**: the student's request travelled through the API into PostgreSQL, the admin's assignment updated three tables in one transaction, and the student saw the result on a fresh load — all across two separate browser sessions hitting the live backend.
 
@@ -1711,6 +1772,8 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 ## Part F3 — Deployment (frontend)
 
 > **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable scripts/templates live in the repo-root [`deploy/`](../../deploy/README.md) folder.
+
+> **⚠️ PoC caveat.** This checkout is a **frontend PoC that runs entirely on the in-memory mock** (`VITE_USE_MOCK` defaults to `true`), and the repo-root `deploy/` scripts (`release.sh`, `server/nginx-ltride.conf`) referenced throughout Part F3 and the per-CR "☁️ Cloud check" boxes **are not present here** — they belong to the deployment track. Treat those `./release.sh …` commands and cloud checks as the **plan of record**, not steps runnable from this repo as-is. Any real deploy also requires building with `VITE_USE_MOCK=false` and a reachable `VITE_API_URL`.
 
 ### F3.1 What "deploying the frontend" means
 
@@ -1800,13 +1863,13 @@ The React SPA is organised as a thin **API client**, three core Redux **slices**
 - **API client** (`src/api/client.ts`): exports `api = {get, post, patch, put, del}` plus a standalone `uploadFile(path, file)` for multipart uploads. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`; logs every call via a `log()` helper. A `USE_MOCK` flag (`VITE_USE_MOCK`, on by default) routes calls to the in-memory mock backend (`src/api/mock/backend.ts`) instead of the network. It is the **one place** that talks to the backend (built in **U0**).
 - **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**), and — PoC extension — `studentsSlice` (roster CRUD/CSV/direct-assign, **U10**).
 - **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
-- **Data-driven map:** the prototype already draws all 17 lots from a hard-coded `LOT_CONFIGS` table (photo crops + curved/radial layouts). Keep that layout/photo code; replace only the **space data** with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
-- **Authored layouts (positions *and size* as data):** spot placement starts as those hard-coded tables but becomes **normalized `x`/`y`/`w`/`h`/`rotation` fields** (`0..1` of the map image — position *and size*, so a spot keeps its shape at any zoom) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with a saved layout renders from it; a lot without one falls back to the config tables — the tables are never deleted, just demoted to a default. Lots themselves are created from the UI via `POST /api/lots` — carrying an optional admin-set **`number`** that prefixes spot labels — (**U9**), so the lot set is no longer fixed at 17.
+- **Data-driven map:** the prototype draws each lot's uploaded map photo and positions its spaces from server data. Replace hard-coded strings with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
+- **Authored layouts (positions *and size* as data):** a space's placement is **normalized `x`/`y`/`w`/`h`/`rotation` fields** (`0..1` of the map image — position *and size*, so a spot keeps its shape at any zoom) an admin edits via a drag-and-drop editor and saves with `PUT /api/lots/:id/layout` (**U8**). A lot with saved coordinates renders as an absolute-positioned overlay; a space without them falls back to a flex-wrap grid of coloured boxes below the photo — never deleted, just the default. Lots themselves are created from the UI via `POST /api/lots` — carrying an optional admin-set **`number`** that prefixes spot labels — (**U9**) and removed via `DELETE /api/lots/:id` (**Remove Lot**), so the lot set isn't fixed.
 - **UX states:** loading spinners, empty states ("No spaces available" only when truly empty), error toasts, and **optimistic updates with refetch on failure** (**U4**).
 
 ### C. Cross-cutting (frontend side)
 
-- **Config:** a local `.env` holds `VITE_API_URL`; commit `.env.example`, never the real `.env`. See **U0**.
+- **Config:** a local `.env` holds `VITE_API_URL` and `VITE_USE_MOCK`; the committed template is `env.example.txt`, never the real `.env`. See **U0**.
 - **Token storage:** the JWT is held in-memory in `client.ts` with a `localStorage` copy so a refresh doesn't log you out; on app load, `fetchMe()` re-validates it via `GET /api/auth/me` and falls back to logged-out if the token is stale (**U1**). *(If the backend is later changed to serve the SPA from the same origin, an httpOnly cookie becomes an option — see [`../plan.md §11` open decisions](../plan.md#11-open-decisions-to-confirm).)*
 - **Observability (client side):** on any failed API call, log `method path → status` to the browser console via the `api` client's error path, and surface a user-visible toast rather than crashing. This is the frontend end of the request trace whose backend half is the Flask access log (backend guide, `ltride.service`).
 
