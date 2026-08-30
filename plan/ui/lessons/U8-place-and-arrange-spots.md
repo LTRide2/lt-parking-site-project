@@ -9,7 +9,7 @@
 
 ## 🎯 Goal — what you'll have at the end
 
-Today, **where** each parking spot sits on a lot's map is frozen in code — three hand-tuned tables at the top of `ControlBoard.tsx` (`LOT_CONFIGS`, `LOT_MAP_CONFIGS`, `LOT_FAN_CONFIGS`) that only a developer can edit, one pixel at a time. By the end of this hour an **admin** can, in the browser, **press ➕ Add Spot, drag it to the right place, resize it to match the painted space, rotate it, rename it, delete it, and press Save Layout** — and the layout is stored on the server so it survives a refresh and shows for everyone.
+Today, a spot only sits somewhere on the map if the server already gave it `x`/`y` coordinates (from U3). Any space *without* coordinates just drops into a plain flex-wrap grid of coloured boxes below the map photo — no one can place it on the image, let alone move it. By the end of this hour an **admin** can, in the browser, **press ➕ Add Spot, drag it to the right place, resize it to match the painted space, rotate it, rename it, delete it, and press Save Layout** — and the layout is stored on the server so it survives a refresh and shows for everyone.
 
 Concretely, you will have:
 
@@ -17,7 +17,7 @@ Concretely, you will have:
 - An **"Arrange Spots"** edit action that turns the selected lot's map into an editable canvas: a **➕ Add Spot** button (drops a spot at the map's center), drag-to-move, resize controls, rotate CW/CCW by an adjustable angle, an editable **Label**, and a Delete for the picked spot.
 - **Pan + wheel-zoom on the lot map** while arranging (the same `translate`-offset model the campus/Home view already uses), so you can work up close on a large map.
 - A **Save Layout** button that `PUT`s the whole lot's spots to `/api/lots/:id/layout`, plus the optimistic-update-then-refetch pattern from U4.
-- A rendering path that draws a lot **from its saved layout** when it has one, and falls back to the old hard-coded config tables for lots that don't.
+- A rendering path that draws a lot **from its saved layout** when it has one, and falls back to the flex-wrap grid of coloured boxes for lots (or spaces) without coordinates.
 
 **✅ Done when (your deliverable checklist):**
 - [ ] In Edit Mode, **Arrange Spots** makes the current lot's map editable; **➕ Add Spot** drops a new spot at the center of the map (clicking the map does *not* add one).
@@ -26,14 +26,14 @@ Concretely, you will have:
 - [ ] You can select a spot and **resize** it (bigger/smaller, wider/narrower, taller/shorter), **rotate** it CW/CCW, **rename** it, and **delete** it — but Delete is refused for a spot that is currently `assigned`.
 - [ ] **Save Layout** persists the arrangement; after a **refresh** the spots are exactly where — and the size — you left them.
 - [ ] Zooming/resizing the window does **not** move *or reshape* the spots relative to the map (position and size are normalized, not raw pixels).
-- [ ] A lot with **no** saved layout still renders via the old config tables (no regression to Lots you haven't arranged yet).
+- [ ] A lot with **no** saved layout still renders via the flex-wrap grid of coloured boxes (no regression to Lots you haven't arranged yet).
 - [ ] Work committed on `cr/u8-arrange-spots` and pushed, PR base = `cr/u7-map-upload`.
 
 ---
 
 ## 🤔 Why this lesson matters
 
-Up to now the app has been a **viewer**: it fetches data the server owns (lots, spaces, statuses) and paints it. The spot *positions*, though, were never data — they were source code. That's why adding or moving a spot meant a developer editing `LOT_MAP_CONFIGS` and redeploying, and why several lots are stuck as "map-only" (a photo with no clickable grid) in the prototype. This lesson flips positions from **code** into **data an admin can author**, which is the difference between a demo and a tool the school can actually run.
+Up to now the app has been a **viewer**: it fetches data the server owns (lots, spaces, statuses) and paints it. Spot *positions* were only ever whatever `x`/`y` the server happened to carry — and any space missing them fell back to a plain grid of boxes below the photo, with no way to line them up with the painted spaces. This lesson makes positions **data an admin can author** in the browser, which is the difference between a demo and a tool the school can actually run.
 
 Two ideas do the heavy lifting:
 
@@ -62,7 +62,7 @@ Two ideas do the heavy lifting:
 
 You need **U7** merged (or on your machine) and backend **B8** running — the endpoint that persists a lot's layout. This CR **depends on** both.
 
-> **📸 What's already in the prototype:** `ControlBoard.tsx` positions spots three ways today — a plain grid (`LOT_CONFIGS`), a rotated map-crop overlay (`LOT_MAP_CONFIGS`), and a curved "fan" (`LOT_FAN_CONFIGS`), all hard-coded, and it has a `MAP_ONLY_LOTS` set for lots shown as a photo with no grid. **Keep all of that as the fallback.** This lesson adds a *new, higher-priority* path: if the server sends spots that carry `x`/`y`, we draw from those instead. Nothing you built in U3–U7 is thrown away.
+> **📸 What's already in the prototype:** `ControlBoard.tsx` draws spots two ways today — an **absolute-positioned overlay** when the server's spaces carry `x`/`y`, and otherwise a **flex-wrap grid of status-coloured boxes rendered below the map photo** (no hard-coded pixel tables — that fallback is the only one). **Keep that grid fallback.** This lesson makes the `x`/`y` overlay path *authorable*: the admin places and arranges spots, and Save Layout persists the coordinates so the overlay — not the grid — is what everyone sees. Nothing you built in U3–U7 is thrown away.
 
 **The backend contract this lesson calls (backend B8):**
 
@@ -92,7 +92,7 @@ export interface Space {
   status: "available" | "disabled" | "assigned";
   assigned_user_id: number | null;      // who holds it (from U3)
   assigned_user_name: string | null;    // who holds it (from U3) — shown in the hover tooltip
-  x: number | null;          // 0..1 across the map image (from U3; null = legacy, use config fallback)
+  x: number | null;          // 0..1 across the map image (from U3; null = legacy, use grid fallback)
   y: number | null;          // 0..1 down the map image (from U3)
   w: number | null;          // 0..1 of map width  (from U3; spot size — default ~0.05)
   h: number | null;          // 0..1 of map height (from U3; spot size — default ~0.03)
@@ -397,7 +397,7 @@ if (hasSavedLayout) {
     </div>
   );
 }
-// ...otherwise fall through to the existing LOT_CONFIGS / map-crop / fan rendering (unchanged).
+// ...otherwise fall through to the existing flex-wrap grid of coloured boxes below the map photo (unchanged).
 ```
 
 **UI mock (after this phase).** Admin in **Arrange Spots**: one spot picked (gold outline), the full toolbar on the left, empty-map drag pans.
@@ -439,7 +439,7 @@ if (hasSavedLayout) {
    - After **Save Layout**, edit mode closes and the spots render in place in normal view; after **refresh** they're unchanged — position **and size** (persisted).
    - After **resize**, every spot stays in the same spot and shape *relative to the map* (normalized coords + size working).
    - Deleting an **assigned** spot is blocked client-side (the button is disabled with a note); if a spot gets assigned by another admin action *while* you're arranging, Save Layout surfaces the server's `409` instead of silently orphaning it.
-   - A lot you never arranged still draws via the old config tables (no regression).
+   - A lot you never arranged still draws via the flex-wrap grid of coloured boxes (no regression).
 
 **☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS. Then open the same lot in a second browser/incognito window: the arrangement shows there too (it's server data now, not your browser's).
 
@@ -481,7 +481,7 @@ Open a PR with **base = `cr/u7-map-upload`**. Paste your "Prove it works" output
 - You built a robust drag by capturing the pointer on the map **container** (keyed by a `draggingRef`), not the tiny spot box — and made **➕ Add Spot** the one deliberate way to create a spot, instead of an error-prone click-on-map.
 - You gave the arrange editor **resize** (uniform + per-axis), **rotate both directions** by an adjustable angle, an editable **Label**, and a **Delete** that's gated against removing an `assigned` spot.
 - You extended the lot view's **pan + cursor-anchored wheel-zoom** (from U3) to work inside the arrange editor too, and reused its floating tooltip for both saved and in-progress spots.
-- You reused the **optimistic-then-refetch** and **idempotent replace (`PUT`)** patterns to persist a whole layout in one shot, while keeping the old config-table rendering as a safe fallback.
+- You reused the **optimistic-then-refetch** and **idempotent replace (`PUT`)** patterns to persist a whole layout in one shot, while keeping the flex-wrap grid rendering as a safe fallback for spaces without coordinates.
 
 ---
 

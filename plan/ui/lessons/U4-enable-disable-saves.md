@@ -13,8 +13,8 @@ Right now, when an admin disables a parking space in Edit Mode, the grey colour 
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `src/store/parkingSlice.ts` has an `updateSpaces` thunk that calls `PATCH /api/spaces`.
-- [ ] `updateSpaces`'s `pending`/`fulfilled`/`rejected` cases are handled in `extraReducers` (optimistic recolour, then roll back on failure).
-- [ ] `ControlBoard.tsx`'s **Enable** button and the **Done** button's disable branch both dispatch `updateSpaces` instead of the old, deleted `enableSelectedSpaces`/`disableSelectedSpaces`.
+- [ ] `updateSpaces`'s `pending`/`fulfilled`/`rejected` cases are handled in `extraReducers` (optimistic recolour on `pending`; on `rejected`, surface the error — no auto-revert).
+- [ ] `ControlBoard.tsx`'s **Disable** and **Enable** sub-panel buttons both dispatch `updateSpaces` on click, instead of the old, deleted `enableSelectedSpaces`/`disableSelectedSpaces`.
 - [ ] Disabling a space, then **refreshing the page**, still shows it grey.
 - [ ] Your work is committed on branch `cr/u4-save-status` and pushed, PR base = `cr/u3-real-lots`.
 
@@ -26,7 +26,7 @@ U3 made the parking grid **read** real data from the backend. But the admin's Di
 
 This lesson closes that gap, and it introduces a pattern you'll use for almost every "admin makes a change" screen for the rest of the app:
 
-1. **Optimistic update** — the instant you click **Done**, the spaces flip colour *before* the server has even answered. The app feels instant instead of laggy.
+1. **Optimistic update** — the instant you click **Disable** (or **Enable**), the spaces flip colour *before* the server has even answered. The app feels instant instead of laggy.
 2. **Re-fetch to confirm** — right after the write succeeds, the thunk re-asks the server for the truth, so what you see always matches what's actually saved.
 3. **Roll back on failure** — if the request fails (backend down, or the space was already `assigned`), the user sees an error instead of a screen that silently lied to them.
 
@@ -84,7 +84,7 @@ export const updateSpaces = createAsyncThunk(
 - **The `{ dispatch }` argument** — `createAsyncThunk` hands your function a second argument with tools, including `dispatch`, so a thunk can trigger *another* thunk. Here, once the PATCH succeeds, we immediately `dispatch(fetchSpaces(args.lotId))` — the same read-thunk from U3 — so the store's `spacesByLot` gets refreshed with whatever the database actually says now. → [Redux Toolkit: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
 - **Why re-fetch instead of trusting the PATCH response?** The backend's answer to "I updated these" doesn't necessarily include full lot data. Re-running `fetchSpaces` guarantees what's on screen matches the database exactly — no risk of drifting out of sync.
 
-Now handle the thunk's three states in `extraReducers`, right after the ones you wrote for `fetchSpaces` in U3 (optimistic: recolour immediately, roll back on failure):
+Now handle the thunk's three states in `extraReducers`, right after the ones you wrote for `fetchSpaces` in U3 (optimistic: recolour immediately; on failure, surface the error — the optimistic colour is corrected by the next `fetchSpaces`, not auto-reverted here):
 
 ```ts
 .addCase(updateSpaces.pending, (state, action) => {
@@ -119,22 +119,19 @@ The old **Enable**/**Disable** buttons dispatched `enableSelectedSpaces`/`disabl
 
 > **Menu note — Disable/Enable now live in a sub-panel.** The main sidebar used to list **Disable** and **Enable** as separate top-level buttons. They've been grouped, Arrange-Spots-style, under one mode button — **"Slot Enable/Disable"** (the old "Single Select") — that reveals a sub-panel containing **Disable** and **Enable**, plus the current selection count. The buttons act on whatever spaces are already selected on the grid; nothing else about Step 1's thunk or Step 2's dispatches changes. Every main-menu button (and this sub-panel's buttons) also gets a `title=` tooltip describing what it does — a one-line accessibility/discoverability win, no contract change.
 
-The **Enable** button:
+Each sub-panel button saves **immediately on click** — there's no separate "Done" step. The **Disable** button:
+```tsx
+onClick={() => {
+  if (selectedLotId != null)
+    dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'disabled' }));
+}}
+```
+
+The **Enable** button is identical except for the status it sends:
 ```tsx
 onClick={() => {
   if (selectedLotId != null)
     dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'available' }));
-}}
-```
-
-The green **Done** button's disable branch:
-```tsx
-onClick={() => {
-  if (editAction === 'disable' && selectedLotId != null) {
-    dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'disabled' }));
-  } else {
-    dispatch(setIsEditMode(false));
-  }
 }}
 ```
 
@@ -143,15 +140,15 @@ Then add `updateSpaces` to the import list from `./store/parkingSlice`.
 **Explanation, piece by piece:**
 - **`selectedLotId != null` guard** — `updateSpaces` needs a `lotId` to know which lot's spaces to re-fetch afterward. This is the same "Home view has no lot selected" guard you saw in U3.
 - **`ids: selectedSpaces`** — the numeric space ids the admin has clicked, already tracked in `parkingSlice`'s `selectedSpaces` array since U3.
-- **`status: 'available'` vs `'disabled'`** — the only difference between the two buttons is which status string they send; both go through the exact same thunk and the exact same optimistic/rollback logic you wrote in Step 1.
-- **The `else` branch on Done** — if the admin isn't in the middle of a `disable` action (for example, just browsing in Edit Mode), Done simply closes Edit Mode without calling the server at all.
+- **`status: 'available'` vs `'disabled'`** — the only difference between the two buttons is which status string they send; both go through the exact same thunk and the exact same optimistic logic you wrote in Step 1.
+- **No confirm step** — the click *is* the save. The only button in the edit-mode chrome is **Cancel ✕**, which just closes Edit Mode (`dispatch(setIsEditMode(false))`); it never calls the server.
 
 **What it looks like — admin about to disable two spaces:**
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ LTRide                                                  ☰  │
 ├───────────────┬──────────────────────────────────────────┤
-│ ┌───────────┐ │                       [ Cancel X ][ Done ✓]│  ← Done saves to server
+│ ┌───────────┐ │                                  [ Cancel X ]│  ← just closes Edit Mode
 │ │Admin Ctrl │ │   ▢ ▢ ▣ ▢ ▢ ▢   ▢ ▢ ▢ ▢ ▢ ▢               │
 │ │Slot En/Dis│ │   ▢ ▣ ▢ ▢ ▨ ▨   ▢ ▢ ▢ ▢ ▢ ▢               │  ▢ available (yellow)
 │ │  Disable ▣│ │   ▢ ▢ ▢ ▢ ▢ ▢   ▣ ▢ ▢ ▢ ▢ ▢               │  ▨ selected (gold)
@@ -162,7 +159,7 @@ Then add `updateSpaces` to the import list from `./store/parkingSlice`.
 │ [👤 My Acct]  │   Edit Mode ●——                       LT   │
 └───────────────┴──────────────────────────────────────────┘
 ```
-After **Done ✓**, the two selected (gold) spaces turn grey immediately — that's the optimistic update from Step 1. After a **refresh**, they're still grey, because the PATCH actually reached the database.
+The instant you click **Disable** in the sub-panel, the two selected (gold) spaces turn grey — that's the optimistic update from Step 1. After a **refresh**, they're still grey, because the PATCH actually reached the database.
 
 > **Status colours (the legend both U3 and U4 use).** available = **yellow** (`#ffeb3b`), selected = **gold** (`#f5c542`), disabled = **grey** (`#aaa`), assigned = **blue** (`#7aa7ff`). Available is yellow, *not* white — a white spot washes out against a light map photo. The space objects the grid reads (`id`, `status`, `lot_id`, `assigned_user_id`) are snake_case, matching the U3 data contract.
 
@@ -171,11 +168,11 @@ After **Done ✓**, the two selected (gold) spaces turn grey immediately — tha
 ## 🧪 Prove it works — testing guide
 
 1. **Setup:** backend running (through **B5**); `npm run dev`; admin logged in.
-2. **Steps:** select a lot → **Slot Enable/Disable** → click 2–3 available (yellow) spaces (they turn gold when selected) → **Disable** (in the sub-panel) → **Done ✓**; then **refresh the page**. Repeat with **Enable** to turn them back. (Edit Mode is optional — the buttons work once a lot is selected.)
+2. **Steps:** select a lot → **Slot Enable/Disable** → click 2–3 available (yellow) spaces (they turn gold when selected) → **Disable** (in the sub-panel); then **refresh the page**. Repeat with **Enable** to turn them back. (Edit Mode is optional — the buttons work once a lot is selected.)
 3. **Expected:**
-   - Right after **Done**, the spaces turn grey **immediately** (optimistic), edit mode closes.
+   - Right after clicking **Disable**, the spaces turn grey **immediately** (optimistic), the selection clears, and edit mode closes.
    - After **refresh**, they're **still grey** — it saved to the database.
-   - If you stop the backend and try again, the colour change **rolls back** and a red error appears.
+   - If you stop the backend and try again, a red error appears; the optimistic grey stays on screen (it isn't auto-reverted) until the next load re-fetches the real state.
    - A space that's already `assigned` can't be disabled — the server returns 409 and you see the error (don't select assigned/blue spaces).
 
 **☁️ Cloud check (optional):** needs backend **B5** deployed. `./release.sh frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
@@ -196,12 +193,12 @@ Then open a Pull Request on GitHub with **base = `cr/u3-real-lots`** (this CR br
 
 ## 🧯 If something breaks
 
-- **The Enable/Disable/Done buttons crash with a "not defined" error** — you forgot to add `updateSpaces` to the import list from `./store/parkingSlice` in `ControlBoard.tsx`.
+- **The Enable/Disable buttons crash with a "not defined" error** — you forgot to add `updateSpaces` to the import list from `./store/parkingSlice` in `ControlBoard.tsx`.
 - **Spaces flip colour but go back to their old status after refresh** — the PATCH never reached the backend. Check the browser console for a network error, and confirm backend **B5** is actually running.
 - **Clicking Disable on a blue (`assigned`) space always errors** — that's expected: the server returns 409 for spaces that are already assigned. Only select yellow (`available`) or grey (`disabled`) spaces to test enable/disable.
 - **Selected a lot but every admin button stays greyed out** — you're double-gating on a separate Edit Mode. The panel should activate on lot selection (`isControlPanelActive = selectedLotId != null`); gate Disable/Enable on having a selection, and treat Edit Mode as optional chrome, not a required switch (see the Gating note in Step 2).
 - **Can't find the Disable/Enable buttons** — they're no longer top-level; open the **"Slot Enable/Disable"** mode button first, which reveals the sub-panel that contains them (see the Menu note in Step 2).
-- **Nothing happens when you click Done** — check that `editAction === 'disable'` at that moment; if the admin toolbar's `editAction` state got reset, the `else` branch just closes Edit Mode instead of dispatching `updateSpaces`.
+- **Nothing happens when you click Disable/Enable** — confirm a lot is selected (`selectedLotId != null`) and at least one space is selected (`selectedSpaces` non-empty); the click dispatches `updateSpaces` directly, so if nothing saves, one of those guards is failing.
 - **`state.error` never clears between attempts** — this lesson's `rejected` handler only sets `error`; if you want it cleared on a fresh attempt, make sure `updateSpaces.pending` (or `fetchSpaces.pending` from U3) resets it, the same way U3's `fetchSpaces.pending` does.
 
 ---

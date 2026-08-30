@@ -12,14 +12,14 @@
 The plumbing every later frontend lesson needs, **without changing what the user sees yet.** Concretely, by the end of this hour you will have:
 
 - `react-router-dom` installed (you won't use it until Lesson U2, but the foundation goes in now).
-- A local `.env` and a committed `.env.example`, both holding the backend's address — never hard-coded in your components.
+- A local `.env` and a committed `env.example.txt` template, both holding the backend's address (and the mock toggle) — never hard-coded in your components.
 - `src/api/client.ts` — the **one place** in the whole app that talks to the backend: it attaches the login token, unwraps the response envelope, and turns backend errors into JavaScript `Error`s you can `try/catch`.
 - A clean `npm run lint` and `npm run build` — proof the app still compiles.
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `npm run dev` shows the site looking and behaving **exactly as before** — same fake Student/Admin login.
 - [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken` — this lesson's starting surface; `put` (U8) and a separate `uploadFile()` (U7) land later in the same file.
-- [ ] `.env` exists locally with `VITE_API_URL=http://localhost:8000`; `.env.example` has the same line and **is** tracked by Git; `.env` is **not**.
+- [ ] `.env` exists locally with `VITE_API_URL=http://localhost:8000` and `VITE_USE_MOCK=true`; the committed `env.example.txt` template has the same lines and **is** tracked by Git; `.env` is **not**.
 - [ ] `npm run lint` and `npm run build` both finish with **no errors**.
 - [ ] Your work is committed on branch `cr/u0-hygiene` and pushed, PR base = `main`.
 
@@ -90,15 +90,17 @@ In the project root (next to `package.json`), create a file named `.env`:
 
 ```dotenv
 VITE_API_URL=http://localhost:8000
+VITE_USE_MOCK=true
 ```
 
-Also create `.env.example` with the **same line** — this one *is* committed, so the next person knows the setting exists without seeing anyone's real value:
+The committed template is `env.example.txt` (no leading dot, `.txt` extension so it's always tracked) — it already ships in the repo with the same two lines, so the next person knows the settings exist without seeing anyone's real value:
 
 ```dotenv
 VITE_API_URL=http://localhost:8000
+VITE_USE_MOCK=true
 ```
 
-Then confirm `.gitignore` ignores your real `.env`:
+Then keep your real `.env` out of Git. The shipped repo currently leaves `.env` **untracked but not ignored**, so add it to `.gitignore` to be safe:
 
 ```bash
 grep -q '^\.env$' .gitignore || echo '.env' >> .gitignore
@@ -106,6 +108,7 @@ grep -q '^\.env$' .gitignore || echo '.env' >> .gitignore
 
 **Explanation, piece by piece:**
 - `VITE_API_URL=http://localhost:8000` — the address of the backend your frontend calls. Locally that's your own machine's port 8000; on the deployed site it'll be a different address, but the *code* never needs to change.
+- `VITE_USE_MOCK=true` — keeps the app on the built-in in-memory mock backend (`src/api/mock/backend.ts`), so every lesson works with no real server running. Set it to `false` only when you want to hit a real backend at `VITE_API_URL`.
 - **Why `VITE_` at the front?** Vite only exposes variables that start with `VITE_` to your browser code (via `import.meta.env`). Anything else stays hidden from the bundle — a safety rail so you don't accidentally ship a secret to every visitor's browser. → Reference: [Vite: Env Variables and Modes](https://vite.dev/guide/env-and-mode).
 - `grep -q '^\.env$' .gitignore` — searches `.gitignore` *quietly* (`-q` prints nothing, just succeeds or fails) for a line that is **exactly** `.env` (`^` anchors the start, `$` anchors the end, `\.` means a literal dot rather than "any character").
 - `|| echo '.env' >> .gitignore` — `||` means "or, if the previous command didn't succeed": if `grep` didn't find that line, append (`>>`) one. This is a safe "add-it-if-it's-missing" idiom — running it twice does nothing the second time. → Reference: [gitignore pattern format](https://git-scm.com/docs/gitignore#_pattern_format).
@@ -232,7 +235,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 ## 📝 Recap
 
 - You installed `react-router-dom` ahead of needing it, so Lesson U2 is only about routing.
-- You set up **config in the environment**: the backend's address lives in `.env` (private, local) and `.env.example` (committed template), never hard-coded.
+- You set up **config in the environment**: the backend's address and mock toggle live in `.env` (private, local) and `env.example.txt` (committed template), never hard-coded.
 - You built `src/api/client.ts` — the single place every future lesson will call the backend through, complete with token handling and consistent error handling.
 - You practiced the **stacked-CR git routine** (branch → change → test → commit → PR) you'll repeat in all 7 remaining frontend lessons.
 

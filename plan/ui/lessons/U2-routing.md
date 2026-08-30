@@ -114,22 +114,22 @@ import { ErrorBoundary } from "./ErrorBoundary";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Provider store={store}>
-      <ErrorBoundary>
+    <ErrorBoundary>
+      <Provider store={store}>
         <BrowserRouter>
           <App />
         </BrowserRouter>
-      </ErrorBoundary>
-    </Provider>
+      </Provider>
+    </ErrorBoundary>
   </StrictMode>,
 );
 ```
 
 **Explanation:**
 - `ErrorBoundary` must be a **class component** — `getDerivedStateFromError` is React's hook for catching render errors, and it's only available on classes, not function components. → [React docs: Error boundaries](https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary).
-- It's wired **outermost** (around `BrowserRouter`, inside `Provider`), so a render crash anywhere in the routed app — a bad route, a bad page, a bad guard — surfaces here instead of blanking the page.
+- It's wired **outermost of all** (around `Provider` *and* `BrowserRouter`), so a render crash anywhere in the app — a bad route, a bad page, a bad guard, even something during store setup — surfaces here instead of blanking the page.
 - `<BrowserRouter>` — turns on real URL-based navigation for everything inside it. It reads the current browser address and lets any nested component ask "what's the URL right now?" or "take me to a different one." → [React Router — `BrowserRouter`](https://reactrouter.com/en/main/router-components/browser-router).
-- **Order matters here:** `<Provider>` (Redux) wraps `<ErrorBoundary>`, which wraps `<BrowserRouter>`, which wraps `<App>`. That way every component — including the router's own — can read Redux state, and every component can use routing. Neither one needs to be "more outside" than the other in principle; we just need both to wrap `App`.
+- **Order matters here:** `<ErrorBoundary>` wraps `<Provider>` (Redux), which wraps `<BrowserRouter>`, which wraps `<App>`. That way every component can read Redux state and use routing, and the boundary sits outside both so it can catch a crash even in store or router setup.
 - You installed the `react-router-dom` package back in **U0** (`npm install react-router-dom`) specifically so it would be ready for this lesson.
 
 ### Step 2 — Build the route guard: `src/ProtectedRoute.tsx` (~10 min)
