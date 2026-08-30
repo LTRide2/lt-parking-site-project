@@ -1,6 +1,6 @@
 # Lesson B5 — Admin enables/disables spaces
 
-> **Track:** Backend · **Lesson 6 of 8**
+> **Track:** Backend · **Lesson 6 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first endpoint that *changes* data and can be *refused* — two rules stacked on one route)
 > **🧩 Prerequisites:** you've finished [Lesson B4 — Read lots & spaces](B4-read-lots-and-spaces.md) — the server runs, you can log in as both a student and an admin, and `GET /api/lots/:id/spaces` returns real rows.
 > **🌿 CR branch:** `cr/b5-spaces` (off `cr/b4-lots`) · **📄 Source CR:** [backend guide → CR B5](../backend-development-guide.md#cr-b5--admin-enablesdisables-spaces) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)

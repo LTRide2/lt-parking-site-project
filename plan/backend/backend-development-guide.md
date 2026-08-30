@@ -499,6 +499,8 @@ createdb ltride_dev
 
 Create the folder and file `webapp/sql/migrations/001_init.sql` with **exactly** this content (verified against the shipped file, `webapp/sql/migrations/001_init.sql:1`). Read the comments — they explain each choice.
 
+> **Ignore the stray `webapp/sql/schema.sql` and `webapp/sql/data.sql`.** Like the `BK/` duplicate noted earlier, these are leftover course-template scaffolding (an old SQLite `developer` table), not part of LTRide. Nothing reads them; the only SQL this project runs is `migrations/001_init.sql` and `seed.sql`.
+
 ```sql
 -- webapp/sql/migrations/001_init.sql
 -- Initial schema for LTRide. Safe to re-run: it drops then recreates everything.

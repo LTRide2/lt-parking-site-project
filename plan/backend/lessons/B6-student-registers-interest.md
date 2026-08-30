@@ -1,6 +1,6 @@
 # Lesson B6 — Student registers interest
 
-> **Track:** Backend · **Lesson 7 of 8**
+> **Track:** Backend · **Lesson 7 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (picking one exact spot, and *replacing* — not duplicating — a live request)
 > **🧩 Prerequisites:** [Lesson B5 — Admin enables/disables spaces](B5-admin-enable-disable-spaces.md).
 > **🌿 CR branch:** `cr/b6-interest` (off `cr/b5-spaces`) · **📄 Source CR:** [backend guide → CR B6](../backend-development-guide.md#cr-b6--student-registers-interest) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)

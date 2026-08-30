@@ -24,6 +24,8 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 **A note on the extension rows.** The PoC validated four features beyond the core B0–B9 plan (tracker rows **B13–B16**, [plan.md §8.2](../../plan.md#82-cr-status-tracker)). Only **B13** got its own lesson above — it also covers **B14** (direct assign/move a roster student), since both live in the same `students.py` view module. The other two extensions are **folded into existing lessons** rather than split out: the preferred-spot interest + withdraw flow (**B15**) is folded into [Lesson B6 — Student registers interest](B6-student-registers-interest.md), and moving an assigned request to another lot (**B16**) is folded into [Lesson B7 — Admin assigns a space](B7-admin-assigns-a-space.md).
 
+**Why the numbers jump from B9 to B13.** `B10`, `B11`, and `B12` aren't missing lessons — they're the planned **hardening** CRs that haven't been expanded into hour-long lessons yet: validation & error-envelope polish (**B10**), automated tests — pytest (**B11**), and a second-Postgres portability check (**B12**). They're described in [plan.md §8 Phase 4](../../plan.md#8-implementation-strategy-stacked-crs); they'll get their own lessons when scheduled.
+
 ## What each lesson contains
 
 🎯 Goal + a "Done when" deliverable checklist · 🤔 Why it matters · 🧠 Concepts (with links) · ✅ Prereqs + a minute-by-minute time budget · 🛠 Step-by-step build (code + explanation + references) · 🧪 Testing guide · 🚀 Commit & open the CR · 🧯 Troubleshooting · 📝 Recap · 📚 References · ➡️ Next lesson.

@@ -1,6 +1,6 @@
 # Lesson B3 — Authentication (login)
 
-> **Track:** Backend · **Lesson 4 of 8** (B0 → B7)
+> **Track:** Backend · **Lesson 4 of 10** (B0 → B9)
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first real feature, and three new ideas at once — signed tokens, password hashing, route guards — so go slow and read every line)
 > **🧩 Prerequisites:** you've finished [Lesson B2 — Database schema & seed data](B2-database-schema-and-seed.md) — your PostgreSQL database exists, is migrated, and is seeded with an admin (`admin` / `admin123`) and at least one student code (`STU001`).
 > **🌿 CR branch:** `cr/b3-auth` (off `cr/b2-schema`) · **📄 Source CR:** [CR B3](../backend-development-guide.md#cr-b3--authentication-login) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -13,7 +13,7 @@ Right now anyone can hit your API, but nothing checks *who* they are. By the end
 
 - `webapp/App/db.py` — the **one** place that opens a connection to PostgreSQL; every other file borrows it from here.
 - `webapp/App/auth.py` — a service that **issues** a signed login token (JWT) and **checks** one on every protected request, plus a `@require_role` guard for admin-only routes.
-- `webapp/App/views/auth.py` — three real endpoints: `POST /api/auth/student`, `POST /api/auth/admin`, and `GET /api/auth/me`.
+- `webapp/App/views/auth.py` — four real endpoints: `POST /api/auth/student`, `POST /api/auth/admin`, `POST /api/auth/logout`, and `GET /api/auth/me`.
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `webapp/App/db.py` exists with `get_db`, `close_db`, `query`, `query_one`, and `execute`; `close_db` is wired into `app.teardown_appcontext(...)` in `__init__.py`.
@@ -21,6 +21,7 @@ Right now anyone can hit your API, but nothing checks *who* they are. By the end
 - [ ] `webapp/App/views/auth.py` exists with all three routes, and its blueprint is registered in `webapp/App/__init__.py`.
 - [ ] `curl` with the seeded student code `STU001` returns `200` with a `token` and a `user`; an unknown code returns `401`.
 - [ ] `curl /api/auth/me` **with** that token returns `200` with your user; **without** a token returns `401`.
+- [ ] `curl -X POST /api/auth/logout` returns `204` with an empty body.
 - [ ] Your work is committed on branch `cr/b3-auth` and pushed, PR base = `cr/b2-schema`.
 
 ---
@@ -326,6 +327,7 @@ Copy the `token` value from a successful response, then:
 ```bash
 curl -i http://localhost:8000/api/auth/me -H "Authorization: Bearer <paste-token>"
 curl -i http://localhost:8000/api/auth/me     # no token
+curl -i -X POST http://localhost:8000/api/auth/logout   # stateless: always 204
 ```
 
 **What you should see:**
@@ -333,6 +335,7 @@ curl -i http://localhost:8000/api/auth/me     # no token
 - Valid admin → `200` with the same shape: `{"data":{"token":"...","user":{"id":1,"role":"admin","name":"Admin","email":"admin@lt.edu"}}}`.
 - Wrong code / wrong password → `401` `{"error":{"code":"unauthorized",...}}`.
 - `/me` with token → `200` `{"data":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}`; `/me` without token → `401`.
+- `logout` → `204` with an empty body. Tokens are stateless, so there's nothing to invalidate server-side — the client just discards the token; the endpoint always succeeds.
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
 

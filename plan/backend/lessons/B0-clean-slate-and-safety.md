@@ -1,6 +1,6 @@
 # Lesson B0 — Clean slate & safety
 
-> **Track:** Backend · **Lesson 1 of 8** (B0 → B7)
+> **Track:** Backend · **Lesson 1 of 10** (B0 → B9)
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** gentle (no features yet — this is the setup that keeps you safe)
 > **🧩 Prerequisites:** you've done backend [Part 0 setup](../backend-development-guide.md#part-0--one-time-setup) (VS Code, Python 3.11+, Git, PostgreSQL installed; a `.venv` you can activate).
 > **🌿 CR branch:** `cr/b0-hygiene` (off `main`) · **📄 Source CR:** [backend guide → CR B0](../backend-development-guide.md#cr-b0--clean-slate--safety-do-this-first) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
@@ -91,6 +91,9 @@ __pycache__/
 # build output / dependencies
 node_modules/
 dist/
+
+# dev server runtime files (PID + logs the webapp/bin/server script writes; see B1)
+webapp/var/
 ```
 
 **Explanation, line group by line group:**
@@ -98,6 +101,7 @@ dist/
 - `.env` — **your secrets.** This is the single most important line here.
 - `*.pem` — the AWS private key. Leaking this would let someone log into your server. (Don't touch the `aws-tutorial.pem` file itself — it's handled separately.)
 - `node_modules/`, `dist/` — the frontend's installed libraries and build output; also regenerated, never committed.
+- `webapp/var/` — where the dev-server convenience script (`webapp/bin/server`, introduced in [Lesson B1](B1-health-check.md)) writes its process id and log files. Runtime junk, regenerated on every start — never committed.
 
 > **How `.gitignore` matches:** a trailing `/` means "a folder"; `*` is a wildcard. So `*.pem` means "any file ending in `.pem`, anywhere." → Reference: [gitignore pattern format](https://git-scm.com/docs/gitignore#_pattern_format).
 
@@ -128,6 +132,8 @@ gunicorn>=21.2
 - **[python-dotenv](https://saurabh-kumar.com/python-dotenv/)** `>=1.0` — loads your `.env` file (this lesson, step 3).
 - **[Werkzeug](https://werkzeug.palletsprojects.com/)** `>=2.2` — Flask's engine; also hashes passwords (lesson B3).
 - **[gunicorn](https://gunicorn.org/)** `>=21.2` — the production server that runs Flask on AWS (deploy lesson D3).
+
+> **If you're comparing against the reference repo:** the shipped `webapp/requirements.txt` in the reference implementation still carries the old course-template pins — the clean-up in this step was never committed there. It's harmless (the app only imports the seven libraries above), but that's why the reference file looks longer than the seven lines you just wrote.
 
 The `>=` means "this version **or newer**." → Reference: [pip version specifiers](https://pip.pypa.io/en/stable/reference/requirement-specifiers/). Now install them (venv active):
 
@@ -194,6 +200,8 @@ JWT_EXP_HOURS=12
 ```
 
 **Why keep an example?** A blank template documents "here are the settings this app needs" without leaking any actual secret. It's the standard way projects onboard new developers. → Reference: [12-Factor: Config — storing config](https://12factor.net/config).
+
+> **Note:** the reference implementation repo doesn't actually commit a `.env.example` — it keeps only a local (git-ignored) `.env`. Creating the template is still the recommended practice, so do it here; just don't be surprised if you don't find one in the reference repo.
 
 ---
 
