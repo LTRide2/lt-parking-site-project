@@ -381,6 +381,8 @@ Open `webapp/App/__init__.py` and add, alongside the other blueprint registratio
 
 **Setup:** server running with the seeded database; `$A` = admin token, `$S` = a student token (either fails every route below with `403`). The seed roster ([plan.md §2](../../plan.md#2-what-we-have-in-the-ui-today)) gives you: **Alice Anderson / `STU001`** (grade 11, slot `"Lot 1 · A8"`, `parking_status: valid`), **Sarah Smith / `S123213`** (grade 10, `suspended`), plus Bob (`STU002`), Andrew (`STU003`), Olivia (`STU004`), all `unassigned`.
 
+**macOS / Linux**
+
 ```bash
 # Search by name and by student id — both should return Alice alone.
 curl -s "http://localhost:8000/api/students?q=alice" -H "Authorization: Bearer $A"
@@ -428,6 +430,58 @@ curl -i -X POST http://localhost:8000/api/auth/student \
 
 # Every route above with $S instead of $A -> 403.
 curl -i http://localhost:8000/api/students -H "Authorization: Bearer $S"   # -> 403
+```
+
+**Windows (PowerShell)** — `Invoke-RestMethod` throws on 4xx/5xx by default; add `-SkipHttpErrorCheck` (PowerShell 7.4+) to see the response body for the error-case steps below, the way `curl -i` does:
+
+```powershell
+# Search by name and by student id — both should return Alice alone.
+Invoke-RestMethod "http://localhost:8000/api/students?q=alice" -Headers @{Authorization="Bearer $A"}
+Invoke-RestMethod "http://localhost:8000/api/students?q=S123213" -Headers @{Authorization="Bearer $A"}
+
+# Create — then repeat the same student_id for a 409.
+Invoke-RestMethod -Method Post http://localhost:8000/api/students -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' `
+  -Body '{"first":"New","last":"Kid","student_id":"STU010","grade":"9"}'
+Invoke-RestMethod -Method Post http://localhost:8000/api/students -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' `
+  -Body '{"first":"Dup","last":"Licate","student_id":"STU010"}'   # -> 409
+
+# Patch a subset of fields; blank student_id -> 400.
+Invoke-RestMethod -Method Patch http://localhost:8000/api/students/6 -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"grade":"10"}'
+Invoke-RestMethod -Method Patch http://localhost:8000/api/students/6 -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"student_id":""}'   # -> 400
+
+# Direct assign — Bob (STU002, no request filed) into an available space in Lot 4.
+Invoke-RestMethod -Method Post http://localhost:8000/api/students/2/assign -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"spaceId":9}'
+# re-read the roster: Bob's parking_status is now "valid", assigned_slot is set.
+Invoke-RestMethod "http://localhost:8000/api/students?q=bob" -Headers @{Authorization="Bearer $A"}
+
+# Delete.
+Invoke-RestMethod -Method Delete http://localhost:8000/api/students/6 -Headers @{Authorization="Bearer $A"}   # -> 204
+Invoke-RestMethod -Method Delete http://localhost:8000/api/students/6 -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"}   # -> 404
+
+# CSV import — one update (Bob, existing STU002), one add (new STU020), one bad row.
+@'
+First,Last,studentId,email,grade
+Bob,Baker,STU002,bob@lt.edu,12
+Nora,Newperson,STU020,nora@lt.edu,9
+NoStudentId,,,,
+'@ | Set-Content -Path "$env:TEMP\roster.csv" -Encoding utf8
+Invoke-RestMethod -Method Post http://localhost:8000/api/students/import `
+  -Headers @{Authorization="Bearer $A"} -Form @{file=Get-Item "$env:TEMP\roster.csv"}
+# -> {"data":{"added":1,"updated":1,"errors":["Row 3: need First, Last and studentId"]}}
+
+# The freshly imported student can now log in — the import provisioned a login row.
+Invoke-RestMethod -Method Post http://localhost:8000/api/auth/student `
+  -ContentType 'application/json' -Body '{"code":"STU020"}'
+# -> 200 with a token and user {name:"Nora Newperson", role:"student", email:null}
+
+# Every route above with $S instead of $A -> 403.
+Invoke-RestMethod http://localhost:8000/api/students -SkipHttpErrorCheck -Headers @{Authorization="Bearer $S"}   # -> 403
 ```
 
 **What you should see:**

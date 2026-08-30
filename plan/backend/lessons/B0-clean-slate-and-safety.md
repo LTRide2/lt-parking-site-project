@@ -55,12 +55,26 @@ Getting this right now means every later lesson (login, database, deploy) is saf
 
 **Open your terminal, activate the virtual environment, and make your branch.** In the stacked-CR workflow each lesson lives on its own branch that starts from the one before it; B0 starts from `main`.
 
+**macOS / Linux**
+
 ```bash
 source .venv/bin/activate      # your prompt should now start with (.venv)
 git checkout main
 git pull                       # make sure you start from the latest main
 git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+.venv\Scripts\Activate.ps1     # your prompt should now start with (.venv)
+git checkout main
+git pull                       # make sure you start from the latest main
+git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
+```
+
+> If activation fails with a script-execution error, run
+> `Set-ExecutionPolicy -Scope Process RemoteSigned` first, then retry.
 
 **What this does & why:** `checkout -b` creates a new branch and moves you onto it, so your changes are isolated and reviewable as one small unit. → Reference: [Git Branching basics](https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell).
 
@@ -137,8 +151,16 @@ gunicorn>=21.2
 
 The `>=` means "this version **or newer**." → Reference: [pip version specifiers](https://pip.pypa.io/en/stable/reference/requirement-specifiers/). Now install them (venv active):
 
+**macOS / Linux**
+
 ```bash
 pip install -r webapp/requirements.txt
+```
+
+**Windows (PowerShell)**
+
+```powershell
+pip install -r webapp\requirements.txt
 ```
 
 ### Step 3 — Move the secret key out of the code (~15 min)

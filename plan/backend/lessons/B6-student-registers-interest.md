@@ -226,6 +226,9 @@ Open `webapp/App/__init__.py` and register it alongside the other blueprints:
 **Setup:** server running (`flask run` or however B1 set it up); `$S` = a student's login token (use STU003 / Andrew — he's the one seeded student with *no* interest row, so his first POST is a clean `201`; Bob and Olivia already have seeded `pending` rows, and Alice a `fulfilled` one), `$A` = an admin's login token. Seed data (`webapp/sql/seed.sql:32-41`) makes Lot 1 (id `1`) spaces `A1`..`A8` = space ids `1`..`8`: `A1`-`A3`,`A5`-`A7` available, `A4` (id `4`) disabled, `A8` (id `8`) assigned to Alice.
 
 **Steps:**
+
+**macOS / Linux**
+
 ```bash
 # 1. Pick A1 (available) — first request, expect 201.
 curl -i -X POST http://localhost:8000/api/interest \
@@ -270,6 +273,54 @@ ALICE=$(curl -s -X POST http://localhost:8000/api/auth/student \
   -H 'Content-Type: application/json' -d '{"code":"STU001"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')
 curl -i -X POST http://localhost:8000/api/interest \
   -H "Authorization: Bearer $ALICE" -H 'Content-Type: application/json' -d '{"lotId":2,"spaceIds":[9]}'
+```
+
+**Windows (PowerShell)** — `Invoke-RestMethod` throws on 4xx/5xx by default; add `-SkipHttpErrorCheck` (PowerShell 7.4+) to see the response body for the error-case steps below, the way `curl -i` does:
+
+```powershell
+# 1. Pick A1 (available) — first request, expect 201.
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[1]}'
+
+# 2. Change your mind, pick A2 instead — expect 200, still one row.
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[2]}'
+
+# 3. Try the disabled spot A4 — expect 409.
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[4]}'
+
+# 4. Empty spaceIds — expect 400 "Pick an available spot".
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[]}'
+
+# 5. Two spaceIds — expect 400 "Only one spot can be requested".
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[2,3]}'
+
+# 6. Your current request — expect the one object, pointing at A2.
+Invoke-RestMethod http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+
+# 7. Withdraw — expect 204.
+Invoke-RestMethod -Method Delete http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+
+# 8. Confirm it's gone — expect {"data":null}.
+Invoke-RestMethod http://localhost:8000/api/interest/me -Headers @{Authorization="Bearer $S"}
+
+# 9. Re-pick A1 so there's something for the admin to see — expect 201.
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"lotId":1,"spaceIds":[1]}'
+
+# 10. Admin's view — expect Andrew's new row (user_name "Andrew", lot_name "Lot 1",
+#     space_labels ["A1"]) plus the seed's Bob and Olivia rows on Lot 4.
+Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @{Authorization="Bearer $A"}
+
+# 11. One-active-request: Alice already holds Lot 1 · A8 (a fulfilled row), so any
+#     new request from her is rejected — expect 409 "You already have a parking spot assigned".
+$ALICE = (Invoke-RestMethod -Method Post http://localhost:8000/api/auth/student `
+  -ContentType 'application/json' -Body '{"code":"STU001"}').data.token
+Invoke-RestMethod -Method Post http://localhost:8000/api/interest -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $ALICE"} -ContentType 'application/json' -Body '{"lotId":2,"spaceIds":[9]}'
 ```
 
 **What you should see:**

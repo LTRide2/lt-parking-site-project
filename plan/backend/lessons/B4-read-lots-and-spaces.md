@@ -58,8 +58,19 @@ And a third idea, new to this lesson: this is also the first CR to reshape a row
 
 **Open your terminal, activate the virtual environment, and make your branch.** B4 stacks on top of B3 — it needs the auth guard and the database helper you already built:
 
+**macOS / Linux**
+
 ```bash
 source .venv/bin/activate      # your prompt should start with (.venv)
+git checkout cr/b3-auth
+git checkout -b cr/b4-lots      # create + switch to this lesson's branch
+```
+
+**Windows (PowerShell)**
+
+```powershell
+.venv\Scripts\Activate.ps1     # your prompt should start with (.venv)
+                                # blocked by execution policy? run once: Set-ExecutionPolicy -Scope Process RemoteSigned
 git checkout cr/b3-auth
 git checkout -b cr/b4-lots      # create + switch to this lesson's branch
 ```
@@ -214,15 +225,37 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
 ## 🧪 Prove it works — testing guide
 
 1. **Setup:** the server running (`flask run --port 8000`) and a token from B3 — log in once and save it, so the rest of the commands are shorter:
+
+   **macOS / Linux**
+
    ```bash
    export T=<paste-a-token-from-B3-login>
    ```
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   $env:T = "<paste-a-token-from-B3-login>"
+   ```
+
 2. **Steps:**
+
+   **macOS / Linux**
+
    ```bash
    curl -i http://localhost:8000/api/lots -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots/999/spaces -H "Authorization: Bearer $T"
    curl -i http://localhost:8000/api/lots          # no token
+   ```
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   Invoke-RestMethod http://localhost:8000/api/lots -Headers @{Authorization="Bearer $env:T"}
+   Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $env:T"}
+   Invoke-RestMethod http://localhost:8000/api/lots/999/spaces -Headers @{Authorization="Bearer $env:T"}
+   Invoke-RestMethod http://localhost:8000/api/lots          # no token
    ```
 3. **Expected:**
    - `/api/lots` → `200` `{"data":[{"id":1,"name":"Lot 1","number":1,"display_order":1,"map_image_url":"/lots/lot1.jpg","capacity":8,"available_count":6}, ...]}` — six lots total; Lot 1's `available_count` is 6 because `A4` is `disabled` and `A8` is `assigned`.
@@ -230,9 +263,19 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
    - Lot `999` → `404`; no token → `401`.
 
 **☁️ Cloud check (optional):** after `./release.sh backend`, with a token from the server's `/api/auth/student`:
+
+**macOS / Linux**
+
 ```bash
 curl -s http://<ElasticIp>/api/lots -H "Authorization: Bearer $T"
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod http://<ElasticIp>/api/lots -Headers @{Authorization="Bearer $env:T"}
+```
+
 Expect the same lots JSON the local server returned (assuming RDS was seeded).
 
 ---

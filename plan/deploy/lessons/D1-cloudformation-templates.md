@@ -215,9 +215,16 @@ Resources:
 
 ## 🧪 Prove it works — testing guide
 
+**macOS / Linux**
 ```bash
 cd deploy
 ./deploy.sh validate
+```
+
+**Windows (PowerShell)** — `deploy.sh` is a bash script; run it via Git Bash/WSL:
+```powershell
+cd deploy
+bash ./deploy.sh validate
 ```
 
 **What you should see:** one `valid: <template>.yaml` line per file, in order:

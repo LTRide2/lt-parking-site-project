@@ -77,9 +77,18 @@ it) that doesn't match the blueprint + factory pattern you're about to build.
 Left in place, it crashes the import as soon as you register a blueprint below.
 Delete it now, before you write anything new:
 
+**macOS / Linux**
+
 ```bash
 rm webapp/App/model.py webapp/App/index.py
 rm webapp/App/views/index.py webapp/App/views/root.py webapp/App/views/images.py
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Remove-Item webapp\App\model.py, webapp\App\index.py
+Remove-Item webapp\App\views\index.py, webapp\App\views\root.py, webapp\App\views\images.py
 ```
 
 Then open `webapp/App/views/__init__.py` and replace its contents with just a
@@ -173,16 +182,25 @@ app = create_app()
 
 In this same terminal (venv active, repo root), start the dev server:
 
+**macOS / Linux**
+
 ```bash
 export FLASK_APP=webapp.App
 flask run --port 8000
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+$env:FLASK_APP = "webapp.App"
+flask run --port 8000
+```
+
 **What this does & why:** `FLASK_APP=webapp.App` tells the `flask` command-line tool *which module* has your app object (`webapp/App/__init__.py`, imported as `webapp.App`). `flask run --port 8000` starts Flask's built-in development server listening on port `8000`. Leave this terminal running — it prints a log line for every request it receives — and do the next section in a **second** terminal. → Reference: [Flask CLI: `flask run`](https://flask.palletsprojects.com/en/stable/cli/#run-the-development-server)
 
-> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where `ls` shows the `webapp/` folder).
+> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where `ls` shows the `webapp/` folder). **Windows:** `cd $HOME\workspace\LTR-Backend`.
 
-> **The reference repo's convenience wrapper — `webapp/bin/server`.** Typing `export FLASK_APP=…` and `flask run` every time gets tedious, so the shipped implementation includes a small script, `webapp/bin/server`, with `start` / `stop` / `restart` / `status` subcommands. It backgrounds the server, writes its process id and logs under `webapp/var/` (the folder you git-ignored in B0), and honors `LTRIDE_HOST` / `LTRIDE_PORT` overrides. You don't need it to finish this lesson — plain `flask run` is enough — but it's the script the day-to-day PoC workflow uses; full usage is in [running the PoC](../running-the-poc.md).
+> **The reference repo's convenience wrapper — `webapp/bin/server`.** Typing `export FLASK_APP=…` and `flask run` every time gets tedious, so the shipped implementation includes a small script, `webapp/bin/server`, with `start` / `stop` / `restart` / `status` subcommands. It backgrounds the server, writes its process id and logs under `webapp/var/` (the folder you git-ignored in B0), and honors `LTRIDE_HOST` / `LTRIDE_PORT` overrides. You don't need it to finish this lesson — plain `flask run` is enough — but it's the script the day-to-day PoC workflow uses; full usage is in [running the PoC](../running-the-poc.md). **Windows note:** this is a `#!/bin/bash` script — run it from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`.
 
 ---
 
@@ -192,16 +210,29 @@ flask run --port 8000
 
 In a **second** terminal, run:
 
+**macOS / Linux**
+
 ```bash
 curl -i http://localhost:8000/api/health
 curl -i http://localhost:8000/api/does-not-exist
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+curl.exe -i http://localhost:8000/api/does-not-exist
+```
+
+> **Why `curl.exe` for the second line?** `Invoke-RestMethod` throws an exception on any non-2xx response instead of printing the body, so it can't show you a `404`. `curl.exe` (bundled with Windows 10+) behaves like Linux `curl` and prints the status + body as-is — use it whenever a step is deliberately checking an error status code. Later lessons/CRs reuse this same split.
 
 **What you should see:**
 1. The first command returns `200` and a body like `{"data":{"status":"ok","time":"...."}}`.
 2. The second command returns `404` and `{"error":{"code":"not_found","message":"Not found"}}` — proving the error envelope from Step 3 works for a route that doesn't exist.
 
 **☁️ Cloud check (optional).** If you've already stood up the AWS server (Part 2, CRs D0–D2 in the guide), run the repeatable deploy recipe and hit the real server:
+
+**macOS / Linux**
 
 ```bash
 git push
@@ -210,6 +241,26 @@ cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh outputs        # note the ElasticIp
 
 curl -i http://<ElasticIp>/api/health     # expect 200 {"data":{"status":"ok",...}}
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git push
+cd $HOME\workspace\LTR-Backend\deploy
+```
+
+`deploy.sh`/`release.sh` are `#!/bin/bash` scripts — run these two from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`:
+
+```bash
+./release.sh backend
+./deploy.sh outputs        # note the ElasticIp
+```
+
+Back in PowerShell (or Git Bash — either works for a plain GET):
+
+```powershell
+Invoke-RestMethod http://<ElasticIp>/api/health     # expect {"data":{"status":"ok",...}}
 ```
 
 This is the best *first* cloud check in the whole project — if `/api/health` answers on the real server, your entire deploy pipeline (git pull → gunicorn → nginx) is healthy, before you've risked anything more complex.

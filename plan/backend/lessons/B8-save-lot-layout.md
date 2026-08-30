@@ -178,6 +178,8 @@ def save_layout(lot_id):
 
 **Setup:** server running; `$A` = admin token; `$S` = student token; pick a lot id (e.g. `1`).
 
+**macOS / Linux**
+
 ```bash
 # save a two-spot layout (no ids => both are new spaces; A1 sets a custom size, A2 omits w/h)
 curl -i -X PUT http://localhost:8000/api/lots/1/layout \
@@ -193,6 +195,23 @@ curl -i -X PUT http://localhost:8000/api/lots/1/layout \
 curl -i -X PUT http://localhost:8000/api/lots/1/layout \
   -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
   -d '{"spaces":[{"label":"X","x":9,"y":0.1}]}'
+```
+
+**Windows (PowerShell)** — `Invoke-RestMethod` throws on 4xx/5xx by default; add `-SkipHttpErrorCheck` (PowerShell 7.4+) to see the response body for the error-case steps below, the way `curl -i` does:
+
+```powershell
+# save a two-spot layout (no ids => both are new spaces; A1 sets a custom size, A2 omits w/h)
+Invoke-RestMethod -Method Put http://localhost:8000/api/lots/1/layout -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' `
+  -Body '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"w":0.08,"h":0.05,"rotation":0},{"label":"A2","x":0.6,"y":0.4,"rotation":90}]}'
+# re-read: positions AND sizes persisted (A2 shows the default w/h)
+Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $A"}
+# a student may not save a layout -> 403
+Invoke-RestMethod -Method Put http://localhost:8000/api/lots/1/layout -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $S"} -ContentType 'application/json' -Body '{"spaces":[]}'
+# out-of-range coordinate -> 400
+Invoke-RestMethod -Method Put http://localhost:8000/api/lots/1/layout -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"spaces":[{"label":"X","x":9,"y":0.1}]}'
 ```
 
 **What you should see:**

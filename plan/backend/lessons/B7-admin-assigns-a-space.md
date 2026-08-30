@@ -316,6 +316,9 @@ Open `webapp/App/__init__.py` and add, alongside the other blueprint registratio
 **Setup:** server running, database seeded (B2); `$A` = admin token (B3). The seed data gives you a ready-made scenario: **Bob** (`STU002`, user id `3`) has a `pending` interest request (id `2`) on **Lot 4** (lot id `2`), and Lot 4's first space (`4-1`, space id `9`) is `available`.
 
 **1. Assign the available Lot 4 spot to Bob:**
+
+**macOS / Linux**
+
 ```bash
 curl -i -X POST http://localhost:8000/api/assignments \
   -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
@@ -329,7 +332,25 @@ curl -s http://localhost:8000/api/students?q=STU002 -H "Authorization: Bearer $A
 # Bob's roster row: assigned_slot "Lot 4 · 4-1", parking_status "valid"
 ```
 
+**Windows (PowerShell)** — `Invoke-RestMethod` throws on 4xx/5xx by default; add `-SkipHttpErrorCheck` (PowerShell 7.4+) to see the response body for the error-case steps below, the way `curl -i` does:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/api/assignments -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' `
+  -Body '{"spaceId":9,"userId":3,"interestId":2}'
+# 201 {"data":{"space_id":9,"user_id":3,"interest_id":2}}
+Invoke-RestMethod http://localhost:8000/api/lots/2/spaces -Headers @{Authorization="Bearer $A"}
+# space 9 ("4-1") is now "assigned", assigned_user_id 3, assigned_user_name "Bob"
+Invoke-RestMethod "http://localhost:8000/api/interest?status=fulfilled" -Headers @{Authorization="Bearer $A"}
+# interest id 2 (Bob) is now "fulfilled"
+Invoke-RestMethod "http://localhost:8000/api/students?q=STU002" -Headers @{Authorization="Bearer $A"}
+# Bob's roster row: assigned_slot "Lot 4 · 4-1", parking_status "valid"
+```
+
 **2. Re-assigning the same space fails:**
+
+**macOS / Linux**
+
 ```bash
 curl -i -X POST http://localhost:8000/api/assignments \
   -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
@@ -337,7 +358,18 @@ curl -i -X POST http://localhost:8000/api/assignments \
 # 409 {"error":{"code":"conflict","message":"Space already has an active assignment"}}
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/api/assignments -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"spaceId":9,"userId":5}'
+# 409 {"error":{"code":"conflict","message":"Space already has an active assignment"}}
+```
+
 **3. Undo it — DELETE by SPACE id, not assignment id:**
+
+**macOS / Linux**
+
 ```bash
 curl -i -X DELETE http://localhost:8000/api/assignments/9 -H "Authorization: Bearer $A"
 # 204, no body
@@ -347,7 +379,21 @@ curl -s "http://localhost:8000/api/interest?status=pending" -H "Authorization: B
 # Bob's request (id 2) is back to "pending"
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod -Method Delete http://localhost:8000/api/assignments/9 -Headers @{Authorization="Bearer $A"}
+# 204, no body
+Invoke-RestMethod http://localhost:8000/api/lots/2/spaces -Headers @{Authorization="Bearer $A"}
+# space 9 is "available" again, assigned_user_id null
+Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @{Authorization="Bearer $A"}
+# Bob's request (id 2) is back to "pending"
+```
+
 **4. Move a fulfilled occupant to a different lot.** The seed's own Alice/`A8` assignment (space id `8`, Lot 1) is a ready-made "already assigned" occupant — move her to Lot 5 (lot id `3`) instead of first creating a new assignment:
+
+**macOS / Linux**
+
 ```bash
 curl -i -X POST http://localhost:8000/api/assignments/move \
   -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
@@ -356,6 +402,18 @@ curl -i -X POST http://localhost:8000/api/assignments/move \
 curl -s http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $A"
 # space 8 ("A8") is "available" again
 curl -s "http://localhost:8000/api/interest?status=pending" -H "Authorization: Bearer $A"
+# Alice's request is now "pending" with lot_id 3 (Lot 5) — no spot picked yet
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/api/assignments/move -SkipHttpErrorCheck `
+  -Headers @{Authorization="Bearer $A"} -ContentType 'application/json' -Body '{"fromSpaceId":8,"toLotId":3}'
+# 200 {"data":{"from_space_id":8,"to_lot_id":3}}
+Invoke-RestMethod http://localhost:8000/api/lots/1/spaces -Headers @{Authorization="Bearer $A"}
+# space 8 ("A8") is "available" again
+Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @{Authorization="Bearer $A"}
 # Alice's request is now "pending" with lot_id 3 (Lot 5) — no spot picked yet
 ```
 

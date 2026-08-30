@@ -63,8 +63,19 @@ Get the schema right now, and every later lesson (B3 login, B4 reading lots, B6 
 
 **Open your terminal, activate the virtual environment, and make your branch.** B2 branches off B1, not off `main` — you're stacking this CR on top of the health-check work.
 
+**macOS / Linux**
+
 ```bash
 source .venv/bin/activate         # your prompt should now start with (.venv)
+git checkout cr/b1-health
+git checkout -b cr/b2-schema      # create + switch to this lesson's branch
+```
+
+**Windows (PowerShell)**
+
+```powershell
+.venv\Scripts\Activate.ps1        # your prompt should now start with (.venv)
+                                   # blocked by execution policy? run once: Set-ExecutionPolicy -Scope Process RemoteSigned
 git checkout cr/b1-health
 git checkout -b cr/b2-schema      # create + switch to this lesson's branch
 ```
@@ -80,13 +91,31 @@ git checkout -b cr/b2-schema      # create + switch to this lesson's branch
 If you already ran `brew install postgresql@16` back in [Part 0 setup](../backend-development-guide.md#01-install-the-tools), you still need two one-time steps: **start the server** and **put its tools on your PATH**. Do this now if `psql --version` doesn't work yet.
 
 1. **Install it** (skip if already installed):
+
+   **macOS / Linux**
+
    ```bash
    brew install postgresql@16
    ```
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   winget install PostgreSQL.PostgreSQL.16   # installs & starts the "postgresql-x64-16" service
+   ```
+
 2. **Start the database server** (and have it auto-start whenever you log in):
+
+   **macOS / Linux**
+
    ```bash
    brew services start postgresql@16
    ```
+
+   **Windows (PowerShell)** — the `winget install` above already installs and starts
+   the `postgresql-x64-16` service; nothing to run here. If it's ever stopped, restart
+   it with `net start postgresql-x64-16`.
+
 3. **Put the tools on your PATH.** Homebrew installs this version "keg-only," meaning you have to add it to your PATH yourself. Run the line for your Mac:
    ```bash
    # Apple Silicon (M1/M2/M3) Macs:
@@ -95,23 +124,57 @@ If you already ran `brew install postgresql@16` back in [Part 0 setup](../backen
    echo 'export PATH="/usr/local/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
    ```
    Then reload your shell: `source ~/.zshrc` (or just open a new Terminal window).
+
+   > **Windows note:** the installer normally adds Postgres to `PATH` for you. If
+   > `psql`/`createdb` still aren't found, add `C:\Program Files\PostgreSQL\16\bin`
+   > to your `PATH` (Settings → System → About → Advanced system settings →
+   > Environment Variables), then open a new PowerShell window.
+
 4. **Verify it worked:**
+
+   **macOS / Linux**
+
    ```bash
    psql --version        # should print "psql (PostgreSQL) 16.x"
    createdb --version
    ```
-5. **First-connection fix (only if you hit it):** the very first connection sometimes fails with *"role does not exist."* If so, create a database user matching your Mac username, once:
+
+   **Windows (PowerShell)**
+
+   ```powershell
+   psql --version        # should print "psql (PostgreSQL) 16.x"
+   createdb --version
+   ```
+
+5. **First-connection fix (only if you hit it):** the very first connection sometimes fails with *"role does not exist."* If so, create a database user matching your username, once:
+
+   **macOS / Linux**
+
    ```bash
    createuser -s "$(whoami)"
    ```
 
-**What this does & why:** `brew services start` runs Postgres as a background service instead of you having to launch it by hand every time. The PATH lines tell your shell where to find `psql`/`createdb`, since Homebrew deliberately doesn't put this version on the PATH automatically (so it doesn't clash with a system Postgres). → Reference: [PostgreSQL documentation](https://www.postgresql.org/docs/current/).
+   **Windows (PowerShell)**
+
+   ```powershell
+   createuser -s $env:USERNAME
+   ```
+
+**What this does & why:** `brew services start` (macOS/Linux) — or the `winget` installer on Windows — runs Postgres as a background service instead of you having to launch it by hand every time. The PATH lines tell your shell where to find `psql`/`createdb`, since Homebrew deliberately doesn't put this version on the PATH automatically (so it doesn't clash with a system Postgres); the Windows installer normally does this for you. → Reference: [PostgreSQL documentation](https://www.postgresql.org/docs/current/).
 
 > **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride_dev` opens a session connected to the `ltride_dev` database; `psql ltride_dev -f file.sql` runs a file against it; `psql ltride_dev -c "SQL..."` runs one command. Type `\q` to quit an interactive session. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
 
 ### Step 1 — Create the database (~5 min)
 
+**macOS / Linux**
+
 ```bash
+createdb ltride_dev
+```
+
+**Windows (PowerShell)**
+
+```powershell
 createdb ltride_dev
 ```
 
@@ -336,7 +399,15 @@ This is the exact file the shipped app runs — `webapp/sql/migrations/001_init.
 
 We never store a plain password anywhere — not even in a seed file. Generate a **hash** (a one-way scrambled version) of the admin's local-dev password (`admin123`) using the same library the app will use later to check it:
 
+**macOS / Linux**
+
 ```bash
+python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('admin123'))"
+```
+
+**Windows (PowerShell)**
+
+```powershell
 python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('admin123'))"
 ```
 
@@ -344,11 +415,11 @@ python -c "from werkzeug.security import generate_password_hash; print(generate_
 
 **Heads up:** every hash this command prints is different — it's salted with fresh random bytes each run — so your string won't byte-match the one below, and that's fine; any valid hash of `admin123` works identically. Step 5's seed file already has one baked in (`webapp/sql/seed.sql:11`); you can paste it as-is, or swap in the one you just generated.
 
-> Once your server exists (from B1), there's also a **scripted** way to create or reset an admin login without hand-editing SQL at all: `webapp/bin/add-admin --username admin --force`. It prompts for the password (never on the command line), hashes it the same way, and writes the row straight into `users`. That's what you'd reach for later; the seed file below is only for this from-scratch bootstrap, before there's even a running server to talk to the database for you.
+> Once your server exists (from B1), there's also a **scripted** way to create or reset an admin login without hand-editing SQL at all: `webapp/bin/add-admin --username admin --force`. It prompts for the password (never on the command line), hashes it the same way, and writes the row straight into `users`. That's what you'd reach for later; the seed file below is only for this from-scratch bootstrap, before there's even a running server to talk to the database for you. (This is a `#!/bin/bash` script — on Windows, run it from **Git Bash** or **WSL**, not PowerShell.)
 
 ### Step 5 — Write the seed file (~5 min)
 
-Create `webapp/sql/seed.sql` with **exactly** this content:
+Create `webapp/sql/seed.sql` with **exactly** this content (`webapp\sql\seed.sql` on Windows):
 
 ```sql
 -- webapp/sql/seed.sql
@@ -446,9 +517,18 @@ Replace `<paste your hash from Step 4 here>` with the string you just copied (or
 
 ### Step 6 — Run the migration and seed files (~5 min)
 
+**macOS / Linux**
+
 ```bash
 psql ltride_dev -f webapp/sql/migrations/001_init.sql
 psql ltride_dev -f webapp/sql/seed.sql
+```
+
+**Windows (PowerShell)**
+
+```powershell
+psql ltride_dev -f webapp\sql\migrations\001_init.sql
+psql ltride_dev -f webapp\sql\seed.sql
 ```
 
 **What this does & why:** `psql <database> -f <file>` opens a connection to `ltride_dev` and runs every statement in the file in order, printing each result (`DROP TABLE`, `CREATE TABLE`, `INSERT 0 1`, …) as it goes. Run the migration first (it builds the empty tables), then the seed (it fills them in). Each should print a list of results with **no `ERROR`** — if you see one, re-check the file against Steps 3/5 before moving on. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
@@ -457,10 +537,23 @@ psql ltride_dev -f webapp/sql/seed.sql
 
 ## 🧪 Prove it works — testing guide
 
-**Setup:** PostgreSQL running (`brew services start postgresql@16`); both files from Step 6 ran with no error.
+**Setup:** PostgreSQL running (macOS/Linux: `brew services start postgresql@16`; Windows: `net start postgresql-x64-16`); both files from Step 6 ran with no error.
 
 **Steps:**
+
+**macOS / Linux**
+
 ```bash
+psql ltride_dev -c "\dt"                                          # list tables
+psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
+psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"
+psql ltride_dev -c "SELECT first, last, student_id, parking_status FROM students ORDER BY last;"
+psql ltride_dev -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
+```
+
+**Windows (PowerShell)**
+
+```powershell
 psql ltride_dev -c "\dt"                                          # list tables
 psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
 psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"
@@ -511,10 +604,10 @@ Then open a Pull Request on GitHub with **base = `cr/b1-health`** (this CR stack
 
 ## 🧯 If something breaks
 
-- **`createdb: command not found` or `psql: command not found`** — Postgres isn't on your PATH yet. Redo Step 0's PATH lines, then open a new terminal (or `source ~/.zshrc`).
-- **`psql: error: connection to server ... failed`** — the Postgres service isn't running. Run `brew services start postgresql@16` and try again.
-- **`FATAL: role "yourname" does not exist`** — run `createuser -s "$(whoami)"` once (Step 0.5), then retry.
-- **`ERROR: relation "lots" does not exist` when running `seed.sql`** — you skipped or mis-ran the migration. Re-run `psql ltride_dev -f webapp/sql/migrations/001_init.sql` first.
+- **`createdb: command not found` or `psql: command not found`** — Postgres isn't on your PATH yet. macOS/Linux: redo Step 0's PATH lines, then open a new terminal (or `source ~/.zshrc`). Windows: add `C:\Program Files\PostgreSQL\16\bin` to your `PATH`, then open a new PowerShell window.
+- **`psql: error: connection to server ... failed`** — the Postgres service isn't running. macOS/Linux: run `brew services start postgresql@16`. Windows: run `net start postgresql-x64-16`. Then try again.
+- **`FATAL: role "yourname" does not exist`** — macOS/Linux: run `createuser -s "$(whoami)"` once (Step 0.5). Windows: run `createuser -s $env:USERNAME`. Then retry.
+- **`ERROR: relation "lots" does not exist` when running `seed.sql`** — you skipped or mis-ran the migration. Re-run `psql ltride_dev -f webapp/sql/migrations/001_init.sql` (Windows: `psql ltride_dev -f webapp\sql\migrations\001_init.sql`) first.
 - **Seed file errors on the hash placeholder** — you forgot to swap in the real hash from Step 4 (or the committed one from `webapp/sql/seed.sql:11`). Paste the whole `scrypt:...` or `pbkdf2:...` string in place of the placeholder.
 
 ---
