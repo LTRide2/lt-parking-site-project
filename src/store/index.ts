@@ -2,15 +2,11 @@ import { configureStore } from '@reduxjs/toolkit';
 import { useDispatch, useSelector } from 'react-redux';
 import authReducer from './authSlice';
 import parkingReducer from './parkingSlice';
-import interestReducer from './interestSlice';
-import studentsReducer from './studentsSlice';
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     parking: parkingReducer,
-    interest: interestReducer,
-    students: studentsReducer,
   },
 });
 
