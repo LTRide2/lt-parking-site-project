@@ -61,12 +61,23 @@ This lesson is intentionally invisible — nothing on screen changes. That's the
 
 **Open your terminal, move into the project folder, and make your branch.** In the stacked-CR workflow each lesson lives on its own branch; U0 starts from `main`.
 
+**macOS / Linux (bash/zsh):**
 ```bash
 cd ~/workspace/LT_Proj/lt-parking-site-project   # the frontend repo
 git checkout main
 git pull
 git checkout -b cr/u0-hygiene
 ```
+
+**Windows (PowerShell):**
+```powershell
+cd $HOME\workspace\LT_Proj\lt-parking-site-project   # the frontend repo
+git checkout main
+git pull
+git checkout -b cr/u0-hygiene
+```
+
+The three `git` commands are identical on every platform — only the path syntax differs (`~` and `/` on Unix, `$HOME` and `\` in PowerShell). Every `git`, `node`, and `npm` command in this lesson is cross-platform; the only steps that genuinely differ are the two below (the `.gitignore` one-liner and the deploy script), which show both forms.
 
 **What this does & why:** `git checkout main` + `git pull` make sure you're branching from the *latest* shared code, and `checkout -b` creates and switches to your own branch so your changes are isolated and reviewable as one small unit. → Reference: [Git Branching basics](https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell).
 
@@ -102,9 +113,17 @@ VITE_USE_MOCK=true
 
 Then keep your real `.env` out of Git. The shipped repo currently leaves `.env` **untracked but not ignored**, so add it to `.gitignore` to be safe:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 grep -q '^\.env$' .gitignore || echo '.env' >> .gitignore
 ```
+
+**Windows (PowerShell):**
+```powershell
+if (-not (Select-String -Path .gitignore -Pattern '^\.env$' -Quiet)) { Add-Content .gitignore '.env' }
+```
+
+Both are the same safe "add-it-only-if-it's-missing" idiom; running either twice does nothing the second time. (Simplest of all: just open `.gitignore` in your editor and add a line containing `.env`.)
 
 **Explanation, piece by piece:**
 - `VITE_API_URL=http://localhost:8000` — the address of the backend your frontend calls. Locally that's your own machine's port 8000; on the deployed site it'll be a different address, but the *code* never needs to change.
@@ -112,6 +131,7 @@ grep -q '^\.env$' .gitignore || echo '.env' >> .gitignore
 - **Why `VITE_` at the front?** Vite only exposes variables that start with `VITE_` to your browser code (via `import.meta.env`). Anything else stays hidden from the bundle — a safety rail so you don't accidentally ship a secret to every visitor's browser. → Reference: [Vite: Env Variables and Modes](https://vite.dev/guide/env-and-mode).
 - `grep -q '^\.env$' .gitignore` — searches `.gitignore` *quietly* (`-q` prints nothing, just succeeds or fails) for a line that is **exactly** `.env` (`^` anchors the start, `$` anchors the end, `\.` means a literal dot rather than "any character").
 - `|| echo '.env' >> .gitignore` — `||` means "or, if the previous command didn't succeed": if `grep` didn't find that line, append (`>>`) one. This is a safe "add-it-if-it's-missing" idiom — running it twice does nothing the second time. → Reference: [gitignore pattern format](https://git-scm.com/docs/gitignore#_pattern_format).
+- **Windows (PowerShell) equivalent** — `Select-String -Quiet` is the `grep -q` counterpart (returns true/false), and `Add-Content` is the `>>` append; the `if (-not (...))` wraps them into the same "only if missing" guard.
 
 ### Step 3 — Build the API client (~25 min)
 
@@ -205,7 +225,7 @@ npm run build
 
 Both commands should finish with **no errors**.
 
-**☁️ Cloud check (optional):** `git push` then `./release.sh frontend` from the backend repo's `deploy/` folder. There's nothing new to *see* on the live site, but a clean build + deploy proves the **production** build still works — the cloud build is stricter than `npm run dev` because it also runs `tsc`. Open the live site; it should look exactly as before.
+**☁️ Cloud check (optional):** `git push` then `./release.sh frontend` from the backend repo's `deploy/` folder. `release.sh` is a shell script, so on **Windows** run it from **Git Bash** or **WSL** (PowerShell can't execute `.sh` directly); macOS/Linux run it in any terminal. There's nothing new to *see* on the live site, but a clean build + deploy proves the **production** build still works — the cloud build is stricter than `npm run dev` because it also runs `tsc`. Open the live site; it should look exactly as before.
 
 ---
 

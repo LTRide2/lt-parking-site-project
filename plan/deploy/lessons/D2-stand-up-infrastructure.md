@@ -72,6 +72,8 @@ cd ~/workspace/LTR-Backend/deploy
 ./deploy.sh up
 ```
 
+> **Windows:** `deploy.sh` is a bash script, so PowerShell can't run it directly — run **every** `./deploy.sh …` command in this lesson from **Git Bash** or **WSL**, where the `~/` paths and `./deploy.sh` work exactly as written above. (The `ssh` command in the testing section also works straight from PowerShell — only its key path changes; see there.) The `git` commands above are the same in every shell.
+
 **What this does & why:** `up` first re-runs the same `validate` check from D1, then calls `aws cloudformation deploy` on each of the four templates **in order** — network, then database, then compute, then DNS — because each later stack imports values (like the VPC id) that an earlier one exports. This single command is what actually creates your EC2 instance and RDS database in AWS. → Reference: [`aws cloudformation deploy`](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/deploy.html).
 
 This step is slow **on purpose** — RDS provisioning a new database instance genuinely takes 10–15 minutes. That's normal; don't cancel it.
@@ -111,6 +113,12 @@ Behind the scenes, `03-compute.yaml`'s UserData already used the RDS endpoint an
 ./deploy.sh status
 ./deploy.sh outputs
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp-from-outputs>
+```
+
+On **Windows**, run the three `./deploy.sh …` lines from **Git Bash** or **WSL** (as noted in Step 1). The `ssh` line uses Windows' built-in OpenSSH, so it also runs directly in **PowerShell** — only the key path changes:
+
+```powershell
+ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp-from-outputs>
 ```
 
 **Expected:**
