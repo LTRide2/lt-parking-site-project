@@ -190,6 +190,10 @@ onClick={() => { dispatch(setSelectedLot(lot.id)); resetAssignPick(); }}
 onClick={() => { dispatch(setEditAction('manual')); resetAssignPick(); }}
 ```
 
+**Explanation:**
+- Both `onClick` handlers now call `resetAssignPick()` right after their original `dispatch(...)` — the lot-nav button still switches lots exactly as it did back in U3, it just also clears any half-finished pick on the way out.
+- This is what makes the `pickedInterest.lot_id === selectedLotId` guard from the "Done when" checklist actually hold in practice: switching lots (or re-entering Assign to Spot mode) always starts from a clean slate, so a pick from the lot you just left can't carry over and get assigned into the wrong one.
+
 ### Step 3 — Show the Assign to Spot panel, split by lot (~20 min)
 
 > **Menu note — grouped into sub-panels, with tooltips.** The old flat sidebar had **Manual Assign** and **Unassign** as separate top-level buttons. They're now one mode button, **"Assign to Spot"** (`editAction === 'manual'` — the internal name is unchanged, only the label), whose sub-panel handles picking a request, assigning, unassigning, *and* moving. Every main-menu button and sub-panel button gets a `title=` tooltip describing what it does — add one to each button you touch in this lesson.

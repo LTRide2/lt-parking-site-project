@@ -168,7 +168,11 @@ export const store = configureStore({
 });
 ```
 
-Without this, `useAppSelector((s) => s.interest)` would be `undefined`.
+**Explanation, piece by piece:**
+- `import interestReducer from "./interestSlice"` — pulls in the `default export` from Step 1's file (`export default interestSlice.reducer;`), the actual reducer function that knows how to update `InterestState` in response to actions.
+- `configureStore({ reducer: { ... } })` — the `reducer` option is a **map** from a name you pick to the reducer that owns that slice of state; `configureStore` wires each entry into one global store, so every slice's state lives together under its own key. → [RTK: configureStore](https://redux-toolkit.js.org/api/configureStore).
+- `interest: interestReducer` — the key `interest` is the name this slice is known by everywhere else in the app; it's added alongside the existing `auth` and `parking` keys, not replacing them.
+- **Why the key has to match** — `useAppSelector((s) => s.interest)`, used throughout this lesson, reads the store's `interest` field by that exact name. Skip this step, or register the reducer under a different key, and `s.interest` would be `undefined` — every `mine`/`status`/`error` read from it would break.
 
 ### Step 3 — Rewrite `StudentDashboard.tsx` as the map view (~30 min)
 

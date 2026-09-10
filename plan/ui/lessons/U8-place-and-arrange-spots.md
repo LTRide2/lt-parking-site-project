@@ -100,6 +100,8 @@ export interface Space {
 }
 ```
 
+This is a reprint for reference — every field except `rotation` is unchanged from [U3](U3-show-real-lots-and-spaces.md); only `rotation` is new here.
+
 Now add the thunk that saves a whole lot's layout. Put it next to `updateSpaces`:
 
 ```ts
@@ -134,6 +136,9 @@ Handle its `rejected` case in `extraReducers` so a failed save surfaces (e.g. th
 type EditAction = "single" | "group" | "disable" | "enable" | "manual" | "update" | "arrange" | null;
 ```
 
+**Explanation:**
+- `"arrange"` is just one more allowed value in the existing union — the rest of the app already switches on `editAction` to decide what the sidebar and canvas show, so adding a value here is enough to make every `editAction === 'arrange'` check later in this lesson type-check.
+
 Add an **Arrange Spots** button to the admin control panel in `ControlBoard.tsx`, next to the others:
 
 ```tsx
@@ -145,6 +150,10 @@ Add an **Arrange Spots** button to the admin control panel in `ControlBoard.tsx`
   Arrange Spots
 </button>
 ```
+
+**Explanation:**
+- `style={sideButtonStyle(editAction === 'arrange', !isControlPanelActive)}` — the same helper the other edit-mode buttons already use: its first argument highlights the button when this mode is the active one, its second dims/disables it when the control panel itself isn't active.
+- `onClick={() => dispatch(setEditAction('arrange'))}` — clicking the button dispatches the Redux action that flips `editAction` to `"arrange"`, which is what the `useEffect` in the next step watches for.
 
 **2b. Hold the working layout — and the map's pan/zoom — in local state.** While arranging, edits live in component state; only **Save Layout** commits them. Near the top of `ControlBoard`:
 
@@ -170,6 +179,18 @@ useEffect(() => {
 }, [editAction, selectedLotId, spacesByLot]);
 ```
 
+**Explanation, piece by piece:**
+- `const DEFAULT_SPOT_W = 0.05, DEFAULT_SPOT_H = 0.03` — a brand-new spot's starting size, as fractions of the map (5% wide, 3% tall) — a reasonable default until the admin resizes it.
+- `const [draft, setDraft] = useState<Space[] | null>(null)` — the layout being edited. `null` means "not arranging right now"; a `Space[]` means "arranging this lot, and these are the current (unsaved) positions." Nothing here is real until Save Layout sends it to the server.
+- `const [pickedId, setPickedId] = useState<number | null>(null)` — which single spot (by `id`) is currently selected in the toolbar, or `null` if none is picked.
+- `const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)` — the floating hover tooltip's screen position and text; `null` hides it.
+- `const mapBoxRef = useRef<HTMLDivElement>(null)` — a **ref**, not state: a mutable box React hands you that points at a real DOM element (the pan/zoom `translate` layer) once it's mounted, without triggering a re-render every time you read or write it. Reading `mapBoxRef.current` later gets you the actual `<div>` so you can call `getBoundingClientRect()` on it. → [React docs: useRef](https://react.dev/reference/react/useRef).
+- `const draggingRef = useRef<number | null>(null)` — another ref, used as a **mutable flag during a drag**: `draggingRef.current` holds the `id` of the spot currently being dragged, or `null` if nothing is. The convention this lesson relies on throughout Step 2 is: **`draggingRef.current === null` means "the container should pan the map"; a non-null id means "a spot grabbed the pointer — move that spot instead."** A `useRef` (rather than `useState`) is the right tool here because updating it during `onPointerMove` shouldn't cause a re-render on every pixel of mouse movement — only the `setDraft` calls that actually move something on screen should re-render.
+- `const panRef = useRef({ startX: 0, startY: 0, ox: 0, oy: 0, moved: false })` — remembers where a pan gesture started (`startX/startY`, the pointer's position) and where the map's offset was at that moment (`ox/oy`), so the container's `onPointerMove` handler (Step 2d) can compute "how far has the pointer moved since pan started" on every event without re-rendering. `moved` tracks whether the drag went far enough to count as a real pan (vs. an accidental click).
+- `const selectedLot = lots.find((l) => l.id === selectedLotId)` — looks up the full lot object (for its `map_image_url`, etc.) from the currently selected lot's id.
+- `const isSpaceAssigned = (id) => ...` — checks the **server's saved state** (`spacesByLot`, not the in-progress `draft`) for whether a given spot id is currently `assigned`, so Delete can be gated even while the admin is mid-edit.
+- The seeding `useEffect(() => {...}, [editAction, selectedLotId, spacesByLot])` — runs whenever arrange mode turns on/off or the lot/data changes. Turning arrange **on** for a lot copies that lot's server spaces into `draft` as the starting point to edit; turning it **off** (or switching away) clears `draft` and `pickedId` so a stale edit-in-progress can't leak into the next session.
+
 > **Pan (`lotOffset`) and wheel-zoom (`lotZoom`) are the *same* state and handlers you built for the campus map in [U3](U3-show-real-lots-and-spaces.md)** — reuse them for the lot view; don't invent a new mechanism. Reset them to zero **in the lot-nav click handler** when you switch lots, *not* in a `useEffect` (eslint's `react-hooks/set-state-in-effect` forbids setting state from an effect).
 
 **2c. Convert a mouse point to normalized coords.** This helper turns a drag anywhere on the map into an `{x, y}` fraction. It measures `mapBoxRef` — the `translate`/`scale` layer — so the current pan and zoom are already baked into the reading:
@@ -182,6 +203,11 @@ const toNorm = (clientX: number, clientY: number) => {
   return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };  // clamp inside the map
 };
 ```
+
+**Explanation, piece by piece:**
+- `const rect = mapBoxRef.current!.getBoundingClientRect()` — asks the browser for the map layer's current on-screen size and position (`left`, `top`, `width`, `height`, in pixels), accounting for wherever it happens to be scrolled, panned, or zoomed to right now. The `!` tells TypeScript "trust me, this ref is attached by the time this runs." → [MDN: getBoundingClientRect](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect).
+- `const x = (clientX - rect.left) / rect.width` — `clientX` is the mouse/touch pointer's raw pixel position in the browser window; subtracting `rect.left` makes it relative to the map box instead of the window, and dividing by `rect.width` turns that pixel offset into a **fraction** (`0` = left edge, `1` = right edge, `0.5` = dead center) — exactly the normalized coordinate this whole lesson stores. `y` does the same down the box's height.
+- `Math.min(1, Math.max(0, x))` — clamps the fraction into the valid `0..1` range: `Math.max(0, x)` throws out negative values (pointer dragged left of the map), then `Math.min(1, ...)` throws out anything past `1` (pointer dragged past the right/bottom edge), so a fast drag off the map still lands the spot at the nearest edge instead of storing a nonsensical coordinate.
 
 **2d. Render the editable layout.** First, one helper adds a spot — used by the **➕ Add Spot** button *only* (dropping it at the map's center), never by clicking the map:
 
@@ -286,12 +312,25 @@ const draftHoverProps = (s: Space) => ({
 });
 ```
 
+**Explanation, piece by piece:**
+- `const [angle, setAngle] = useState(15)` — the degrees rotated per CW/CCW button click; the toolbar's **Angle** field (Step 3) lets the admin change this default.
+- `const patchPicked = (patch) => setDraft(...)` — a small shared updater: given a partial `Space` (e.g. `{ label: "..." }`), it finds the picked spot in `draft` by `pickedId` and merges the patch into it, leaving every other spot untouched. The Label input in the toolbar calls this directly.
+- `const clampSize = (v) => Math.min(0.6, Math.max(0.01, v))` — keeps a spot's `w`/`h` inside a sane range (at least 1% of the map, at most 60%) so repeated clicks on Bigger/Smaller can't shrink a spot to nothing or blow it up past the map.
+- `const rotatePicked = (dir) => ...` — adds `dir * angle` degrees to the picked spot's current rotation, then wraps it into `0..359` with `((... % 360) + 360) % 360` (the extra `+ 360` handles the case where the subtraction goes negative, since JavaScript's `%` can return a negative remainder).
+- `const draftSummary = (s) => ...` — builds the hover-tooltip text for one spot: a saved spot (`s.id > 0`) shows its assignment status; a brand-new, unsaved spot (negative temp `id`) shows its size as a percentage of the map instead, since it has no status yet.
+- `const draftHoverProps = (s) => ({ onMouseEnter, onMouseMove, onMouseLeave })` — a small object of event handlers you spread (`{...draftHoverProps(s)}`) onto a spot's `<div>`: entering or moving over the spot updates `tip` with the cursor's position and `draftSummary(s)`'s text; leaving clears it.
+
 Resize needs the spot's *current* `w`/`h` to compute the next one, so write `scale` (uniform) and `adjust` (per-axis) as their own `setDraft` maps rather than routing through `patchPicked`:
 
 ```tsx
 const scale  = (f: number)              => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) * f), h: clampSize((o.h ?? DEFAULT_SPOT_H) * f) } : o));
 const adjust = (dw: number, dh: number) => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) + dw), h: clampSize((o.h ?? DEFAULT_SPOT_H) + dh) } : o));
 ```
+
+**Explanation:**
+- `scale(f)` — multiplies both `w` and `h` by the same factor `f` (e.g. `1.15` to grow 15%, `0.87` to shrink), so the spot's proportions stay the same — this backs the **Bigger**/**Smaller** buttons.
+- `adjust(dw, dh)` — adds a fixed amount to `w` and/or `h` independently (one of the two is usually `0`), so the spot can be stretched wider/narrower or taller/shorter without touching the other dimension — this backs **Wider**/**Narrower**/**Taller**/**Shorter**.
+- Both read the spot's *current* `o.w`/`o.h` inside the `setDraft` updater function (not from a variable captured earlier), which is why each button click computes from the latest size instead of a stale one.
 
 Now the toolbar (shown only while arranging). Put it in the sidebar under the control panel:
 
@@ -373,6 +412,13 @@ Finally, render the floating hover tooltip once, near the end of the component's
 )}
 ```
 
+**Explanation, piece by piece:**
+- `{tip && (...)}` — renders nothing at all when `tip` is `null` (the default, and what `onMouseLeave` sets it back to); only shows the box while a spot is being hovered.
+- `position: 'fixed', left: tip.x + 14, top: tip.y + 14` — `fixed` positions the tooltip relative to the browser window rather than any scrolled/panned/zoomed ancestor, so it's unaffected by the map's `translate`/`scale` layer; `tip.x`/`tip.y` are the raw cursor coordinates captured in `draftHoverProps`, offset by `14`px so the tooltip sits just below-right of the cursor instead of directly under it.
+- `zIndex: 200` — keeps the tooltip drawn above the map, spots, and toolbar rather than getting hidden behind them.
+- `pointerEvents: 'none'` — the tooltip never intercepts mouse/pointer events itself, so moving onto it can't accidentally trigger its own `onMouseEnter`/steal a drag from the spot underneath.
+- `{tip.text}` — the summary string built by `draftSummary` (Step 3), shown as-is.
+
 **Finally — draw saved layouts outside edit mode too.** So an admin (and, later, everyone) *sees* the arranged spots normally, update `renderParkingLot` to prefer a saved layout. Near its top:
 
 ```tsx
@@ -399,6 +445,14 @@ if (hasSavedLayout) {
 }
 // ...otherwise fall through to the existing flex-wrap grid of coloured boxes below the map photo (unchanged).
 ```
+
+**Explanation, piece by piece:**
+- `const hasSavedLayout = spaces.some((s) => s.x != null && s.y != null)` — a lot "has a saved layout" if **any** of its spaces carries real `x`/`y` (not `null`, which is what a legacy, never-arranged space has). One arranged spot is enough to switch the whole lot to this rendering path.
+- `if (hasSavedLayout) { return (...) }` — an early return: when there's a saved layout, render it and stop; otherwise the function falls through to the pre-existing `LOT_CONFIGS`/map-crop/fan code below (untouched by this lesson).
+- `left: \`${(s.x ?? 0) * 100}%\`, top: \`${(s.y ?? 0) * 100}%\`` — the same normalized-fraction-to-percentage placement as the arrange canvas (Step 2d): a stored fraction like `0.63` becomes the CSS percentage `"63%"`, which the browser recalculates against the box's actual pixel size on every resize — that's what makes the spot "stick" to the right spot at any zoom or screen size, with no JavaScript recalculation needed.
+- `width`/`height` as `${(s.w ?? DEFAULT_SPOT_W) * 100}%` — same idea for size: a spot's shape is also a percentage of the map box, so it scales along with the position.
+- `transform: \`translate(-50%, -50%) rotate(${s.rotation ?? 0}deg)\`` — two transforms chained together: `translate(-50%, -50%)` shifts the box back by half its *own* width/height so that `left`/`top` describe its **center** rather than its top-left corner (which matches how a spot's `x`/`y` were captured while dragging); `rotate(...)` then spins it around that same center point by its saved angle. → [MDN: transform](https://developer.mozilla.org/en-US/docs/Web/CSS/transform).
+- `{...hoverProps(s)}` — reuses the exact same hover-tooltip event handlers built for the normal (non-arrange) lot view back in U3, so a saved-layout spot gets the same floating tooltip as every other spot in the app, with no new code.
 
 **UI mock (after this phase).** Admin in **Arrange Spots**: one spot picked (gold outline), the full toolbar on the left, empty-map drag pans.
 ```

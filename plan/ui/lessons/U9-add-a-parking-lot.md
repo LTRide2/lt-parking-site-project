@@ -134,6 +134,12 @@ const [lotNumber, setLotNumber] = useState('');
 const [lotCapacity, setLotCapacity] = useState('');
 ```
 
+**Explanation, piece by piece:**
+- `useState(false)` — React's hook for state that belongs to just this component; it hands back a value (`showAddLot`) and a setter (`setShowAddLot`) that re-renders the component when called. → [React: useState](https://react.dev/reference/react/useState).
+- `showAddLot` is a simple on/off flag: `true` renders the modal (Step 2c), `false` hides it. Nothing outside this component needs to know it's open, so it has no reason to live in Redux.
+- `lotName`, `lotNumber`, `lotCapacity` hold what the admin has typed into each field, all kept as **strings** — even though `lotNumber`/`lotCapacity` are numbers on the server, a text value lets an empty box stay empty instead of snapping to `0`; Step 2c's Create button converts them with `Number(...)` only at submit time.
+- All four fit **local component state** rather than Redux because they only matter for the lifetime of one modal interaction — once the lot is created (or cancelled), the values are discarded and reset fresh the next time the modal opens (see Step 2b's `onClick`).
+
 **2b. The button.** Add **➕ Add Lot** to the admin sidebar. Unlike the edit actions, this is a management action, so it isn't gated behind Edit Mode — but it *is* admin-only (the whole control panel already only renders for `isAdmin`). Put it just above the account section, or as the first control-panel button:
 
 ```tsx
@@ -144,6 +150,11 @@ const [lotCapacity, setLotCapacity] = useState('');
   ➕ Add Lot
 </button>
 ```
+
+**Explanation, piece by piece:**
+- `style={sideButtonStyle(false, false)}` — reuses the same helper the other sidebar buttons already call for a consistent look; the two `false`s mean "not selected, not disabled" for this button.
+- `onClick={() => { setLotName(''); setLotNumber(''); setLotCapacity(''); setShowAddLot(true); }}` — clears any text left over from a previous attempt, then flips `showAddLot` to `true` so the modal from Step 2c appears with a blank form.
+- `➕ Add Lot` — the button's visible label; the emoji is just a quick visual cue, matching the `🗑 Remove Lot` button you'll add in Step 4.
 
 **2c. The modal.** Mirror the Manual Assign modal you built in U6:
 
@@ -218,6 +229,10 @@ Because `createLot.fulfilled` already set `selectedLotId` to the new lot, the ca
   </div>
 )}
 ```
+
+**Explanation, piece by piece:**
+- `(spacesByLot[selectedLotId]?.length ?? 0) === 0` — true only when the selected lot has no spaces yet: a freshly created lot with no capacity given, for example.
+- The `<div>` only renders when a lot is selected **and** it's empty, so the hint disappears on its own once spots exist — no extra state to track or clear.
 
 **UI mock (after this phase).** Clicking **➕ Add Lot** opens the modal; after Create, the nav gains the lot and it's selected with a next-step hint.
 ```

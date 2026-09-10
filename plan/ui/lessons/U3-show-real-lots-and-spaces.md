@@ -299,6 +299,12 @@ The plain wrap-grid above is the **fallback** for a lot with no authored positio
 </div>
 ```
 
+**Explanation, piece by piece:**
+- `spaces.filter(s => s.x != null)` — only spaces that already have an authored map position (`x`/`y`/`w`/`h`, set in [U8](U8-place-and-arrange-spots.md)) get drawn on top of the image; a lot whose spots haven't been placed yet just doesn't render any here, leaving the plain wrap-grid from Step 4 as the fallback. `!= null` catches both `null` and `undefined` in one comparison.
+- `{...hoverProps(space)}` — spreads three event handlers (`onMouseEnter`, `onMouseMove`, `onMouseLeave`) onto the `div` in one go, instead of writing each one out by hand. `hoverProps` itself is defined just below, alongside the tooltip state — see the explanation for that block.
+- `left: \`${space.x! * 100}%\`, top: \`${space.y! * 100}%\`` — `x` and `y` are stored as fractions of the map image (0 to 1), so multiplying by 100 turns `0.25` into `"25%"`, a CSS percentage the browser resolves against the parent `<img>`'s actual on-screen size. The trailing `!` is TypeScript's **non-null assertion operator** — it tells the compiler "trust me, this isn't null here," which is safe only because the `.filter(s => s.x != null)` line above already excluded every space where it could be. → [TS Handbook: Non-null assertion operator](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-0.html#non-null-assertion-operator)
+- `width: \`${(space.w ?? 0.05) * 100}%\`, height: \`${(space.h ?? 0.03) * 100}%\`` — `w`/`h` can still be `null` even once a space has `x`/`y`, because position and size are authored separately in U8. `??` falls back to a sensible default size (5% of the map's width, 3% of its height) instead of drawing a zero-size, invisible spot until someone resizes it.
+
 **Why fractions (the key idea):** because `x`/`y`/`w`/`h` are all fractions of the map, both the **position** and the **size** stay correct at any display size — you do **not** need to store the map's zoom scale anywhere. That is also why size is `w`/`h` fractions, not a fixed `26×12px`: a pixel size wouldn't scale with the map, so spots would drift out of their painted spaces the moment the image resized.
 
 **A floating hover tooltip** (nicer than the native `title` from Step 4): track the cursor and show one absolutely-positioned box.
@@ -320,6 +326,15 @@ const hoverProps = (s: Space) => ({
     fontSize: '0.75rem', pointerEvents: 'none' }}>{tip.text}</div>
 )}
 ```
+
+**Explanation, piece by piece:**
+- `const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)` — one piece of component state holding either `null` (no tooltip showing) or an object with the cursor position and the text to display. Hovering a spot sets it; leaving clears it back to `null`. → [React docs: useState](https://react.dev/reference/react/useState)
+- `availability(s)` — a small helper that turns a space's `status` into the word the tooltip shows: `"Taken — <name>"` when assigned (only if a name is known), `"Disabled"`, or `"Available"`.
+- `onMouseEnter` / `onMouseMove` — both call `setTip(...)` with the current cursor position and the tooltip text. `onMouseEnter` fires once, the instant the cursor enters the spot; `onMouseMove` keeps firing on every pixel the cursor moves after that, which is what makes the tooltip follow the cursor instead of freezing at the spot where it first appeared. → [MDN: Element: mousemove event](https://developer.mozilla.org/en-US/docs/Web/API/Element/mousemove_event)
+- `onMouseLeave: () => setTip(null)` — clears the tooltip the moment the cursor leaves the spot, so it doesn't linger over empty space.
+- `e.clientX` / `e.clientY` — the cursor's position measured from the browser viewport's top-left corner (not the page, and not relative to the spot). That's exactly what a `position: 'fixed'` element needs for its own `left`/`top`, since `fixed` positioning is also measured from the viewport. → [MDN: MouseEvent.clientX](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/clientX)
+- `left: tip.x + 14, top: tip.y + 14` — offsets the tooltip box 14px down and to the right of the actual cursor position, so the box doesn't sit directly under the pointer where it would be hard to read.
+- `pointerEvents: 'none'` — without this, the tooltip box itself would catch mouse events, which could trigger the spot underneath it to think the cursor left (firing `onMouseLeave` early) or block a click meant for that spot. `pointerEvents: 'none'` makes the tooltip invisible to the mouse, so every event passes straight through to whatever's actually underneath. → [MDN: pointer-events](https://developer.mozilla.org/en-US/docs/Web/CSS/pointer-events)
 
 Delete the `title={...}` attribute from Step 4 and spread `{...hoverProps(space)}` on each spot instead — in both the grid and the positioned view.
 
