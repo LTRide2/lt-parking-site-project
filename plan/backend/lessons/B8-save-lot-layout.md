@@ -7,13 +7,33 @@
 
 ---
 
+> **New words ahead?** Terms like [PUT](GLOSSARY.md#http-methods), [idempotent](GLOSSARY.md#idempotent), and [transaction](GLOSSARY.md#transaction) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-One admin-only endpoint that saves *where every parking space sits on a lot's map, and how big it is*, so the layout stops being hard-coded in the front end and becomes real data an admin can author:
+One admin-only [endpoint](GLOSSARY.md#endpoint) that saves *where every parking space sits on a lot's map, and how big it is*, so the layout stops being hard-coded in the front end and becomes real data an admin can author:
 
-- **`PUT /api/lots/<id>/layout`** — body `{"spaces":[{"id"?, "label", "x", "y", "w"?, "h"?, "rotation"?}]}` → the server makes the lot's spaces match that list exactly: **update** the ones that have an `id`, **insert** the ones that don't, and **delete** the ones you left out — all inside **one transaction**.
+- **[`PUT`](GLOSSARY.md#http-methods) `/api/lots/<id>/layout`** — body `{"spaces":[{"id"?, "label", "x", "y", "w"?, "h"?, "rotation"?}]}` → the server makes the lot's spaces match that list exactly: **update** the ones that have an `id`, **insert** the ones that don't, and **delete** the ones you left out — all inside **one [transaction](GLOSSARY.md#transaction)**.
 
 The important, careful part: the endpoint **refuses to delete a space that's currently `assigned`** (returns `409` and writes nothing), so an admin rearranging a lot can never accidentally erase a space a student is parked in.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — no PUT handler exists yet; the route 404s
+  $ curl -i -X PUT http://localhost:8000/api/lots/1/layout \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+      -d '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"w":0.08,"h":0.05,"rotation":0}]}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — one transaction fully replaces the lot's spaces and returns them
+  $ curl -i -X PUT http://localhost:8000/api/lots/1/layout \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+      -d '{"spaces":[{"label":"A1","x":0.25,"y":0.4,"w":0.08,"h":0.05,"rotation":0}]}'
+  HTTP/1.1 200 OK
+  {"data":{"lot_id":1,"spaces":[{"id":1,"label":"A1","x":0.25,"y":0.4,"w":0.08,"h":0.05,"rotation":0,"status":"available","assigned_user_id":null,"assigned_user_name":null,"assigned_student_id":null}]}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `PUT /api/lots/1/layout` with a valid admin token and a `spaces` array (some entries with `w`/`h`, some without) returns `200`, and re-reading the lot shows the saved `x`/`y`/`w`/`h`/`rotation`.
@@ -32,7 +52,7 @@ Two design choices are worth slowing down on:
 
 **Normalized coordinates *and* size.** We store `x`/`y` (position) **and `w`/`h` (size)** as **fractions between 0 and 1** (e.g. `x: 0.42, w: 0.05`), not pixels. A pixel position or width (`537px`, `40px`) only means something at one exact image size; the moment the map is zoomed, resized, or viewed on a phone, it's wrong. A fraction is "42% across, 5% wide, regardless of how big the image is drawn" — the front end multiplies both by the rendered size at paint time. Same reason a responsive layout uses `%` instead of hard pixel offsets. If a caller omits `w`/`h` (or sends one out of `0..1`), the server fills in a sane default rather than rejecting the save — see the `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` constants at `webapp/App/views/lots.py:14-15`.
 
-**Full-replace instead of many small calls.** The admin edits the whole lot at once and saves once. So the client sends the *entire desired set* of spaces and the server figures out the difference — what to add, move, and remove. This is **idempotent**: sending the same layout twice leaves the database in the same place, no duplicates. It also keeps the browser simple — it doesn't have to remember "I created these two, moved that one, deleted this one" and fire three kinds of request; it just describes the end state.
+**Full-replace instead of many small calls.** The admin edits the whole lot at once and saves once. So the client sends the *entire desired set* of spaces and the server figures out the difference — what to add, move, and remove. This is **[idempotent](GLOSSARY.md#idempotent)**: sending the same layout twice leaves the database in the same place, no duplicates. It also keeps the browser simple — it doesn't have to remember "I created these two, moved that one, deleted this one" and fire three kinds of [request](GLOSSARY.md#request); it just describes the end state.
 
 ---
 
@@ -96,13 +116,13 @@ def _lot_spaces(lot_id):
     return [serialize.space(row) for row in rows]
 
 
-@bp.put("/api/lots/<int:lot_id>/layout")
-@require_role("admin")
+@bp.put("/api/lots/<int:lot_id>/layout")     # decorator: PUT = replace this lot's spaces exactly (idempotent)
+@require_role("admin")                       # 403s any non-admin caller before the body even runs
 def save_layout(lot_id):
     if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
         return _err("not_found", "Lot not found", 404)
 
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True) or {}  # never raises, even on a missing/invalid JSON body
     incoming = body.get("spaces")
     if not isinstance(incoming, list):
         return _err("bad_request", "spaces (array) is required", 400)
@@ -126,18 +146,18 @@ def save_layout(lot_id):
             "rotation": float(rot) if isinstance(rot, (int, float)) else 0.0,
         })
 
-    keep_ids = {c["id"] for c in clean if isinstance(c["id"], int)}
+    keep_ids = {c["id"] for c in clean if isinstance(c["id"], int)}  # ids the client wants to keep
     existing = query("SELECT id, status FROM spaces WHERE lot_id = %s", (lot_id,))
-    to_delete = [row["id"] for row in existing if row["id"] not in keep_ids]
+    to_delete = [row["id"] for row in existing if row["id"] not in keep_ids]  # everything else in the lot
     # Refuse to delete a space that's currently assigned to a student.
     blocked = [row["id"] for row in existing
                if row["id"] in to_delete and row["status"] == "assigned"]
     if blocked:
         return _err("conflict", f"cannot delete assigned space(s): {blocked}", 409)
 
-    db = get_db()
+    db = get_db()                            # one shared connection for every write below
     try:
-        with db.cursor() as cur:
+        with db.cursor() as cur:             # everything in this block is the one transaction
             for c in clean:
                 if isinstance(c["id"], int):
                     cur.execute(
@@ -152,23 +172,23 @@ def save_layout(lot_id):
                         (lot_id, c["label"], c["x"], c["y"], c["w"], c["h"], c["rotation"]))
             if to_delete:
                 cur.execute("DELETE FROM spaces WHERE id = ANY(%s)", (to_delete,))
-        db.commit()
-    except Exception:
+        db.commit()                          # save all upserts + the delete together, or none
+    except Exception:                        # any failure rolls back the whole batch — never a half-saved layout
         db.rollback()
         raise
 
-    return jsonify({"data": {"lot_id": lot_id, "spaces": _lot_spaces(lot_id)}})
+    return jsonify({"data": {"lot_id": lot_id, "spaces": _lot_spaces(lot_id)}})  # re-read from the DB, not echoed
 ```
 
-**Explanation, piece by piece:**
+**Why it works & further reading:**
 
-- **Validate first, on plain reads.** Everything before `get_db()` — the lot exists, `spaces` is a list, each label is non-empty, each `x`/`y` is a fraction — happens *outside* the transaction. By the time you start writing, every write is already known to be valid. This is the same fail-fast shape you used in B7. The `CHECK (... in 0..1)` constraints on `pos_x`/`pos_y`/`pos_w`/`pos_h` (from B2) are the database's own backstop if a bad value ever slips past this Python check.
-- **`w`/`h` default instead of rejecting.** Unlike `x`/`y`, a missing or out-of-range `w`/`h` isn't a client error — it just means "use the standard spot size." `float(w) if _is_frac(w) else DEFAULT_SPOT_W` falls back to the module constants (`0.05`/`0.03`, ~5%×3% of the map) so every saved space always has a usable size, even from an older client that never sends `w`/`h` at all.
-- **Reconciliation — the heart of the lesson.** `keep_ids` is the set of space ids the client still wants. Anything in the lot that's *not* in that set goes into `to_delete`. Then: entries **with** an `id` are `UPDATE`d (someone moved, resized, or relabeled an existing spot); entries **without** an `id` are `INSERT`ed (a brand-new spot). → [PostgreSQL UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
-- **The `409` guard is the safety rule.** *Before* deleting anything, we check whether any to-be-deleted space is `assigned`. If so, we bail with `409` and write nothing — an admin can't erase a space a student is parked in without first unassigning it (B7's `DELETE`).
-- **One transaction.** Every upsert and the delete run inside a single `with db.cursor() as cur:` block, committed once. If any statement fails, `db.rollback()` undoes the whole thing — you never get half a saved map. Same pattern as B7's assignment.
-- **`= ANY(%s)`** deletes a whole list of ids in one statement; psycopg turns a Python list into a Postgres array for you. → [PostgreSQL ANY](https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME).
-- **The response reuses B4's serializer.** `_lot_spaces(lot_id)` re-reads every space with `serialize.SPACE_SELECT` and shapes each row with `serialize.space` — the same helper B4's `GET /api/lots/:id/spaces` uses — so the saved layout comes back with `x`/`y`/`w`/`h`/`rotation` plus `status`/`assigned_user_id`/`assigned_user_name`/`assigned_student_id`, re-read from the database (not echoed from the request), under `{"data": {"lot_id": ..., "spaces": [...]}}`.
+- **Validate first, on plain reads.** The lot exists, `spaces` is a list, each label is non-empty, each `x`/`y` is a fraction — all checked *before* `get_db()`, the same fail-fast shape as B7. The `CHECK (... in 0..1)` constraints on `pos_x`/`pos_y`/`pos_w`/`pos_h` (from B2) are the database's own backstop if a bad value ever slips past this Python check.
+- **`w`/`h` default instead of rejecting.** A missing or out-of-range `w`/`h` isn't a client error — `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` (~5%×3% of the map) fill in a usable size, so even an older client that never sends `w`/`h` still gets a valid layout.
+- **Reconciliation — the heart of the lesson.** `keep_ids` is the set of space ids the client still wants; anything else in the lot goes into `to_delete`. Entries **with** an `id` are `UPDATE`d (moved/resized/relabeled); entries **without** one are `INSERT`ed (new). → [PostgreSQL UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html)
+- **The `409` guard is the safety rule.** Before deleting anything, any to-be-deleted space that's `assigned` blocks the whole save — an admin can't erase a space a student is parked in without unassigning it first (B7's `DELETE`).
+- **One [transaction](GLOSSARY.md#transaction) — this is the full-replace, made safe.** Every upsert and the delete share one `with db.cursor() as cur:` block, committed once; any failure rolls the whole thing back, so you never get half a saved map. Same pattern as B7's assignment. → [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html)
+- **`= ANY(%s)`** deletes a whole list of ids in one statement; psycopg turns a Python list into a Postgres array for you. → [PostgreSQL ANY](https://www.postgresql.org/docs/current/functions-comparisons.html#FUNCTIONS-COMPARISONS-ANY-SOME)
+- **The [response](GLOSSARY.md#response) reuses B4's serializer.** `_lot_spaces(lot_id)` re-reads every space with `serialize.SPACE_SELECT` and `serialize.space` — the same helper B4's `GET /api/lots/:id/spaces` uses — so the saved layout comes back re-read from the database (not echoed from the request), under the same `{"data": ...}` [envelope](GLOSSARY.md#envelope) every endpoint uses.
 
 > **No blueprint registration needed.** You're adding to `lots.py`, which `__init__.py` already registers (B4). New routes in an already-registered blueprint are live as soon as you restart the server.
 

@@ -7,15 +7,38 @@
 
 ---
 
+> **New words ahead?** Terms like [role](GLOSSARY.md#role), [transaction](GLOSSARY.md#transaction), and [HTTP `PATCH`](GLOSSARY.md#http-methods) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-The backend's first **write** endpoints — and its first endpoint that an admin can use to change something for everyone. Concretely, by the end of this hour you will have:
+The backend's first **write** [endpoints](GLOSSARY.md#endpoint) — and its first endpoint that an admin can use to change something for everyone. Concretely, by the end of this hour you will have:
 
 - `PATCH /api/spaces/<id>` — an admin flips one space between `available` and `disabled`.
 - `PATCH /api/spaces` — an admin flips **many** spaces at once, given a list of ids and a target status.
 - A business rule enforced on both routes: a space that is currently `assigned` (someone parks there) **cannot** be disabled. The single route returns `409` for that one space; the bulk route checks *every* target first and rejects the **whole call** with `409` if even one of them is assigned — there's no partial "some updated, some skipped" outcome.
 - Both routes locked to admins only with `@require_role("admin")` — a student token gets `403`.
-- Both reuse `serialize.SPACE_SELECT` / `serialize.space` from [B4](B4-read-lots-and-spaces.md) — a `PATCH` response looks exactly like every other space you've already read.
+- Both reuse `serialize.SPACE_SELECT` / `serialize.space` from [B4](B4-read-lots-and-spaces.md) — a [`PATCH`](GLOSSARY.md#http-methods) [response](GLOSSARY.md#response) looks exactly like every other space you've already read.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — no route exists yet; the request 404s no matter what you send
+  $ curl -i -X PATCH http://localhost:8000/api/spaces/2 \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' -d '{"status":"available"}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — an admin token flips the status and gets the updated space back; a student token is refused
+  $ curl -i -X PATCH http://localhost:8000/api/spaces/2 \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' -d '{"status":"available"}'
+  HTTP/1.1 200 OK
+  {"data": <serialized space, status: "available">}
+
+  $ curl -i -X PATCH http://localhost:8000/api/spaces/3 \
+      -H "Authorization: Bearer $S" -H 'Content-Type: application/json' -d '{"status":"available"}'
+  HTTP/1.1 403 FORBIDDEN
+  {"error":{"code":"forbidden",...}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] Bulk `PATCH /api/spaces` with `{"ids":[2,3],"status":"disabled"}` as admin (Lot 1's A2/A3, both `available`) → `200` with `{"data":[<2 serialized spaces>]}`, each `status: "disabled"`.
@@ -30,9 +53,9 @@ The backend's first **write** endpoints — and its first endpoint that an admin
 
 ## 🤔 Why this lesson matters
 
-Every route you've built so far only **reads**: health checks, logins, lots, spaces. Nothing you've written yet can change what's stored in the database. This lesson is the turning point on the *write* side — the first `PATCH`, the first place the backend has to say "no" to a request that looks fine on the surface but breaks a rule about the *data itself*.
+Every route you've built so far only **reads**: health checks, logins, lots, spaces. Nothing you've written yet can change what's stored in the database. This lesson is the turning point on the *write* side — the first `PATCH`, the first place the backend has to say "no" to a [request](GLOSSARY.md#request) that looks fine on the surface but breaks a rule about the *data itself*.
 
-Look closely at the single-space route and you'll see it check **two separate things** before it touches the database: *"is this person allowed to do this at all?"* (the `@require_role("admin")` decorator — a question about the **user**) and *"does this specific change make sense right now?"* (the `assigned` check — a question about the **data**). Keeping those two checks separate, in that order, is a pattern every write endpoint in this backend follows: authorize first, validate the business rule second.
+Look closely at the single-space route and you'll see it check **two separate things** before it touches the database: *"is this person allowed to do this at all?"* (the `@require_role("admin")` [decorator](GLOSSARY.md#decorator) — a question about the **user**) and *"does this specific change make sense right now?"* (the `assigned` check — a question about the **data**). Keeping those two checks separate, in that order, is a pattern every write endpoint in this backend follows: authorize first, validate the business rule second.
 
 The bulk route adds a second idea worth sitting with, and it cuts the *other* way from what you might expect: when one request tries to change many things, this backend does **not** apply the change to whatever it can and report the rest as skipped. It inspects every target first, and if even one of them is `assigned`, the entire call is rejected — no ids change. An admin who bulk-disables a row of spots either gets exactly what they asked for, or nothing at all; there's no response to parse for "which ones actually happened."
 
@@ -88,39 +111,38 @@ def _err(code, message, status):
 
 
 def _space(space_id):
-    row = query_one(serialize.SPACE_SELECT + " WHERE s.id = %s", (space_id,))
+    row = query_one(serialize.SPACE_SELECT + " WHERE s.id = %s", (space_id,))  # same shape-function B4 uses for GET
     return serialize.space(row) if row else None
 
 
-@bp.patch("/api/spaces/<int:space_id>")
-@require_role("admin")
+@bp.patch("/api/spaces/<int:space_id>")              # PATCH: a partial change to one existing resource
+@require_role("admin")                                # decorators run bottom-up: role checked before the body runs
 def update_space(space_id):
     body = request.get_json(silent=True) or {}
     status = body.get("status")
-    if status not in ALLOWED:
+    if status not in ALLOWED:                         # validate input before touching the database
         return _err("bad_request", "status must be 'available' or 'disabled'", 400)
 
-    space = query_one("SELECT id, status FROM spaces WHERE id = %s", (space_id,))
+    space = query_one("SELECT id, status FROM spaces WHERE id = %s", (space_id,))  # does it even exist?
     if space is None:
         return _err("not_found", "Space not found", 404)
-    if space["status"] == "assigned":
+    if space["status"] == "assigned":                 # business rule about *this row's* state, not auth or validation
         return _err("conflict", "Space is assigned; unassign it first", 409)
 
     connection = get_db()
     with connection.cursor() as cursor:
         cursor.execute("UPDATE spaces SET status = %s WHERE id = %s", (status, space_id))
-    connection.commit()
-    return jsonify({"data": _space(space_id)})
+    connection.commit()                                # closes the transaction; the write is now durable
+    return jsonify({"data": _space(space_id)})         # re-fetch + serialize so the shape matches every other space read
 ```
 (`webapp/App/views/spaces.py:1-39`)
 
-**Explanation, piece by piece:**
-- `@bp.patch("/api/spaces/<int:space_id>")` then `@require_role("admin")` **underneath** (`spaces.py:21-22`) — decorators run bottom-up, so `require_role("admin")` checks the token *before* Flask ever calls `update_space`. A missing token gets `401`; a valid **student** token gets `403`. Only an admin token reaches the function body. → [OWASP: Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
-- `if status not in ALLOWED: return ... 400` (`spaces.py:26-27`) — this is **input validation**, checked first, before any database work. `ALLOWED` deliberately excludes `"assigned"` — an admin can only ever request `available` or `disabled` through this route; `assigned` is a status the assign flow sets automatically when a space is handed out, never something an admin types in directly.
-- `space = query_one(...)` then `if space is None: ... 404` (`spaces.py:29-31`) — the same "does it exist?" check you saw in B4's `lot_spaces`, now guarding a write instead of a read. This is a plain `id, status` lookup, not the full `SPACE_SELECT` — you only need `status` to make the 409 decision.
-- `if space["status"] == "assigned": ... 409` (`spaces.py:32-33`) — the business rule. This is *not* an authorization check (the admin is definitely allowed to PATCH) and *not* a validation check (`"disabled"` is a perfectly valid status) — it's a rule about the **current state of this particular row**. `409 Conflict` is the right status code for "your request is valid, but it conflicts with the resource's current state." → [MDN: PATCH method](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH).
-- `connection.cursor()` + a raw `UPDATE` + one `connection.commit()` (`spaces.py:35-38`) — a plain write, no `RETURNING`; the row's *new* shape is fetched separately, right after.
-- `_space(space_id)` (`spaces.py:16-18`) re-queries through `serialize.SPACE_SELECT` and hands the row to `serialize.space` — the same shared shape-function [B4](B4-read-lots-and-spaces.md) introduced. That's why the response is snake_case (`assigned_user_id`, `assigned_user_name`, `assigned_student_id`, and position as `x/y/w/h/rotation`), identical to what `GET /api/lots/:id/spaces` already returns for this space — a `PATCH` response never invents its own shape.
+**Why it works & further reading:**
+- Decorators run **bottom-up**: `@require_role("admin")` checks the caller's [role](GLOSSARY.md#role) before Flask ever calls `update_space` — a missing token gets `401`, a valid **student** token gets `403`. Only an admin token reaches the function body. → [OWASP: Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
+- Input is validated (`status not in ALLOWED`) and the row's existence is confirmed (`space is None` → `404`) *before* the `assigned` business rule is even considered — cheapest, most generic checks first.
+- `409 Conflict` is the right [status code](GLOSSARY.md#status-code) for "your request is valid, but it conflicts with the resource's current state" — distinct from the `400` a bad `status` value gets. → [MDN: PATCH method](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH).
+- `connection.commit()` closes the [transaction](GLOSSARY.md#transaction); the `UPDATE` only becomes durable once it runs. → [Postgres: `UPDATE`](https://www.postgresql.org/docs/current/sql-update.html).
+- `_space()` re-fetches through `serialize.SPACE_SELECT` / `serialize.space` — the same shape-function [B4](B4-read-lots-and-spaces.md) uses for reads — wrapped in the same `{"data": ...}` [envelope](GLOSSARY.md#envelope), so a `PATCH` response never invents its own shape.
 
 > **Why is this route idempotent?** Sending `{"status":"disabled"}` to an already-`disabled` space just runs the same `UPDATE`, changes nothing, and returns the same `200`. Retrying a `PATCH` that already succeeded (e.g. because a response got lost on a flaky connection) is safe — it doesn't create a duplicate or double-apply anything. → [MDN Glossary: Idempotent](https://developer.mozilla.org/en-US/docs/Glossary/Idempotent).
 
@@ -129,35 +151,33 @@ def update_space(space_id):
 Add this to the same file, `webapp/App/views/spaces.py`:
 
 ```python
-@bp.patch("/api/spaces")
-@require_role("admin")
+@bp.patch("/api/spaces")                              # PATCH applied to many ids in one call
+@require_role("admin")                                # same admin-only guard as the single-space route
 def bulk_update_spaces():
     body = request.get_json(silent=True) or {}
     ids, status = body.get("ids"), body.get("status")
-    if not isinstance(ids, list) or status not in ALLOWED:
+    if not isinstance(ids, list) or status not in ALLOWED:  # validate shape before any query
         return _err("bad_request", "ids (array) and status (available|disabled) required", 400)
 
-    targets = query("SELECT id, status FROM spaces WHERE id = ANY(%s)", (ids,))
-    if any(row["status"] == "assigned" for row in targets):
+    targets = query("SELECT id, status FROM spaces WHERE id = ANY(%s)", (ids,))  # every target's status, up front
+    if any(row["status"] == "assigned" for row in targets):  # all-or-nothing: one assigned target rejects the whole call
         return _err("conflict", "cannot change an assigned space", 409)
 
     connection = get_db()
     with connection.cursor() as cursor:
-        cursor.execute("UPDATE spaces SET status = %s WHERE id = ANY(%s)", (status, ids))
-    connection.commit()
+        cursor.execute("UPDATE spaces SET status = %s WHERE id = ANY(%s)", (status, ids))  # one UPDATE for every id
+    connection.commit()                                # nothing was written before this, so there's nothing to roll back
 
-    rows = query(serialize.SPACE_SELECT + " WHERE s.id = ANY(%s) ORDER BY s.id", (ids,))
+    rows = query(serialize.SPACE_SELECT + " WHERE s.id = ANY(%s) ORDER BY s.id", (ids,))  # re-fetch, ordered, for a stable response
     return jsonify({"data": [serialize.space(row) for row in rows]})
 ```
 (`webapp/App/views/spaces.py:42-60`)
 
-**Explanation, piece by piece:**
-- `if not isinstance(ids, list) or status not in ALLOWED: ... 400` (`spaces.py:47-48`) — `ids` must actually be a list (not a single number, not a string) and `status` must be one of the two allowed values. Same "validate before touching the database" order as Step 1.
-- `targets = query("SELECT id, status FROM spaces WHERE id = ANY(%s)", (ids,))` (`spaces.py:50`) — one query fetches every target row's current status, up front, before anything is written.
-- `if any(row["status"] == "assigned" for row in targets): ... 409` (`spaces.py:51-52`) — the whole-call rule: if **any** target is currently `assigned`, the entire request is rejected right here. Nothing has been written yet, so nothing needs to be rolled back — there's no partial state to reason about. This is deliberately different from a route that applies what it can and reports the rest as skipped; here it's all-or-nothing.
-- `cursor.execute("UPDATE spaces SET status = %s WHERE id = ANY(%s)", ...)` (`spaces.py:55-56`) — a single `UPDATE` covers every id in one round trip, followed by one `connection.commit()` — not a loop with a query per id.
-- `rows = query(serialize.SPACE_SELECT + " WHERE s.id = ANY(%s) ORDER BY s.id", (ids,))` then `[serialize.space(row) for row in rows]` (`spaces.py:59-60`) — the same shared shape-function as the single-space route, run over every updated id, ordered by id for a stable response.
-- The response — `{"data": [<serialized space>, ...]}` — is a plain array of the now-updated spaces, the same shape you'd get reading them back from `GET /api/lots/:id/spaces`. There is no `updated`/`skipped` split to parse.
+**Why it works & further reading:**
+- `ids` must be a list and `status` one of the two allowed values — validated before any query runs, same order as the single-space route.
+- One `SELECT ... WHERE id = ANY(%s)` fetches every target's current status up front; if **any** is `assigned`, the whole call is rejected with `409` — nothing has been written yet, so there's no partial state to roll back. This is deliberately different from a route that applies what it can and reports the rest as skipped.
+- A single `UPDATE ... WHERE id = ANY(%s)` covers every id in one round trip, followed by one `commit()` — not a loop with a query per id.
+- The response re-fetches through the same `serialize.SPACE_SELECT` / `serialize.space` shape-function as the single-space route, ordered by id, as a plain array — the same shape you'd get reading them back from `GET /api/lots/:id/spaces`, with no `updated`/`skipped` split to parse.
 
 ### Step 3 — Register the blueprint (~5 min)
 

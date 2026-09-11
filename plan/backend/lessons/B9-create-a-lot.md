@@ -7,13 +7,33 @@
 
 ---
 
+> **New words ahead?** Terms like [status code](GLOSSARY.md#status-code), [transaction](GLOSSARY.md#transaction), and [foreign key](GLOSSARY.md#foreign-key) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-Three admin-only endpoints that round out lot management — the app stops being frozen at the lots someone typed into the seed file, and a lot can be torn down as cleanly as it was stood up:
+Three admin-only [endpoints](GLOSSARY.md#endpoint) that round out lot management — the app stops being frozen at the lots someone typed into the seed file, and a lot can be torn down as cleanly as it was stood up:
 
-- **`POST /api/lots`** (`webapp/App/views/lots.py:124`) — body `{"name", "number"?, "capacity"?, "display_order"?}`. `name` is required; `display_order` defaults to `MAX(display_order)+1`; `number` defaults to that resolved `display_order` and must be unique. If `capacity` is given, seeds that many positionless `available` spaces labeled `<number>-<index>` (the admin arranges them later with B8's layout editor). Returns `201` with the new lot.
+- **[`POST`](GLOSSARY.md#http-methods) `/api/lots`** (`webapp/App/views/lots.py:124`) — body `{"name", "number"?, "capacity"?, "display_order"?}`. `name` is required; `display_order` defaults to `MAX(display_order)+1`; `number` defaults to that resolved `display_order` and must be unique. If `capacity` is given, seeds that many positionless `available` spaces labeled `<number>-<index>` (the admin arranges them later with B8's layout editor). Returns [`201`](GLOSSARY.md#status-code) with the new lot.
 - **`DELETE /api/lots/<id>`** (`webapp/App/views/lots.py:174`) — removes a lot, refusing with `409` if any of its spaces is currently `assigned`.
 - **`POST /api/lots/<id>/map`** (`webapp/App/views/lots.py:201`) — uploads a PNG/JPG map image for a lot and stores its URL. Backs the frontend's [U7 — Update the school map image](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md).
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — the route doesn't exist yet; the app can't add a lot
+  $ curl -i -X POST http://localhost:8000/api/lots \
+    -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+    -d '{"name":"North Lot","number":20,"capacity":10}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — the same request creates the lot (with its seeded spaces) and hands it back
+  $ curl -i -X POST http://localhost:8000/api/lots \
+    -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+    -d '{"name":"North Lot","number":20,"capacity":10}'
+  HTTP/1.1 201 CREATED
+  {"data":{"id":<newId>,"name":"North Lot","number":20,"display_order":<newId>,"map_image_url":null,"capacity":10,"available_count":10}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `POST /api/lots` with a valid admin token, a `name`, a `number`, and a `capacity` returns `201`; `GET /api/lots` lists it and `GET /api/lots/<newId>/spaces` shows `capacity` spaces labeled `<number>-1`, `<number>-2`, ….
@@ -73,8 +93,8 @@ Add the `POST` handler to the same blueprint (the imports, `_err`, and `serializ
 
 ```python
 # add to webapp/App/views/lots.py
-@bp.post("/api/lots")
-@require_role("admin")
+@bp.post("/api/lots")                        # decorator: POST creates a new lot
+@require_role("admin")                       # only an admin token may call this
 def create_lot():
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
@@ -82,13 +102,13 @@ def create_lot():
     capacity = body.get("capacity")
     display_order = body.get("display_order")
     if not name:
-        return _err("bad_request", "name is required", 400)
+        return _err("bad_request", "name is required", 400)   # blank/whitespace name
     if number is not None and (not isinstance(number, int) or number < 0):
         return _err("bad_request", "number must be a non-negative integer", 400)
     if capacity is not None and (not isinstance(capacity, int) or capacity < 0):
         return _err("bad_request", "capacity must be a non-negative integer", 400)
     if query_one("SELECT id FROM lots WHERE lower(name) = lower(%s)", (name,)):
-        return _err("conflict", "A lot with that name already exists", 409)
+        return _err("conflict", "A lot with that name already exists", 409)  # case-insensitive dup
 
     connection = get_db()
     try:
@@ -102,32 +122,32 @@ def create_lot():
             if cursor.fetchone():
                 connection.rollback()
                 return _err("conflict", f"Lot number {resolved_number} is already in use", 409)
-            cursor.execute(
+            cursor.execute(                              # create the lot row itself
                 "INSERT INTO lots (name, number, display_order) VALUES (%s, %s, %s) "
                 "RETURNING id, name, number, display_order, map_image_url",
                 (name, resolved_number, resolved_order))
             lot = cursor.fetchone()
-            for index in range(1, (capacity or 0) + 1):
+            for index in range(1, (capacity or 0) + 1):  # seed capacity blank spaces, no position yet
                 cursor.execute(
                     "INSERT INTO spaces (lot_id, label) VALUES (%s, %s)",
                     (lot["id"], f"{resolved_number}-{index}"))
-        connection.commit()
+        connection.commit()                              # lot + spaces saved together, or not at all
     except Exception:
         connection.rollback()
         raise
 
     lot["capacity"] = capacity or 0
     lot["available_count"] = capacity or 0
-    return jsonify({"data": serialize.lot(lot)}), 201
+    return jsonify({"data": serialize.lot(lot)}), 201     # 201 Created + the new lot
 ```
 
-**Explanation, piece by piece:**
+**Why it works & further reading:**
 
-- **Name required, then de-duplicated.** A blank/whitespace name is `400`; a name that already exists (compared case-insensitively with `lower(...)`) is `409`. → [OWASP: Input validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html).
-- **`number` is optional but unique, and defaults to `display_order`.** If the caller omits `display_order`, it's resolved to `MAX(display_order)+1` (puts the lot at the end of the nav). If `number` is then also omitted, it's resolved to that same value — so a lot created with no `number` still gets one, and its auto-generated spaces have a sensible label. A second lot with that number is `409`, checked with a plain `SELECT` inside the same transaction as the insert (rolled back, not committed, if it hits).
-- **`capacity` seeds positionless spaces.** If present it must be a non-negative integer, else `400`. When given, the loop inserts that many `available` spaces labeled `<number>-<index>` (e.g. `9-1`, `9-2`, …) with **no** position (`pos_x/pos_y` stay `NULL`) — the admin arranges them in B8/U8.
-- **One transaction.** The lot insert and all the space inserts share one `with connection.cursor()` block and one `commit()`. If any insert fails, the whole create rolls back — you never get a lot with a half-built set of spaces. Same all-or-nothing guarantee as B7/B8.
-- **`serialize.lot(...)`** (`webapp/App/serialize.py:40`) is the same shared serializer `GET /api/lots` uses, so the create response has the identical snake_case shape (`number`, `display_order`, `map_image_url`, `capacity`, `available_count`) the client already knows how to render.
+- **Name required, then de-duplicated.** A blank/whitespace name is `400`; a case-insensitive duplicate is `409`. → [OWASP: Input Validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html)
+- **`number` defaults to `display_order`, both re-checked for uniqueness inside the same [transaction](GLOSSARY.md#transaction) as the insert** — a duplicate rolls back instead of committing a half-made lot. → [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html)
+- **`capacity` seeds positionless spaces** labeled `<number>-<index>`; B8/U8 give them a position later.
+- **One transaction, one `commit()`** — the lot and its spaces are inserted together, so a mid-way failure rolls back the whole create instead of leaving it half-built.
+- **`serialize.lot(...)`** (`webapp/App/serialize.py:40`) matches `GET /api/lots`'s shape, so the create [response](GLOSSARY.md#response) looks identical to a normal list entry.
 
 > **No blueprint registration needed** — `lots.py` is already registered (B4). Restart the server and the route is live.
 
@@ -135,12 +155,12 @@ def create_lot():
 
 ```python
 # add to webapp/App/views/lots.py
-@bp.delete("/api/lots/<int:lot_id>")
-@require_role("admin")
+@bp.delete("/api/lots/<int:lot_id>")          # decorator: DELETE removes a lot
+@require_role("admin")                       # admin only
 def delete_lot(lot_id):
     if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
-        return _err("not_found", "Lot not found", 404)
-    assigned = query(
+        return _err("not_found", "Lot not found", 404)   # lot doesn't exist
+    assigned = query(                                     # guard: any assigned space blocks the delete
         "SELECT label FROM spaces WHERE lot_id = %s AND status = 'assigned'", (lot_id,))
     if assigned:
         labels = ", ".join(row["label"] for row in assigned)
@@ -153,40 +173,40 @@ def delete_lot(lot_id):
             # cascade when the lot is deleted.
             cursor.execute("DELETE FROM interest WHERE lot_id = %s", (lot_id,))
             cursor.execute("DELETE FROM lots WHERE id = %s", (lot_id,))
-        connection.commit()
+        connection.commit()                               # interest cleanup + lot delete together
     except Exception:
         connection.rollback()
         raise
-    return "", 204
+    return "", 204                                         # nothing to return
 ```
 
-**Explanation:**
+**Why it works & further reading:**
 
-- **Guard first, mutate second.** Any `assigned` space blocks the whole delete with `409`, listing the labels so the admin knows exactly what to unassign (in B7's `DELETE /api/assignments/<id>`) before retrying. Nothing is written if this check trips.
-- **Why `interest` is deleted explicitly but `spaces` isn't.** The schema gives the two child tables different foreign-key behavior: `spaces.lot_id` is `ON DELETE CASCADE` (`webapp/sql/migrations/001_init.sql:60`), and `assignments.space_id` also cascades (`:95`) — so deleting the lot automatically removes its spaces *and* their assignments, no code needed. But `interest.lot_id` is `ON DELETE SET NULL` (`:80`), so left alone it would leave that lot's `pending`/`fulfilled` interest rows behind with `lot_id = NULL` — dangling rows with no lot to join against for `lot_name`. `delete_lot` deletes them explicitly, in the same transaction, before deleting the lot, so no orphaned interest survives it.
-- **`204 No Content`** is the right status for a delete that has nothing to return. → [MDN: 204](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/204).
+- **Guard first, mutate second.** Any `assigned` space blocks the whole delete with `409`, listing labels so the admin knows what to unassign first (B7's `DELETE /api/assignments/<id>`). Nothing is written if this trips.
+- **`interest` is deleted explicitly, `spaces` isn't.** `spaces.lot_id` and `assignments.space_id` are `ON DELETE CASCADE` (`webapp/sql/migrations/001_init.sql:60,95`), so they vanish for free; `interest.lot_id` is `ON DELETE SET NULL` (`:80`), so it's cleaned up in the same transaction to avoid an orphaned [foreign key](GLOSSARY.md#foreign-key). → [PostgreSQL: Foreign Keys](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK)
+- **`204 No Content`** — the right status for a delete with nothing to return. → [MDN: 204](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/204)
 
 ### Step 3 — Upload a lot's map image (~15 min)
 
 ```python
 # add to webapp/App/views/lots.py
-@bp.post("/api/lots/<int:lot_id>/map")
-@require_role("admin")
+@bp.post("/api/lots/<int:lot_id>/map")        # decorator: POST uploads a lot's map image
+@require_role("admin")                       # admin only
 def upload_map(lot_id):
     if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
-        return _err("not_found", "Lot not found", 404)
+        return _err("not_found", "Lot not found", 404)   # lot doesn't exist
 
-    uploaded = request.files.get("file")
+    uploaded = request.files.get("file")               # multipart/form-data field "file"
     if uploaded is None or not uploaded.filename:
         return _err("bad_request", "a file is required", 400)
     if uploaded.mimetype not in ("image/png", "image/jpeg"):
-        return _err("bad_request", "Only PNG or JPG images are allowed", 400)
+        return _err("bad_request", "Only PNG or JPG images are allowed", 400)  # allow-list
 
     extension = ".png" if uploaded.mimetype == "image/png" else ".jpg"
-    filename = secure_filename(f"lot_{lot_id}{extension}")
+    filename = secure_filename(f"lot_{lot_id}{extension}")   # fixed name overwrites any prior map
     uploads_dir = os.path.join(current_app.static_folder, "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
-    uploaded.save(os.path.join(uploads_dir, filename))
+    uploaded.save(os.path.join(uploads_dir, filename))       # write to App/static/uploads/
 
     # Store an absolute URL so the SPA (served from another origin) can load it.
     # Use execute (not query_one) so the UPDATE is committed, not rolled back.
@@ -200,17 +220,16 @@ def upload_map(lot_id):
         "FROM spaces WHERE lot_id = %s", (lot_id,))
     row["capacity"] = counts["capacity"]
     row["available_count"] = counts["available_count"]
-    return jsonify({"data": serialize.lot(row)})
+    return jsonify({"data": serialize.lot(row)})          # 200: existing lot updated, not created
 ```
 
-**Explanation:**
+**Why it works & further reading:**
 
-- **`multipart/form-data`, field `file`.** This is a file upload, not JSON, so the client sends a `FormData` body and Flask exposes the file through `request.files`, not `request.get_json()`. → [MDN: Using FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData/Using_FormData_Objects).
-- **PNG or JPG only, checked by MIME type.** `uploaded.mimetype` is the browser-reported `Content-Type` for that part of the request; anything other than `image/png`/`image/jpeg` is `400` before a single byte is written to disk. → [OWASP: File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html). There's **no file-size cap** in this handler — fine for a school-scale admin tool, worth adding (`MAX_CONTENT_LENGTH`) before this ever faces the open internet.
-- **Fixed filename, `secure_filename`.** The file is always saved as `lot_<id>.<ext>` — a fresh upload for the same lot overwrites the old image instead of accumulating orphaned files. `secure_filename` strips anything path-traversal-shaped even though the name here is server-constructed, not user-supplied.
-- **Absolute URL, not a relative path.** `map_image_url` is built from `request.host_url` (e.g. `http://127.0.0.1:8000/static/uploads/lot_7.jpg`), not just `/static/uploads/...`. The SPA is served from a different origin (Vite dev server, or a separate S3/CloudFront origin once deployed) than the Flask API, so a relative path would resolve against the *wrong* host and 404 in the browser.
-- **`execute`, not `query_one`.** `webapp/App/db.py:38`'s `execute()` calls `connection.commit()` itself; `query_one` never commits. Since this handler has no other writes to batch into a transaction, `execute` is the simplest correct choice — using `query_one` here would silently roll the `UPDATE` back.
-- **`200`, not `201`** — this updates an existing lot's `map_image_url`, it doesn't create a new resource.
+- **`multipart/form-data`, field `file`.** A file upload isn't JSON, so Flask exposes it via `request.files`, not `request.get_json()`. → [MDN: Using FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData/Using_FormData_Objects)
+- **PNG/JPG only, checked by MIME type** on the [request](GLOSSARY.md#request) — anything else is `400` before a byte hits disk; there's no size cap yet, worth adding before this faces the open internet. → [OWASP: File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
+- **Fixed filename (`secure_filename`)** — a new upload for the same lot overwrites the old image instead of piling up orphans.
+- **Absolute URL, not a relative path** — built from `request.host_url` because the SPA is served from a different origin than the API; a relative path would resolve against the wrong host.
+- **`execute`, not `query_one`.** `webapp/App/db.py:38`'s `execute()` commits itself; `query_one` never does, so it would silently roll the `UPDATE` back. `200`, not `201` — this updates an existing lot, it doesn't create one.
 
 > **No blueprint registration needed** for either of these — same file, same already-registered blueprint.
 

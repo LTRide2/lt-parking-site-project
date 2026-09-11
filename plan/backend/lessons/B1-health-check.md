@@ -7,13 +7,33 @@
 
 ---
 
+> **New words ahead?** Terms like [Flask](GLOSSARY.md#flask), [Blueprint](GLOSSARY.md#blueprint), and [CORS](GLOSSARY.md#cors) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-A **Flask server you started yourself**, answering a real request over HTTP for the first time. Concretely, by the end of this hour you will have:
+A **[Flask](GLOSSARY.md#flask) server you started yourself**, answering a real request over HTTP for the first time. Concretely, by the end of this hour you will have:
 
-- A new file `webapp/App/views/health.py` — a **Blueprint** with one route, `GET /api/health`, that returns `{"data":{"status":"ok","time":"..."}}`.
-- A rewritten `webapp/App/__init__.py` — the **app factory** (`create_app()`) that builds the Flask app, turns on CORS, registers the health blueprint, and defines a consistent JSON shape for 404 and 500 errors.
-- A server running locally at `http://localhost:8000` that you talk to with `curl`.
+- A new file `webapp/App/views/health.py` — a **[Blueprint](GLOSSARY.md#blueprint)** with one [route](GLOSSARY.md#route), `GET /api/health`, that returns `{"data":{"status":"ok","time":"..."}}`.
+- A rewritten `webapp/App/__init__.py` — the **[app factory](GLOSSARY.md#app-factory)** (`create_app()`) that builds the Flask app, turns on [CORS](GLOSSARY.md#cors), registers the health blueprint, and defines a consistent JSON shape for 404 and 500 errors.
+- A server running locally at `http://localhost:8000` that you talk to with [`curl`](GLOSSARY.md#curl).
+
+**🖼 Before → after — what the API does (this is what you're changing):**
+
+```text
+BEFORE  — nothing is listening; the request can't even connect
+  $ curl -i http://localhost:8000/api/health
+  curl: (7) Failed to connect to localhost port 8000: Connection refused
+
+AFTER   — your Flask server answers, with a consistent JSON envelope
+  $ curl -i http://localhost:8000/api/health
+  HTTP/1.1 200 OK
+  Content-Type: application/json
+  {"data":{"status":"ok","time":"2026-01-01T12:00:00+00:00"}}
+
+  $ curl -i http://localhost:8000/api/does-not-exist
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `flask run --port 8000` starts with no errors and keeps running (you leave it in its own terminal).
@@ -114,21 +134,20 @@ In `webapp/App/views/`, create a new file `health.py`:
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify
 
-# A "Blueprint" is a group of related routes. We register it in __init__.py.
+# A Blueprint is a group of related routes; __init__.py registers it on the app.
+# Every future feature area (auth, lots, spaces, ...) starts with this same line.
 bp = Blueprint("health", __name__)
 
-@bp.get("/api/health")
+@bp.get("/api/health")                       # decorator: run this function for GET /api/health
 def health():
-    now = datetime.now(timezone.utc).isoformat()
-    return jsonify({"data": {"status": "ok", "time": now}})
+    now = datetime.now(timezone.utc).isoformat()          # live UTC timestamp → proves the answer isn't cached
+    return jsonify({"data": {"status": "ok", "time": now}})  # wrap in the {"data": ...} envelope everything uses
 ```
 
-**Explanation, line by line:**
-- `from flask import Blueprint, jsonify` — `Blueprint` is the class you use to group routes; `jsonify` turns a Python dict into a real HTTP response with the `Content-Type: application/json` header set correctly (plain `return {...}` works in modern Flask too, but `jsonify` is explicit about what's happening). → [`jsonify` docs](https://flask.palletsprojects.com/en/stable/api/#flask.json.jsonify)
-- `bp = Blueprint("health", __name__)` — creates the blueprint object named `"health"`. Every future feature area (`auth`, `lots`, `spaces`, ...) will start with this same line, just with a different name. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
-- `@bp.get("/api/health")` — a decorator that's shorthand for "register this function to handle **GET** requests at `/api/health`." → [Flask: HTTP methods](https://flask.palletsprojects.com/en/stable/quickstart/#http-methods)
-- `datetime.now(timezone.utc).isoformat()` — the current time in UTC, formatted as text. Including a timestamp in the response is a cheap, useful way to prove the answer is *live*, not cached or hard-coded. → [Python: `datetime.isoformat`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat)
-- `return jsonify({"data": {...}})` — the whole app wraps successful responses in a `{"data": ...}` envelope (and errors in `{"error": ...}`, see Step 3) so the frontend can always expect the same shape.
+**Why it works & further reading:**
+- **[`jsonify`](GLOSSARY.md#jsonify)** turns a Python dict into a real HTTP [response](GLOSSARY.md#response) with the `Content-Type: application/json` header set — plain `return {...}` works in modern Flask too, but `jsonify` is explicit. → [`jsonify` docs](https://flask.palletsprojects.com/en/stable/api/#flask.json.jsonify)
+- **[`@bp.get(...)`](GLOSSARY.md#decorator)** is shorthand for "handle **GET** requests at this URL"; the [route](GLOSSARY.md#route) string is the address clients call. → [Flask: HTTP methods](https://flask.palletsprojects.com/en/stable/quickstart/#http-methods)
+- **The `{"data": ...}` [envelope](GLOSSARY.md#envelope)** — successful responses wrap their payload in `data` (errors wrap in `error`, see Step 3), so the frontend can always expect the same shape. → [Python: `datetime.isoformat`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat)
 
 ### Step 3 — Write the app factory (~15 min)
 
@@ -142,19 +161,20 @@ from flask_cors import CORS
 from . import config
 
 
-def create_app():
+def create_app():                            # app factory: one function builds + returns the whole app
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = config.SECRET_KEY
+    app.config["SECRET_KEY"] = config.SECRET_KEY   # the secret from .env (B0); Flask signs tokens/cookies with it
 
     # Allow the React dev server (and later the real site) to call this API.
+    # A different port counts as a different origin, so the browser blocks it unless we opt it in here.
     CORS(app, origins=config.CORS_ORIGINS.split(","), supports_credentials=True)
 
-    # Register every blueprint (group of routes). We add more in later CRs.
+    # Register every blueprint (group of routes). Each later CR adds its own import + register line here.
     from .views import health
     app.register_blueprint(health.bp)
 
     # Turn any uncaught error into our standard JSON error envelope so the
-    # frontend always gets predictable shapes.
+    # frontend always gets predictable shapes instead of Flask's HTML error page.
     @app.errorhandler(404)
     def not_found(_e):
         return jsonify({"error": {"code": "not_found", "message": "Not found"}}), 404
@@ -166,17 +186,16 @@ def create_app():
     return app
 
 
-# Lets `flask run` find the app via FLASK_APP=webapp.App
+# Module-level app object lets `flask run` find it via FLASK_APP=webapp.App
 app = create_app()
 ```
 
-**Explanation, line by line:**
-- `def create_app():` — the **app factory** pattern: one function builds and returns a fully-wired app, instead of building it at import time. This makes it possible to build a second, separate app for automated tests later without the two interfering with each other. → [Flask: Application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)
-- `app.config["SECRET_KEY"] = config.SECRET_KEY` — hands Flask the secret you moved into `.env` back in [Lesson B0](B0-clean-slate-and-safety.md); Flask uses it to sign things like session cookies later. → [Flask: `SECRET_KEY`](https://flask.palletsprojects.com/en/stable/config/#SECRET_KEY)
-- `CORS(app, origins=config.CORS_ORIGINS.split(","), supports_credentials=True)` — without this, a browser tab open on `http://localhost:5173` (the React dev server) would be **blocked** from calling `http://localhost:8000` (this API) — different port counts as a different origin. `origins=...` opts in exactly the addresses listed in `.env`, nothing more. → [flask-cors docs](https://flask-cors.readthedocs.io/en/latest/)
-- `from .views import health` / `app.register_blueprint(health.bp)` — imports the blueprint you wrote in Step 2 and plugs it into the app. Every future view module gets its own import + register line here.
-- `@app.errorhandler(404)` / `@app.errorhandler(500)` — by default Flask returns an HTML error page; these two decorators override that so **every** error, from any route, comes back as the same `{"error": {"code": ..., "message": ...}}` JSON shape the frontend can parse uniformly. → [Flask: Handling application errors](https://flask.palletsprojects.com/en/stable/errorhandling/)
-- `app = create_app()` at module level — this is what lets the command-line tool `flask run` find an app object automatically when you point `FLASK_APP` at this module.
+**Why it works & further reading:**
+- **[App factory](GLOSSARY.md#app-factory) (`create_app()`)** — building the app *inside a function* (not at import time) lets automated tests later build a second, separate app without the two interfering. → [Flask: Application factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/)
+- **[`SECRET_KEY`](GLOSSARY.md#secret_key)** comes from the [`.env`](GLOSSARY.md#environment-variable) you set up in [Lesson B0](B0-clean-slate-and-safety.md); Flask uses it to sign things like session cookies. → [Flask: `SECRET_KEY`](https://flask.palletsprojects.com/en/stable/config/#SECRET_KEY)
+- **[CORS](GLOSSARY.md#cors)** opts in exactly the addresses listed in `.env` — without it, a tab on `http://localhost:5173` (React) can't call `http://localhost:8000` (this API), because a different port is a different origin. → [flask-cors docs](https://flask-cors.readthedocs.io/en/latest/)
+- **[Error handlers](GLOSSARY.md#error-handler)** override Flask's default HTML error page so **every** error comes back as the same `{"error": {...}}` JSON the frontend parses uniformly. → [Flask: Handling application errors](https://flask.palletsprojects.com/en/stable/errorhandling/)
+- **`app = create_app()` at module level** is what lets the `flask run` command find an app object when `FLASK_APP` points at this module.
 
 ### Step 4 — Run the server (~10 min)
 

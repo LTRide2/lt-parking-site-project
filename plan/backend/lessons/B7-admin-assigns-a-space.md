@@ -7,15 +7,45 @@
 
 ---
 
+> **New words ahead?** Terms like [transaction](GLOSSARY.md#transaction), [endpoint](GLOSSARY.md#endpoint), and [response](GLOSSARY.md#response) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-Three admin-only endpoints that turn a student's *interest* into a real assignment — move it, or undo it:
+Three admin-only [endpoints](GLOSSARY.md#endpoint) that turn a student's *interest* into a real assignment — move it, or undo it:
 
 - **`POST /api/assignments`** — body `{"spaceId", "userId"}` (optional `"interestId"`) → marks the space `assigned`, records who got it, flips the matching interest request to `fulfilled`, and syncs the student **roster** row so the front office sees the slot too.
 - **`POST /api/assignments/move`** — body `{"fromSpaceId", "toLotId"}` → frees the occupant's current space and re-queues their request as `pending` **in the new lot**, so an admin can pick a fresh spot there. It does *not* auto-pick a spot for them.
 - **`DELETE /api/assignments/<spaceId>`** — undoes an assignment: the space goes back to `available` and the student's request re-opens.
 
-The important part isn't the endpoint count — it's that every write inside each of them happens inside **one database transaction**, so the space, the assignment record, the interest row, and the roster row always change *together*. There's no possible moment where the space says "assigned" but the roster still shows the student as unassigned.
+The important part isn't the endpoint count — it's that every write inside each of them happens inside **[one database transaction](GLOSSARY.md#transaction)**, so the space, the assignment record, the interest row, and the roster row always change *together*. There's no possible moment where the space says "assigned" but the roster still shows the student as unassigned.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — the routes don't exist yet
+  $ curl -i -X POST http://localhost:8000/api/assignments \
+      -H "Authorization: Bearer $A" -d '{"spaceId":9,"userId":3}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — admin assigns a space to a request, in one DB transaction
+  $ curl -i -X POST http://localhost:8000/api/assignments \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+      -d '{"spaceId":9,"userId":3,"interestId":2}'
+  HTTP/1.1 201 CREATED
+  {"data":{"space_id":9,"user_id":3,"interest_id":2}}
+
+  DELETE unassigns it:
+  $ curl -i -X DELETE http://localhost:8000/api/assignments/9 -H "Authorization: Bearer $A"
+  HTTP/1.1 204 NO CONTENT
+
+  ...or move the occupant's request to another lot instead:
+  $ curl -i -X POST http://localhost:8000/api/assignments/move \
+      -H "Authorization: Bearer $A" -H 'Content-Type: application/json' \
+      -d '{"fromSpaceId":8,"toLotId":3}'
+  HTTP/1.1 200 OK
+  {"data":{"from_space_id":8,"to_lot_id":3}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `POST /api/assignments` with a valid admin token returns `201`, the target space becomes `assigned`, the student's matching `pending` interest becomes `fulfilled`, and the matching `students` roster row picks up the new `assigned_slot` + `parking_status: valid`.
@@ -79,7 +109,7 @@ Create the file with this exact content:
 import psycopg
 from flask import Blueprint, request, jsonify, g
 
-from ..db import query_one, get_db
+from ..db import query_one, get_db  # get_db() hands back the raw connection needed for multi-statement transactions
 from ..auth import require_role
 
 bp = Blueprint("assignments", __name__)
@@ -95,7 +125,7 @@ def _resolve_student_id(cursor, student_id, user_id):
         cursor.execute("SELECT student_id FROM students WHERE student_id = %s", (student_id,))
         if cursor.fetchone():
             return student_id
-    if user_id is not None:
+    if user_id is not None:                  # fall back: the login user's `code` should match a roster student_id
         cursor.execute("SELECT code FROM users WHERE id = %s", (user_id,))
         row = cursor.fetchone()
         if row and row["code"]:
@@ -117,7 +147,7 @@ def _set_roster_slot(cursor, student_id, user_id, slot_text):
 
 
 @bp.post("/api/assignments")
-@require_role("admin")
+@require_role("admin")                        # admin-only: students never call this route directly
 def create_assignment():
     body = request.get_json(silent=True) or {}
     space_id, user_id = body.get("spaceId"), body.get("userId")
@@ -125,16 +155,16 @@ def create_assignment():
     if not isinstance(space_id, int) or not isinstance(user_id, int):
         return _err("bad_request", "spaceId and userId (integers) are required", 400)
 
-    space = query_one("SELECT id, lot_id, status FROM spaces WHERE id = %s", (space_id,))
+    space = query_one("SELECT id, lot_id, status FROM spaces WHERE id = %s", (space_id,))  # plain SELECTs first —
     if space is None:
         return _err("not_found", "Space not found", 404)
     user = query_one("SELECT id, code FROM users WHERE id = %s", (user_id,))
     if user is None:
         return _err("not_found", "User not found", 404)
-    if space["status"] != "available":
+    if space["status"] != "available":       # the transaction below only ever runs on already-known-good writes
         return _err("conflict", f"Space is {space['status']}, not assignable", 409)
 
-    connection = get_db()
+    connection = get_db()                     # raw connection: psycopg opens one transaction for every statement below
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -147,20 +177,20 @@ def create_assignment():
             if isinstance(interest_id, int):
                 cursor.execute("UPDATE interest SET status='fulfilled' WHERE id=%s", (interest_id,))
             else:
-                cursor.execute(
+                cursor.execute(              # no interestId given: fulfil any pending request from this user instead
                     "UPDATE interest SET status='fulfilled' "
                     "WHERE user_id=%s AND status='pending'", (user_id,))
             cursor.execute("SELECT name FROM lots WHERE id = %s", (space["lot_id"],))
             lot_row = cursor.fetchone()
             lot_name = lot_row["name"] if lot_row else f"Lot {space['lot_id']}"
             slot_text = f"{lot_name} · {_label(cursor, space_id)}"
-            _set_roster_slot(cursor, user["code"], user_id, slot_text)
-        connection.commit()
-    except psycopg.errors.UniqueViolation:
-        connection.rollback()
+            _set_roster_slot(cursor, user["code"], user_id, slot_text)  # roster sync inside the same transaction
+        connection.commit()                   # every statement above succeeded — make it permanent
+    except psycopg.errors.UniqueViolation:      # one_active_assignment_per_space index (B2) rejected the INSERT
+        connection.rollback()                   # undo everything so far — never leave the space half-assigned
         return _err("conflict", "Space already has an active assignment", 409)
     except Exception:
-        connection.rollback()
+        connection.rollback()                   # safety net: never leave a half-done transaction open
         raise
 
     return jsonify({"data": {"space_id": space_id, "user_id": user_id,
@@ -168,7 +198,7 @@ def create_assignment():
 
 
 @bp.post("/api/assignments/move")
-@require_role("admin")
+@require_role("admin")                        # reassigns the LOT, not the spot — admin still picks the new spot
 def move_assignment():
     body = request.get_json(silent=True) or {}
     from_space_id, to_lot_id = body.get("fromSpaceId"), body.get("toLotId")
@@ -203,11 +233,11 @@ def move_assignment():
                     "UPDATE interest SET lot_id=%s, space_ids='{}', status='pending' "
                     "WHERE user_id=%s AND lot_id=%s AND status='fulfilled'",
                     (to_lot_id, freed_user_id, space["lot_id"]))
-                if cursor.rowcount == 0:
+                if cursor.rowcount == 0:      # no fulfilled row to flip — insert a fresh pending one instead
                     cursor.execute(
                         "INSERT INTO interest (user_id, lot_id, space_ids, status) "
                         "VALUES (%s, %s, '{}', 'pending') "
-                        "ON CONFLICT DO NOTHING", (freed_user_id, to_lot_id))
+                        "ON CONFLICT DO NOTHING", (freed_user_id, to_lot_id))  # guards one_active_interest_per_user (B6)
         connection.commit()
     except Exception:
         connection.rollback()
@@ -217,7 +247,7 @@ def move_assignment():
 
 @bp.delete("/api/assignments/<int:space_id>")
 @require_role("admin")
-def delete_assignment(space_id):
+def delete_assignment(space_id):              # path param is the SPACE id, not an assignments-table id
     space = query_one(
         "SELECT id, lot_id, status, assigned_user_id, assigned_student_id FROM spaces WHERE id = %s",
         (space_id,))
@@ -247,10 +277,10 @@ def delete_assignment(space_id):
     except Exception:
         connection.rollback()
         raise
-    return "", 204
+    return "", 204                            # no body — the caller already knows which space it freed
 
 
-def _label(cursor, space_id):
+def _label(cursor, space_id):                 # small helper: avoids an inline cursor round-trip in create_assignment
     cursor.execute("SELECT label FROM spaces WHERE id = %s", (space_id,))
     row = cursor.fetchone()
     return row["label"] if row else ""
@@ -258,45 +288,15 @@ def _label(cursor, space_id):
 
 → This is the real shipped file, `webapp/App/views/assignments.py` (clone A ground truth), not a simplified version.
 
-**Explanation, piece by piece:**
-
-**Imports.** `import psycopg` — this lesson is the first time you catch a specific *database* error (`psycopg.errors.UniqueViolation`) instead of just the generic Python ones. `from ..db import query_one, get_db` — you've used `query_one` since B4 for simple lookups, but `get_db()` is new: it hands you the **raw connection object** instead of a helper that runs one statement and returns. You need the raw connection here because you're about to run *several* statements that must all succeed or all fail together — the `query()` / `query_one()` / `execute()` helpers in `db.py` each commit (or just read) after a single statement, which is exactly wrong when multiple writes have to be atomic.
-
-**The roster helpers (`_resolve_student_id`, `_set_roster_slot`, `webapp/App/views/assignments.py:15-39`).** The `students` table (the school's existing roster, from B2) is keyed by its own `student_id` text column — not by `users.id`. A space can be held by a login user (whose `code` matches a roster `student_id`) or, in principle, by a roster student with no login at all, which is why `_resolve_student_id` tries the direct `student_id` first and only falls back to looking up the user's `code`. `_set_roster_slot` then either writes a slot + `parking_status='valid'`, or clears both back to `unassigned` when `slot_text` is `None`. Every one of the three routes below calls this helper *inside* its transaction, so the roster row changes atomically with the space and the assignment.
-
-**`create_assignment` (`webapp/App/views/assignments.py:42-90`) — validation before the transaction.** Notice all four checks — are `spaceId`/`userId` integers, does the space exist, does the user exist, is the space actually `available` — happen *before* `get_db()` is ever touched. Failing fast on bad input, with plain `SELECT`s, means the transaction itself only ever contains writes that are already known to make sense. → Reference: [12-Factor: fail fast](https://12factor.net/config) (the same "fail loud, fail early" idea from B0, applied to requests instead of missing config).
-
-**The transaction — the heart of this lesson.**
-```python
-connection = get_db()
-try:
-    with connection.cursor() as cursor:
-        cursor.execute(...)   # 1. INSERT the assignment
-        cursor.execute(...)   # 2. UPDATE the space to 'assigned'
-        cursor.execute(...)   # 3. UPDATE the interest row to 'fulfilled'
-        cursor.execute(...)   # 4. read the lot name + label, sync the roster row
-    connection.commit()
-except psycopg.errors.UniqueViolation:
-    connection.rollback()
-    return _err(...)
-except Exception:
-    connection.rollback()
-    raise
-```
-- Every `cursor.execute(...)` inside the `with connection.cursor() as cursor:` block is part of the **same transaction** — psycopg opens one automatically the moment you run the first statement on a connection. → Reference: [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html).
-- `connection.commit()` only runs if every statement succeeded with no exception — that's the moment PostgreSQL makes the changes permanent. → Reference: [PostgreSQL `COMMIT`](https://www.postgresql.org/docs/current/sql-commit.html).
-- `except psycopg.errors.UniqueViolation: connection.rollback()` — this fires if the `one_active_assignment_per_space` partial unique index (B2) rejects the insert — e.g., a race where two admins assign the same space at nearly the same instant. `connection.rollback()` undoes anything the transaction had already done, so the space is **not** left half-assigned. Response: `409` `"Space already has an active assignment"`. → Reference: [PostgreSQL `ROLLBACK`](https://www.postgresql.org/docs/current/sql-rollback.html).
-- `except Exception: connection.rollback(); raise` — a safety net for *any other* unexpected error: roll back first (never leave a half-done transaction sitting open), then `raise` so the error still surfaces (Flask will turn it into a `500`) instead of being silently swallowed.
-
-**The two interest-update branches.** If the request included an `interestId`, that *specific* interest row is marked `fulfilled` — useful when an admin is looking at one particular request in a list. If not, the code falls back to fulfilling *any* `pending` interest from that user — handy for quick manual assigns where you already know who gets the space but didn't look up their interest row's id.
-
-**The response is a minimal echo, not the full assignment row.** `{"data": {"space_id", "user_id", "interest_id"}}` — the caller already knows what it asked for; the UI re-fetches `GET /api/lots/:id/spaces` (B4) to see the updated space with its `assigned_user_name`.
-
-**`move_assignment` (`webapp/App/views/assignments.py:93-138`) — reassigning a lot, not a spot.** This is the endpoint the brief calls "move": an admin picks up a student who already holds a space and sends their request to a *different lot* — without picking their new spot for them. It frees the source space and clears its roster slot exactly like `delete_assignment` does, then re-queues the occupant's `fulfilled` interest as `pending` with a new `lot_id` and `space_ids` reset to `'{}'` (`:125-128`). If they had no matching `fulfilled` row (`cursor.rowcount == 0`), it inserts a fresh `pending` one instead (`:130-133`) — `ON CONFLICT DO NOTHING` guards against the `one_active_interest_per_user` unique index from B6 in case a pending row already existed. Either way, the *next* step — actually landing them in a spot in `toLotId` — is a normal `POST /api/assignments` call; this endpoint deliberately does not auto-pick one.
-
-**`delete_assignment` (`webapp/App/views/assignments.py:141-173`) — keyed on the SPACE id, not the assignment id.** The URL is `/api/assignments/<int:space_id>` — the path parameter is deliberately named `space_id`. This matches how the UI actually calls it: an admin is looking at a *space* on the map and undoing whatever's assigned to it, not looking up an internal assignment row's id first. `404` ("Assignment not found") fires when that **space** id doesn't exist. Inside the transaction: deactivate the space's active assignment row, free the space, re-queue the student's `fulfilled` interest back to `pending` (**this is new** — the old version of this endpoint left the interest alone; now the student's request re-enters the queue automatically), and clear the roster slot. This flip is a plain one-row `UPDATE fulfilled → pending` with no conflict handling, and it's *safe* precisely because B6 enforces one active request per student: the student can't already have a rival `pending` row, so flipping their `fulfilled` row back can never create a second `pending` one (which would otherwise trip the `one_active_interest_per_user` index with a `500`). Returns `204` — no body, since the caller already knows which space it freed.
-
-**`_label` (`webapp/App/views/assignments.py:176-179`).** A tiny helper that looks up a space's label for building the `"<lot name> · <label>"` roster slot text — kept separate so `create_assignment` doesn't need its own cursor round-trip inline.
+**Why it works & further reading:**
+- **Validate before opening the transaction.** All four checks (`spaceId`/`userId` types, space exists, user exists, space is `available`) run as plain `SELECT`s first, so the transaction below only ever contains writes already known to make sense. → [12-Factor: fail fast](https://12factor.net/config)
+- **One transaction, four writes.** Every `cursor.execute(...)` inside `with connection.cursor() as cursor:` shares the same transaction — psycopg opens one the moment the first statement runs — and `connection.commit()` only fires once all of them succeed. → [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html), [PostgreSQL `COMMIT`](https://www.postgresql.org/docs/current/sql-commit.html)
+- **`UniqueViolation` → `409`, not a crash.** The `one_active_assignment_per_space` index (B2) can reject the `INSERT` if two admins race to assign the same space; `rollback()` undoes the partial work first. Any *other* exception rolls back too, then `raise`s so it still surfaces as a `500` instead of being silently swallowed. → [PostgreSQL `ROLLBACK`](https://www.postgresql.org/docs/current/sql-rollback.html)
+- **Two ways to fulfil an interest row.** An explicit `interestId` fulfils that exact row; otherwise the code fulfils any `pending` row from that user — handy for a quick manual assign.
+- **The [response](GLOSSARY.md#response) is a minimal echo**, not the full assignment row — the caller already knows what it asked for, and the UI re-fetches `GET /api/lots/:id/spaces` (B4) for the updated space.
+- **The roster helpers (`_resolve_student_id`, `_set_roster_slot`) run inside the same transaction** as everything else. `students` (B2) is keyed by its own `student_id` text column, not `users.id`, so `_resolve_student_id` matches a login user's `code` to a roster row before `_set_roster_slot` writes or clears the slot — keeping `students` in sync with `spaces` for tools that only read the roster. → [Wikipedia: Denormalization](https://en.wikipedia.org/wiki/Denormalization)
+- **`move_assignment` reassigns the lot, not the spot.** It frees the source space and clears its roster slot exactly like `delete_assignment`, then re-queues the occupant's `fulfilled` interest as `pending` with the new `lot_id` (or inserts a fresh `pending` row if none matched) — `ON CONFLICT DO NOTHING` guards the `one_active_interest_per_user` index from B6. Picking the actual new spot is a separate, later `POST /api/assignments` call.
+- **`delete_assignment` is keyed on the SPACE id**, matching the UI (an admin clicks a space on the map, not an assignment row). Re-opening the student's `fulfilled → pending` interest here is new versus the old version of this endpoint, and it's safe because B6's one-active-request-per-student rule guarantees no rival `pending` row can already exist.
 
 ### Step 2 — Register the blueprint (~5 min)
 

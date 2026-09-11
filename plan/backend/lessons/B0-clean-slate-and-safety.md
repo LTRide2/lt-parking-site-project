@@ -7,14 +7,33 @@
 
 ---
 
+> **New words ahead?** Terms like [environment variable](GLOSSARY.md#environment-variable), [`SECRET_KEY`](GLOSSARY.md#secret_key), and [`requirements.txt`](GLOSSARY.md#requirementstxt) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
 A project that is **safe to share on GitHub** and **reads its secrets from outside the code**. Concretely, by the end of this hour you will have:
 
 - A `.gitignore` that stops secrets and junk files from ever being committed.
-- A `webapp/requirements.txt` listing every Python library the next 7 lessons need.
-- A `config.py` that reads its secret key and database address from the **environment**, not from a string typed into the code.
+- A [`webapp/requirements.txt`](GLOSSARY.md#requirementstxt) listing every Python library the next 7 lessons need.
+- A `config.py` that reads its [secret key](GLOSSARY.md#secret_key) and database address from the **[environment](GLOSSARY.md#environment-variable)**, not from a string typed into the code.
 - A local `.env` (your private secrets, never committed) and a committed `.env.example` (the blank template for the next person).
+
+**🖼 Before → after — what changes (invisible plumbing):** there's no visible endpoint yet — B0 only changes the *safety* of the repo itself:
+
+```text
+BEFORE — secrets and junk can be committed; the app trusts a literal string
+  $ git status
+  ...  .venv/, __pycache__/, .env, *.pem   ← all untracked, all one `git add -A` away from GitHub
+  # config.py:  SECRET_KEY = "some-literal-string"          (hard-coded, visible to anyone who reads it)
+  # webapp/requirements.txt: ~30 stale course-template pins, some too old to install
+
+AFTER  — secrets never touch Git; the app refuses to start without them
+  $ git status
+  ...  (none of .venv/, __pycache__/, .env, *.pem ever show up — .gitignore blocks them)
+  $ python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"
+  SECRET loaded: True                                        (read from .env, not hard-coded)
+  # webapp/requirements.txt: exactly 7 pinned-minimum libraries this backend actually uses
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `git status` does **not** list `.venv/`, `__pycache__/`, `.env`, or any `*.pem` file.
@@ -30,7 +49,7 @@ Imagine you push your code to GitHub and, buried in a file, there's a line like 
 
 So before we build **any** feature, we do two boring-but-critical things that every professional project does:
 
-1. **Tell Git what to ignore** so private files (secrets, your virtual environment, the AWS key) can never be committed by accident.
+1. **Tell Git what to ignore** so private files (secrets, your [virtual environment](GLOSSARY.md#virtual-environment), the AWS key) can never be committed by accident.
 2. **Separate secrets from code.** The code says "give me the value named `SECRET_KEY`"; the actual value lives in a file (`.env`) that never leaves your laptop, or in server settings in production. This idea is called **"config in the environment"** and it's principle III of the widely-used [Twelve-Factor App](https://12factor.net/config) methodology.
 
 Getting this right now means every later lesson (login, database, deploy) is safe by default. This is the foundation the other 21 lessons stand on.
@@ -87,7 +106,7 @@ git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
 Create or open `.gitignore` at the **repo root** and make sure it contains exactly these lines (add any that are missing — order doesn't matter):
 
 ```gitignore
-# Python
+# Python — venv + compiled cache; big, machine-specific, regenerates automatically
 .venv/
 env/
 __pycache__/
@@ -96,26 +115,23 @@ __pycache__/
 # local database files (if you ever use SQLite)
 *.sqlite3
 
-# secrets & local settings — NEVER commit these
+# secrets & local settings — NEVER commit these (the most important line in this file)
 .env
 
-# the AWS key file (handled separately — do not touch the key itself)
+# the AWS key file — leaking it lets someone log into your server (don't touch the key itself)
 *.pem
 
-# build output / dependencies
+# build output / dependencies — frontend's installed libs + build output, also regenerated
 node_modules/
 dist/
 
-# dev server runtime files (PID + logs the webapp/bin/server script writes; see B1)
+# dev server runtime files (PID + logs webapp/bin/server writes; see B1) — never committed
 webapp/var/
 ```
 
-**Explanation, line group by line group:**
-- `.venv/`, `env/`, `__pycache__/`, `*.pyc` — Python's virtual environment and compiled cache files. They're big, machine-specific, and get regenerated automatically, so they should never be in Git.
-- `.env` — **your secrets.** This is the single most important line here.
-- `*.pem` — the AWS private key. Leaking this would let someone log into your server. (Don't touch the `aws-tutorial.pem` file itself — it's handled separately.)
-- `node_modules/`, `dist/` — the frontend's installed libraries and build output; also regenerated, never committed.
-- `webapp/var/` — where the dev-server convenience script (`webapp/bin/server`, introduced in [Lesson B1](B1-health-check.md)) writes its process id and log files. Runtime junk, regenerated on every start — never committed.
+**Why it works & further reading:**
+- `.env` is the line that matters most in this file — everything else here is regenerated junk (venv, cache, build output); `.env` is the one line that, if leaked, hands over your signing key and DB credentials.
+- `.gitignore` only stops *future* commits — a file already tracked by Git stays tracked until you explicitly `git rm --cached` it (see **If something breaks** below). → [gitignore pattern format](https://git-scm.com/docs/gitignore#_pattern_format)
 
 > **How `.gitignore` matches:** a trailing `/` means "a folder"; `*` is a wildcard. So `*.pem` means "any file ending in `.pem`, anywhere." → Reference: [gitignore pattern format](https://git-scm.com/docs/gitignore#_pattern_format).
 
@@ -170,7 +186,7 @@ Open `webapp/App/config.py`. Find the hard-coded line that looks like `SECRET_KE
 ```python
 # webapp/App/config.py
 """All settings come from environment variables (loaded from .env locally)."""
-import os
+import os                                    # standard library for reading environment variables
 
 # Loads variables from a local .env file if present. On the real server the
 # variables are set by systemd, so this is a no-op there.
@@ -178,20 +194,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Required — the app refuses to start if these are missing.
-SECRET_KEY = os.environ["SECRET_KEY"]
+SECRET_KEY = os.environ["SECRET_KEY"]        # [ ] = required; missing key raises KeyError
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 # Optional — sensible defaults for local development.
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
-JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")   # .get() = optional, has a default
+JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))               # env values are always strings — convert here
 ```
 
-**Explanation, line by line:**
-- `import os` — the standard library that lets Python read environment variables. → [os.environ docs](https://docs.python.org/3/library/os.html#os.environ).
-- `from dotenv import load_dotenv` / `load_dotenv()` — reads your local `.env` file and copies its `NAME=value` pairs into the environment. On the AWS server there's no `.env`; systemd sets the variables instead, so this line simply does nothing there. → [python-dotenv usage](https://saurabh-kumar.com/python-dotenv/#getting-started).
-- `os.environ["SECRET_KEY"]` — square brackets mean **"this is required."** If it's missing, Python raises `KeyError` and the app refuses to start.
-- `os.environ.get("CORS_ORIGINS", "…")` — `.get()` with a default means **"optional."** If unset, it uses the fallback value.
-- `int(os.environ.get("JWT_EXP_HOURS", "12"))` — environment values are always text, so we convert to a number with `int(...)`.
+**Why it works & further reading:**
+- `.env` is loaded once via `load_dotenv()`, which copies its `NAME=value` pairs into the process environment; on the real server there's no `.env` file — systemd sets the variables instead, so this call quietly does nothing there. → [python-dotenv usage](https://saurabh-kumar.com/python-dotenv/#getting-started)
+- `SECRET_KEY`/`DATABASE_URL` are read as **required** (`os.environ[...]`); everything else is **optional** (`.get(...)` with a default) — see the callout below for why that split matters. → [os.environ docs](https://docs.python.org/3/library/os.html#os.environ)
 
 > **Why `[...]` for secrets and `.get(...)` for the rest?** Square brackets make the app **crash immediately with a clear error** if a required secret is missing — far better than starting up "half-configured" and failing mysteriously later. This is the "fail loud, fail early" principle. → Reference: [12-Factor: Config](https://12factor.net/config).
 
@@ -202,13 +215,15 @@ JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))
 Create a `.env` file at the **repo root**. It's git-ignored (from Step 1), so it stays on your machine only:
 
 ```dotenv
-SECRET_KEY=dev-only-change-me-to-anything-long-and-random
-DATABASE_URL=postgresql://localhost/ltride_dev
+# NAME=value — no quotes, no spaces around "="
+SECRET_KEY=dev-only-change-me-to-anything-long-and-random   # any long random string is fine for local dev
+DATABASE_URL=postgresql://localhost/ltride_dev               # local Postgres db you'll create in lesson B2
 CORS_ORIGINS=http://localhost:5173
 JWT_EXP_HOURS=12
 ```
 
-**Explanation:** each line is `NAME=value` with no quotes and no spaces around `=` — that's the `.env` format `python-dotenv` expects. `SECRET_KEY` can be any long random string for local dev. `DATABASE_URL` points at a local PostgreSQL database named `ltride_dev` you'll create in lesson B2. → Reference: [.env file rules](https://saurabh-kumar.com/python-dotenv/#file-format).
+**Why it works & further reading:**
+- Each line is `NAME=value`, no quotes or spaces around `=` — that's exactly the format `python-dotenv` expects, and it's what `load_dotenv()` (Step 3) parses. → [.env file rules](https://saurabh-kumar.com/python-dotenv/#file-format)
 
 ### Step 5 — Create the committed template `.env.example` (~5 min)
 

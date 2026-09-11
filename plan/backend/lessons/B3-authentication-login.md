@@ -7,13 +7,38 @@
 
 ---
 
+> **New words ahead?** Terms like [JWT](GLOSSARY.md#jwt), [authentication](GLOSSARY.md#authentication), and [password hash](GLOSSARY.md#password-hash) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
 Right now anyone can hit your API, but nothing checks *who* they are. By the end of this hour, your backend will be able to answer "who is asking?" for every request. Concretely you will have:
 
 - `webapp/App/db.py` — the **one** place that opens a connection to PostgreSQL; every other file borrows it from here.
-- `webapp/App/auth.py` — a service that **issues** a signed login token (JWT) and **checks** one on every protected request, plus a `@require_role` guard for admin-only routes.
-- `webapp/App/views/auth.py` — four real endpoints: `POST /api/auth/student`, `POST /api/auth/admin`, `POST /api/auth/logout`, and `GET /api/auth/me`.
+- `webapp/App/auth.py` — a service that **issues** a signed login token ([JWT](GLOSSARY.md#jwt)) and **checks** one on every protected [request](GLOSSARY.md#request), plus a `@require_role` guard for admin-only routes.
+- `webapp/App/views/auth.py` — four real [endpoints](GLOSSARY.md#endpoint): `POST /api/auth/student`, `POST /api/auth/admin`, `POST /api/auth/logout`, and `GET /api/auth/me`.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — no auth routes exist yet; every one is unhandled
+  $ curl -i -X POST http://localhost:8000/api/auth/student -d '{"code":"STU001"}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — login issues a signed JWT; protected routes check it
+  $ curl -i -X POST http://localhost:8000/api/auth/student \
+    -H 'Content-Type: application/json' -d '{"code":"STU001"}'
+  HTTP/1.1 200 OK
+  {"data":{"token":"<jwt>","user":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}}
+
+  $ curl -i http://localhost:8000/api/auth/me
+  HTTP/1.1 401 UNAUTHORIZED
+  {"error":{"code":"unauthorized","message":"Login required"}}
+
+  $ curl -i http://localhost:8000/api/auth/me -H "Authorization: Bearer <jwt>"
+  HTTP/1.1 200 OK
+  {"data":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `webapp/App/db.py` exists with `get_db`, `close_db`, `query`, `query_one`, and `execute`; `close_db` is wired into `app.teardown_appcontext(...)` in `__init__.py`.
@@ -30,7 +55,7 @@ Right now anyone can hit your API, but nothing checks *who* they are. By the end
 
 Every feature after this one — seeing lots, registering interest, an admin assigning a space — needs to know two things: *is someone logged in?* and *are they allowed to do this specific thing?* Without that, any stranger with your URL could book every parking space, or read every student's private data.
 
-The pattern you're about to build — a server hands out a signed token at login, the browser sends that token back on every later request, the server checks the signature instead of re-checking a password every time — is the same pattern behind almost every "log in" button on the web. It's called **stateless authentication**: the server doesn't have to remember who's logged in; the proof travels *inside* the token itself. That's also why this is the first lesson where you write real "business logic" instead of setup — it's the foundation the other four backend lessons (B4–B7) all depend on.
+The pattern you're about to build — a server hands out a signed token at login, the browser sends that token back on every later request, the server checks the signature instead of re-checking a password every time — is the same pattern behind almost every "log in" button on the web. It's called **stateless [authentication](GLOSSARY.md#authentication)**: the server doesn't have to remember who's logged in; the proof travels *inside* the token itself. That's also why this is the first lesson where you write real "business logic" instead of setup — it's the foundation the other four backend lessons (B4–B7) all depend on.
 
 ---
 
@@ -82,14 +107,14 @@ from . import config
 
 def get_db():
     """Return this request's DB connection, opening one if needed."""
-    if "db" not in g:
-        g.db = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
+    if "db" not in g:                                        # only the first call this request opens one
+        g.db = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)  # dict_row → rows come back as {"col": value}
     return g.db
 
 
 def close_db(_e=None):
     """Close the connection at the end of the request (wired in __init__.py)."""
-    db = g.pop("db", None)
+    db = g.pop("db", None)                       # remove from g, giving it back if one was opened
     if db is not None:
         db.close()
 
@@ -97,7 +122,7 @@ def close_db(_e=None):
 def query(sql, params=()):
     """Run a SELECT, return a list of dict rows."""
     with get_db().cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(sql, params)                 # %s placeholders filled in safely from params
         return cur.fetchall()
 
 
@@ -114,27 +139,26 @@ def execute(sql, params=()):
     db = get_db()
     with db.cursor() as cur:
         cur.execute(sql, params)
-        row = cur.fetchone() if cur.description else None
+        row = cur.fetchone() if cur.description else None    # non-None only if SQL had RETURNING
     db.commit()
     return row
 ```
 
-**Explanation, function by function:**
-- `import psycopg` / `from psycopg.rows import dict_row` — `psycopg` is the library that speaks PostgreSQL's protocol; `dict_row` tells it to hand back each row as a dict like `{"id": 1, "name": "..."}` instead of a plain tuple, so the rest of your code can say `user["name"]`. → [psycopg 3 docs](https://www.psycopg.org/psycopg3/docs/).
-- `from flask import g` — `g` is a scratchpad Flask gives you that lives for exactly one request and is thrown away afterward. → [Flask: the `g` object](https://flask.palletsprojects.com/en/stable/appcontext/#storing-data).
-- `get_db()` — `if "db" not in g` means "only open a connection the *first* time this request asks for one." Every later call in the same request reuses it instead of opening a second connection.
-- `close_db()` — `g.pop("db", None)` removes `db` from the scratchpad and gives it back if it was there; then the connection is closed. This runs automatically at the end of every request once you wire it in below — so connections never leak.
-- `query` / `query_one` — both run a `SELECT`; `query` returns every matching row, `query_one` returns just the first (or `None` if nothing matched). The `%s` in your SQL strings are placeholders — psycopg fills them in safely from `params`, which is how you avoid SQL-injection bugs.
-- `execute` — for `INSERT`/`UPDATE`/`DELETE`. It commits the change to the database, and if your SQL ends in `RETURNING ...` it hands back that row.
+**Why it works & further reading:**
+- **`psycopg`** speaks PostgreSQL's protocol; **`dict_row`** hands back each row as a dict like `{"id": 1, "name": "..."}` instead of a plain tuple, so the rest of your code can say `user["name"]`. → [psycopg 3 docs](https://www.psycopg.org/psycopg3/docs/)
+- **`flask.g`** is a scratchpad Flask gives you that lives for exactly one request and is thrown away afterward — that's what makes `get_db()` open at most one connection per request. → [Flask: the `g` object](https://flask.palletsprojects.com/en/stable/appcontext/#storing-data)
+- **`close_db()`** runs automatically at the end of every request once wired into `teardown_appcontext` below, so connections never leak.
+- **`query`/`query_one`/`execute`** — psycopg fills the `%s` placeholders in from `params`, which is how you avoid SQL-injection bugs; `execute` commits and returns a row only when the SQL ends in `RETURNING ...`.
 
 Now wire `close_db` into the app so it actually runs after every request. In `webapp/App/__init__.py`, inside `create_app()`, add this right after the `CORS(...)` line:
 
 ```python
     from . import db
-    app.teardown_appcontext(db.close_db)
+    app.teardown_appcontext(db.close_db)         # call close_db when the request ends, success or failure
 ```
 
-**Explanation:** `teardown_appcontext` tells Flask "call this function when the request is completely done, success or failure." That guarantees `close_db` runs even if your route crashes partway through. → Reference: [Flask: `teardown_appcontext`](https://flask.palletsprojects.com/en/stable/api/#flask.Flask.teardown_appcontext).
+**Why it works & further reading:**
+- **`teardown_appcontext`** guarantees `close_db` runs even if your route crashes partway through. → [Flask: `teardown_appcontext`](https://flask.palletsprojects.com/en/stable/api/#flask.Flask.teardown_appcontext)
 
 ### Step 2 — The auth service: tokens + password checking (~15 min)
 
@@ -155,23 +179,23 @@ from .db import query_one
 
 def issue_token(user):
     """Make a signed token that says who this user is and when it expires."""
-    payload = {
+    payload = {                                  # the claims this JWT carries
         "user_id": user["id"],
         "role": user["role"],
         "exp": datetime.now(timezone.utc) + timedelta(hours=config.JWT_EXP_HOURS),
     }
-    return jwt.encode(payload, config.SECRET_KEY, algorithm="HS256")
+    return jwt.encode(payload, config.SECRET_KEY, algorithm="HS256")  # sign it with SECRET_KEY
 
 
 def _current_user():
     """Read the Bearer token, verify it, and load the user. None if invalid."""
     header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
+    if not header.startswith("Bearer "):         # no/wrong-shaped header → no user
         return None
-    token = header.split(" ", 1)[1]
+    token = header.split(" ", 1)[1]              # everything after "Bearer "
     try:
-        payload = jwt.decode(token, config.SECRET_KEY, algorithms=["HS256"])
-    except jwt.PyJWTError:
+        payload = jwt.decode(token, config.SECRET_KEY, algorithms=["HS256"])  # re-checks the signature
+    except jwt.PyJWTError:                       # forged, expired, or corrupted
         return None
     return query_one("SELECT id, role, name, email FROM users WHERE id = %s",
                      (payload["user_id"],))
@@ -188,7 +212,7 @@ def require_auth(fn):
         user = _current_user()
         if user is None:
             return _error("unauthorized", "Login required", 401)
-        g.user = user
+        g.user = user                            # route function reads the caller off g.user
         return fn(*args, **kwargs)
     return wrapper
 
@@ -201,7 +225,7 @@ def require_role(role):
             user = _current_user()
             if user is None:
                 return _error("unauthorized", "Login required", 401)
-            if user["role"] != role:
+            if user["role"] != role:              # logged in, but the wrong role
                 return _error("forbidden", f"{role} only", 403)
             g.user = user
             return fn(*args, **kwargs)
@@ -209,14 +233,13 @@ def require_role(role):
     return decorator
 ```
 
-**Explanation, piece by piece:**
-- `issue_token(user)` — builds a **payload** (the facts the token carries: which user, which role, when it expires) and asks `jwt.encode` to turn that into a signed string using your app's `SECRET_KEY`. Anyone can *read* a JWT's contents, but only someone who knows `SECRET_KEY` can produce a signature that matches — that's what makes it tamper-proof. → [jwt.io — how JWTs work](https://jwt.io/introduction) and [PyJWT: `encode`](https://pyjwt.readthedocs.io/en/stable/api.html#jwt.encode).
-- `timedelta(hours=config.JWT_EXP_HOURS)` — this is the same `JWT_EXP_HOURS` setting you put in `.env` back in B0; it controls how long a login lasts before the token expires.
-- `_current_user()` — pulls the `Authorization` header off the incoming request, checks it starts with the literal text `"Bearer "` (note the trailing space), and takes everything after it as the token. → [MDN: `Authorization` header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
-- `jwt.decode(token, config.SECRET_KEY, algorithms=["HS256"])` — re-checks the signature with the same secret key. If the token was forged, expired, or corrupted, this raises `jwt.PyJWTError` and you return `None` instead of crashing. → [PyJWT: `decode`](https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode).
-- `require_auth` — a **decorator** you'll put on any route that needs "someone logged in, don't care who." It runs `_current_user()`; no user means `401 Unauthorized` (MDN: "I don't know who you are"); a user gets stashed on `g.user` so the route function can use it. → [MDN: 401](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401).
-- `require_role("admin")` — like `require_auth`, but also checks the user's `role`. Logged in as the wrong role gets `403 Forbidden` (MDN: "I know who you are, but no"). → [MDN: 403](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403).
-- `@wraps(fn)` — a small bit of Python housekeeping that keeps the wrapped function's name/docstring intact; without it, Flask's routing can get confused about which function is which. → [`functools.wraps` docs](https://docs.python.org/3/library/functools.html#functools.wraps).
+**Why it works & further reading:**
+- **`issue_token(user)`** — the payload carries which user, which [role](GLOSSARY.md#role), and when it expires; only whoever holds `SECRET_KEY` can produce a matching signature, which is what makes a JWT tamper-proof even though anyone can read its contents. → [jwt.io — how JWTs work](https://jwt.io/introduction) · [PyJWT: `encode`](https://pyjwt.readthedocs.io/en/stable/api.html#jwt.encode)
+- **`_current_user()`** — parses the `Authorization` header, then `jwt.decode` re-checks the signature with the same secret key; a forged, expired, or corrupted token raises `jwt.PyJWTError` instead of crashing. → [MDN: `Authorization` header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization) · [PyJWT: `decode`](https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode)
+- **`_error(code, message, status)`** builds the same `{"error": {...}}` [envelope](GLOSSARY.md#envelope) B1 introduced, so every auth failure looks the same to the frontend.
+- **`require_auth`** — a **[decorator](GLOSSARY.md#decorator)** for "someone logged in, don't care who"; no user → `401` (MDN: "I don't know who you are"). → [MDN: 401](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401)
+- **`require_role("admin")`** — like `require_auth`, but also checks the user's role; the wrong role → `403` (MDN: "I know who you are, but no"). → [MDN: 403](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403)
+- **`@wraps(fn)`** keeps the wrapped function's name/docstring intact so Flask's routing doesn't get confused about which function is which. → [`functools.wraps` docs](https://docs.python.org/3/library/functools.html#functools.wraps)
 
 > **Why 401 for "no token" but also 401 for "wrong password"?** Both mean "I can't verify who you are" — the spec (and this codebase) reserves `403` specifically for "I verified you, but you're not allowed." Keeping that distinction consistent is what lets a future frontend show the right message ("please log in" vs. "you don't have access").
 
@@ -232,7 +255,7 @@ from werkzeug.security import check_password_hash
 from ..db import query_one
 from ..auth import issue_token, require_auth
 
-bp = Blueprint("auth", __name__)
+bp = Blueprint("auth", __name__)                 # groups these four routes; registered in __init__.py
 
 
 def _err(code, message, status):
@@ -250,7 +273,7 @@ def student_login():
     code = body.get("code")
     if not code:
         return _err("bad_request", "code is required", 400)
-    user = query_one(
+    user = query_one(                            # the code itself is the credential — no password
         "SELECT id, role, name, email FROM users WHERE role='student' AND code = %s", (code,))
     if user is None:
         return _err("unauthorized", "Unknown code", 401)
@@ -266,7 +289,7 @@ def admin_login():
     user = query_one(
         "SELECT id, role, name, email, password_hash FROM users "
         "WHERE role='admin' AND username = %s", (username,))
-    if user is None or not check_password_hash(user["password_hash"], password):
+    if user is None or not check_password_hash(user["password_hash"], password):  # re-hash & compare
         return _err("unauthorized", "Bad credentials", 401)
     return jsonify({"data": {"token": issue_token(user), "user": _public_user(user)}})
 
@@ -278,20 +301,20 @@ def logout():
 
 
 @bp.get("/api/auth/me")
-@require_auth
+@require_auth                                    # runs first; g.user is set by the time me() runs
 def me():
     return jsonify({"data": _public_user(g.user)})
 ```
 
 > **Looking ahead:** B4 pulls `_public_user` (and the lot/space serializers it introduces) into a shared `webapp/App/serialize.py`, so `student_login`, `admin_login`, and `me` all end up calling `serialize.public_user(user)` instead of a local helper. The shape — `{id, role, name, email}` — doesn't change.
 
-**Explanation, route by route:**
-- `Blueprint("auth", __name__)` — a Flask **blueprint** groups a set of related routes so they can be registered (and later removed or tested) as one unit, the same pattern the health check used in B1. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/).
-- `student_login()` — reads `code` from the JSON body, looks up a student with that exact code. Notice it's a **single unhashed lookup** — student "login" here is just knowing the code, not a password. No match → `401`. A match → hand back a fresh token from `issue_token` plus the public-safe fields from `_public_user`.
-- `admin_login()` — looks up the admin by `username`, then calls `check_password_hash(user["password_hash"], password)`. The database never stores the real password — only a one-way hash created back in B2's seed data — so this function re-hashes the submitted password the same way and compares the results. If they don't match (or the username doesn't exist), it's `401`. → [Werkzeug: `check_password_hash`](https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.check_password_hash).
-- `logout()` — because JWTs are stateless (the server keeps no record of "who's logged in"), there's nothing to erase server-side; the endpoint exists so the frontend has something to call, and it returns `204 No Content` — "request succeeded, there's nothing to send back."
-- `me()` — stacks `@require_auth` **under** the route decorator, so Flask registers the route first and then wraps it with the auth check. Once `require_auth` has run, `g.user` is guaranteed to be set (loaded by `_current_user()`'s `SELECT id, role, name, email` in `auth.py`), so `me()` just reshapes it with `_public_user`.
-- `_public_user(user)` — returns `id`, `role`, `name`, **and `email`** — every auth response now includes it — but never `password_hash`, so a hash never accidentally leaves the server in a response.
+**Why it works & further reading:**
+- **`Blueprint("auth", __name__)`** groups these routes as one unit, the same pattern the health check used in B1. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
+- **`student_login()`** — a single unhashed lookup; student "login" is just knowing the code, not a password. No match → `401`.
+- **`admin_login()`** — the database never stores the real password, only a one-way **[password hash](GLOSSARY.md#password-hash)** created back in B2's seed data; `check_password_hash` re-hashes the submitted password the same way and compares. → [Werkzeug: `check_password_hash`](https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.check_password_hash)
+- **`logout()`** — JWTs are stateless, so there's nothing to erase server-side; the endpoint exists for the frontend to call and returns `204 No Content`.
+- **`me()`** — `@require_auth` runs first, so `g.user` is guaranteed set by the time `me()` reshapes it with `_public_user`.
+- **`_public_user(user)`** — every auth [response](GLOSSARY.md#response) now includes `email`, but never `password_hash`, so a hash never leaves the server.
 
 ### Step 4 — Register the blueprint (~5 min)
 
@@ -299,10 +322,11 @@ In `webapp/App/__init__.py`, next to where you registered `health` in B1, add:
 
 ```python
     from .views import auth
-    app.register_blueprint(auth.bp)
+    app.register_blueprint(auth.bp)              # turns the routes above into live URLs
 ```
 
-**Explanation:** this is the line that actually turns the three routes you just wrote into live URLs the Flask app will answer. Without it, `views/auth.py` would just be a file that exists but nothing would ever call it.
+**Why it works & further reading:**
+- **`app.register_blueprint(auth.bp)`** is what actually turns the routes you just wrote into live URLs; without it, `views/auth.py` would just be a file that exists but nothing would ever call it.
 
 ---
 

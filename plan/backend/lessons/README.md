@@ -1,6 +1,6 @@
 # Backend lessons — build the server one hour at a time
 
-This folder turns the [Backend Development Guide](../backend-development-guide.md) into **11 self-contained, ~1-hour lessons**: one per core CR (B0 → B9), plus one extension lesson (B13) covering the student-roster endpoints the PoC also built. Each lesson is written for a **high-school beginner**: it states a clear deliverable, explains *why* and *how*, shows every code snippet with a plain-language explanation and a reference link, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
+This folder turns the [Backend Development Guide](../backend-development-guide.md) into **11 self-contained, ~1-hour lessons**: one per core CR (B0 → B9), plus one extension lesson (B13) covering the student-roster endpoints the PoC also built. Each lesson is written for a **high-school beginner**: it states a clear deliverable, shows a before → after of what the API does, explains *why* and *how*, presents every code snippet with inline comments and a short "why it works" plus reference links, gives you a testing guide to prove it works, and ends with the exact git commands to open the CR.
 
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../backend-development-guide.md) is the source of truth.
 
@@ -28,7 +28,9 @@ Each lesson **builds on the one before it** (stacked CRs — every branch starts
 
 ## What each lesson contains
 
-🎯 Goal + a "Done when" deliverable checklist · 🤔 Why it matters · 🧠 Concepts (with links) · ✅ Prereqs + a minute-by-minute time budget · 🛠 Step-by-step build (code + explanation + references) · 🧪 Testing guide · 🚀 Commit & open the CR · 🧯 Troubleshooting · 📝 Recap · 📚 References · ➡️ Next lesson.
+🎯 Goal + a "Done when" deliverable checklist · 🖼 a before → after of what the API returns · 🤔 Why it matters · 🧠 Concepts (with links) · ✅ Prereqs + a minute-by-minute time budget · 🛠 Step-by-step build (code with inline comments + a short "why it works" + references) · 🧪 Testing guide · 🚀 Commit & open the CR · 🧯 Troubleshooting · 📝 Recap · 📚 References · ➡️ Next lesson.
+
+> **Stuck on a word?** New terms (Flask, Blueprint, JWT, ORM, CORS, …) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per term, written for a beginner. You never have to memorize a word before the lesson needs it.
 
 ## After the backend
 

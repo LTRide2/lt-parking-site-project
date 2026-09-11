@@ -7,14 +7,36 @@
 
 ---
 
+> **New words ahead?** Terms like [PostgreSQL](GLOSSARY.md#postgresql), [schema](GLOSSARY.md#schema), and [seed data](GLOSSARY.md#seed-data) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-A real **PostgreSQL database** with the six tables LTRide needs, plus a little sample data so later lessons (login, reading lots, assigning spaces) have something to work against. Concretely, by the end of this hour you will have:
+A real **[PostgreSQL](GLOSSARY.md#postgresql) [database](GLOSSARY.md#database)** with the six tables LTRide needs, plus a little [sample data](GLOSSARY.md#seed-data) so later lessons (login, reading lots, assigning spaces) have something to work against. Concretely, by the end of this hour you will have:
 
 - PostgreSQL **installed, running, and on your PATH**.
 - A local database named `ltride_dev`.
 - A migration file (`webapp/sql/migrations/001_init.sql`) that creates six tables: `users`, `students`, `lots`, `spaces`, `interest`, `assignments`.
 - A seed file (`webapp/sql/seed.sql`) that fills those tables with one admin, four student logins, six lots (Lot 1 with a fully laid-out 8-space showcase), a live assignment, a couple of pending requests, and a five-student roster.
+
+**🖼 Before → after — what changes (the database):**
+
+```text
+BEFORE  — the database exists, but no tables are in it yet
+  $ psql ltride_dev -c "\dt"
+  Did not find any relations.
+
+  $ psql ltride_dev -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
+  ERROR:  relation "spaces" does not exist
+
+AFTER   — six tables exist, seeded with sample rows
+  $ psql ltride_dev -c "\dt"
+  assignments, interest, lots, spaces, students, users   (6 tables)
+
+  $ psql ltride_dev -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
+   count
+  -------
+       8
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `psql ltride_dev -c "\dt"` lists all six tables.
@@ -33,9 +55,9 @@ We're using **PostgreSQL**, a real production-grade database (the same *kind* of
 
 1. **Migrations.** Instead of clicking around in a database tool, you write the table-creation steps as a numbered `.sql` file (`001_init.sql`). That file is checked into Git, so anyone — including your future self, including the AWS server — can recreate the exact same tables by running one command. This is how real teams keep a database's structure in sync with the code that expects it.
 2. **The database enforces its own rules.** You'll see constraints like `CHECK (role IN ('student', 'admin'))` and a *partial unique index* that says "a student may have at most one pending request." These rules live in the database itself, so even a buggy line of Python later can't sneak the data into an impossible state. That's a much stronger guarantee than "the Python code promises to check."
-3. **Two identities for one person.** A student can show up as a **login account** (`users`, `role='student'`, keyed by a login `code` like `STU001`) *and/or* as a **roster row** (`students`, keyed by a `student_id` business key like `STU001` or `S123213`). The roster is what the front office manages — grade, parking status — the login is what lets someone sign in and pick a spot. They're linked only by matching that code/`student_id` string, **not** a database foreign key, because a roster student might not have a login yet (or ever).
+3. **Two identities for one person.** A student can show up as a **login account** (`users`, `role='student'`, keyed by a login `code` like `STU001`) *and/or* as a **roster row** (`students`, keyed by a `student_id` business key like `STU001` or `S123213`). The roster is what the front office manages — grade, parking status — the login is what lets someone sign in and pick a spot. They're linked only by matching that code/`student_id` string, **not** a database [foreign key](GLOSSARY.md#foreign-key), because a roster student might not have a login yet (or ever).
 
-Get the schema right now, and every later lesson (B3 login, B4 reading lots, B6 interest, B7 assignments) has solid ground to build on.
+Get the [schema](GLOSSARY.md#schema) right now, and every later lesson (B3 login, B4 reading lots, B6 interest, B7 assignments) has solid ground to build on.
 
 ---
 
@@ -59,7 +81,7 @@ Get the schema right now, and every later lesson (B3 login, B4 reading lots, B6 
 
 ## ✅ Before you start
 
-**Time budget for the hour:** install & start Postgres (10 min, skip if already done) → branch + create the database (5) → migration file (15) → password hash + seed file (10) → run them (5) → test & commit (15).
+**Time budget for the hour:** install & start Postgres (10 min, skip if already done) → branch + create the database (5) → migration file (15) → [password hash](GLOSSARY.md#password-hash) + seed file (10) → run them (5) → test & commit (15).
 
 **Open your terminal, activate the virtual environment, and make your branch.** B2 branches off B1, not off `main` — you're stacking this CR on top of the health-check work.
 
@@ -271,8 +293,9 @@ Create the folder and file `webapp/sql/migrations/001_init.sql` with **exactly**
 -- webapp/sql/migrations/001_init.sql
 -- Initial schema for LTRide. Safe to re-run: it drops then recreates everything.
 
-BEGIN;
+BEGIN;                              -- one transaction: every table below, or none of them
 
+-- Drop in dependency order: tables other tables point at come last.
 DROP TABLE IF EXISTS assignments CASCADE;
 DROP TABLE IF EXISTS interest    CASCADE;
 DROP TABLE IF EXISTS spaces      CASCADE;
@@ -284,8 +307,8 @@ DROP TABLE IF EXISTS users       CASCADE;
 --   students  -> have a `code`, no username/password
 --   admins    -> have username + password_hash, no code
 CREATE TABLE users (
-    id            SERIAL PRIMARY KEY,
-    role          TEXT NOT NULL CHECK (role IN ('student', 'admin')),
+    id            SERIAL PRIMARY KEY,          -- auto-incrementing unique row id
+    role          TEXT NOT NULL CHECK (role IN ('student', 'admin')),  -- DB refuses any other value
     code          TEXT UNIQUE,                 -- student login code (e.g. STU001)
     username      TEXT UNIQUE,                 -- admin login name
     password_hash TEXT,                        -- admin password (hashed, never plain)
@@ -327,18 +350,18 @@ CREATE TABLE lots (
 --   be held by a roster student who has no login account.
 CREATE TABLE spaces (
     id                  SERIAL PRIMARY KEY,
-    lot_id              INTEGER NOT NULL REFERENCES lots(id) ON DELETE CASCADE,
+    lot_id              INTEGER NOT NULL REFERENCES lots(id) ON DELETE CASCADE,  -- lot deleted -> its spaces go too
     label               TEXT NOT NULL,
     status              TEXT NOT NULL DEFAULT 'available'
                         CHECK (status IN ('available', 'disabled', 'assigned')),
-    assigned_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    assigned_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- user deleted -> just unassign the space
     assigned_student_id TEXT,                  -- roster student_id (soft ref); NULL = none
     pos_x               DOUBLE PRECISION CHECK (pos_x IS NULL OR (pos_x >= 0 AND pos_x <= 1)),
     pos_y               DOUBLE PRECISION CHECK (pos_y IS NULL OR (pos_y >= 0 AND pos_y <= 1)),
     pos_w               DOUBLE PRECISION CHECK (pos_w IS NULL OR (pos_w >= 0 AND pos_w <= 1)),
     pos_h               DOUBLE PRECISION CHECK (pos_h IS NULL OR (pos_h >= 0 AND pos_h <= 1)),
     rotation            DOUBLE PRECISION,      -- degrees; NULL treated as 0
-    UNIQUE (lot_id, label)
+    UNIQUE (lot_id, label)                     -- two spaces may share a label only in different lots
 );
 
 -- INTEREST: a student registering that they want a spot.
@@ -374,24 +397,19 @@ CREATE UNIQUE INDEX one_active_assignment_per_space
     ON assignments (space_id)
     WHERE active;
 
-COMMIT;
+COMMIT;                             -- everything above takes effect together
 ```
 
 This is the exact file the shipped app runs — `webapp/sql/migrations/001_init.sql:1`. All six tables, both extra roster fields, and both partial indexes are built here in **one pass**; there's no later migration that adds them.
 
-**Explanation, section by section:**
-- `BEGIN;` / `COMMIT;` — everything between them runs as **one transaction**: either every statement succeeds, or (if something errors) none of them take effect. That's what makes this file safe to re-run. → [PostgreSQL: Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
-- `DROP TABLE IF EXISTS ... CASCADE` — deletes each table (and anything that depends on it, like foreign keys) if it already exists, so you always start from a clean slate. Order matters: drop the tables *other* tables point at last (`webapp/sql/migrations/001_init.sql:6`).
-- `SERIAL PRIMARY KEY` — an auto-incrementing integer ID (1, 2, 3, …) and the table's unique row identifier. → [PostgreSQL: `serial` type](https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL).
-- `CHECK (role IN ('student', 'admin'))` — the database itself refuses to insert a row with any other value in `role`. → [PostgreSQL: Check Constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS).
-- `students` (`webapp/sql/migrations/001_init.sql:30`) is a whole separate table from `users` — the admin-managed roster (`first`, `last`, `grade`, `parking_status`) keyed by its own `student_id`, not by the `users.id` primary key. A student can have a roster row with no login, a login with no roster row, or (usually) both, matched only because `users.code` happens to equal `students.student_id`.
-- `lots.number` (`webapp/sql/migrations/001_init.sql:47`) is `UNIQUE` — it's the admin-assigned lot number that prefixes every spot's label in that lot (e.g. Lot 4's spots are `4-1`, `4-2`, …).
-- `assigned_student_id` (`webapp/sql/migrations/001_init.sql:65`) is **not** a `REFERENCES` foreign key — it's a soft reference, just a `TEXT` column that *happens* to match a real `students.student_id` when set. That's deliberate: a spot can be handed to a roster student who has never logged in and therefore has no `users` row for a hard FK to point at.
-- `pos_x/pos_y/pos_w/pos_h` (`webapp/sql/migrations/001_init.sql:66`) are each their own nullable column, checked to be `NULL` or in `0..1` — position (`pos_x`,`pos_y`) and size (`pos_w`,`pos_h`) as fractions of the map image, so the layout keeps its proportions no matter how the map is zoomed or resized.
-- `REFERENCES lots(id) ON DELETE CASCADE` — `lot_id` in `spaces` must match a real row in `lots`; if that lot is ever deleted, its spaces are deleted too ("cascade"). `ON DELETE SET NULL` (used on `assigned_user_id`) instead clears the pointer rather than deleting the space. → [PostgreSQL: Foreign Keys](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK).
-- `UNIQUE (lot_id, label)` — a **combined** uniqueness rule: two spaces can share a label only if they're in different lots.
-- `space_ids INTEGER[] NOT NULL DEFAULT '{}'` (`webapp/sql/migrations/001_init.sql:81`) — an **array column**: instead of a separate join table, `interest` just stores the list of space ids the student picked directly on the row. The PoC only ever puts one id in it; the array leaves room to pick more than one later without a schema change. → [PostgreSQL: Arrays](https://www.postgresql.org/docs/current/arrays.html).
-- `CREATE UNIQUE INDEX ... WHERE status = 'pending'` — a **partial** unique index: uniqueness is only enforced on the rows matching the `WHERE` clause. Here it means "at most one *pending* interest row per user" — a student can have many old `fulfilled`/`cancelled` rows, just not two `pending` ones at the same time. → [PostgreSQL: Partial Indexes](https://www.postgresql.org/docs/current/indexes-partial.html).
+**Why it works & further reading:**
+- `BEGIN;` / `COMMIT;` wrap the whole file in one **[transaction](GLOSSARY.md#transaction)** — either every table is created, or (on any error) none is, so a failed run never leaves a half-built schema behind. → [PostgreSQL: Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
+- `DROP TABLE IF EXISTS ... CASCADE` before every `CREATE TABLE` is what makes this file safe to re-run any time, from a clean slate. → [PostgreSQL: CREATE TABLE](https://www.postgresql.org/docs/current/sql-createtable.html).
+- `SERIAL PRIMARY KEY` gives every table an auto-incrementing **[primary key](GLOSSARY.md#primary-key)**; `students` also keeps its own business key (`student_id`), deliberately separate from `users.id` — a roster row and a login row are only linked by matching that string. → [PostgreSQL: `serial` type](https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL).
+- `CHECK` constraints put LTRide's fixed value sets (`role`, `parking_status`, `status`) inside the database itself, so no code path — buggy or not — can write an invalid value. → [PostgreSQL: Check Constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS).
+- `assigned_student_id` is a soft reference, not a real foreign key — deliberate, so a spot can go to a roster student who has never logged in and has no `users` row for a hard FK to point at. → [PostgreSQL: Foreign Keys](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK).
+- The two partial `CREATE UNIQUE INDEX` statements enforce "one pending interest per student" and "one active assignment per space" directly in the database, instead of as extra Python checks. → [PostgreSQL: Partial Indexes](https://www.postgresql.org/docs/current/indexes-partial.html).
+- `space_ids INTEGER[]` is an **array column** — `interest` stores a student's picks right on the row instead of a separate join table; the PoC only ever puts one id in it, but the array leaves room to pick more later without a schema change. → [PostgreSQL: Arrays](https://www.postgresql.org/docs/current/arrays.html).
 
 > **Why put these rules in the database instead of just checking them in Python?** Because the database enforces them for *every* write, no matter what code path touches it — even a bug, even a script you write later by hand. It's a second, independent safety net underneath the Python checks you'll write in later lessons.
 
@@ -428,7 +446,7 @@ Create `webapp/sql/seed.sql` with **exactly** this content (`webapp\sql\seed.sql
 
 BEGIN;
 
-TRUNCATE assignments, interest, spaces, lots, students, users RESTART IDENTITY CASCADE;
+TRUNCATE assignments, interest, spaces, lots, students, users RESTART IDENTITY CASCADE;  -- wipe all six tables & reset ids
 
 -- One admin. password is 'admin123' (only for local dev!).
 INSERT INTO users (role, username, password_hash, name, email) VALUES
@@ -467,6 +485,7 @@ INSERT INTO spaces (lot_id, label, status, assigned_user_id, assigned_student_id
 -- Other lots — positionless spaces (they fall back to the grid renderer).
 --   Labels are "<lot number>-<index>"; the 2nd space in each lot starts disabled.
 INSERT INTO spaces (lot_id, label, status)
+-- g runs 1..10 here; || concatenates strings, so labels come out "4-1", "4-2", ...
 SELECT 2, '4-'  || g, CASE WHEN g = 2 THEN 'disabled' ELSE 'available' END FROM generate_series(1, 10) AS g;
 INSERT INTO spaces (lot_id, label, status)
 SELECT 3, '5-'  || g, CASE WHEN g = 2 THEN 'disabled' ELSE 'available' END FROM generate_series(1, 8)  AS g;
@@ -479,7 +498,7 @@ SELECT 6, '17-' || g, CASE WHEN g = 2 THEN 'disabled' ELSE 'available' END FROM 
 
 -- The A8 assignment (Alice), so the seed has one live assignment on record.
 INSERT INTO assignments (space_id, user_id, assigned_by, active)
-SELECT id, 2, 1, TRUE FROM spaces WHERE lot_id = 1 AND label = 'A8';
+SELECT id, 2, 1, TRUE FROM spaces WHERE lot_id = 1 AND label = 'A8';  -- look up A8's id instead of hardcoding it
 
 -- Interest: Alice already holds Lot 1 (one active request per student, so she
 -- has no second row); Bob and Olivia both wait on Lot 4 (id 2), so Manual
@@ -503,15 +522,13 @@ COMMIT;
 
 Replace `<paste your hash from Step 4 here>` with the string you just copied (or with the exact committed hash `scrypt:32768:8:1$Vaf2FTiYuB3xMYWB$119092e01ad2ef9f9d3b50fe30a1909f6ae178e01c719c15888e0f2f9af41583e1600ed6ea5e8d944054f4f0c3fd4871713ef7e93038ae6f9c9507869e48571c` from the shipped `webapp/sql/seed.sql:11` — either works). This is otherwise the exact file the app ships with.
 
-**Explanation, section by section:**
-- `TRUNCATE ... RESTART IDENTITY CASCADE` (`webapp/sql/seed.sql:7`) — empties all **six** tables and resets the auto-incrementing IDs back to 1, so re-running this file always produces the exact same ids (handy for the `curl` tests in later lessons). → [PostgreSQL: `TRUNCATE`](https://www.postgresql.org/docs/current/sql-truncate.html).
-- The two `INSERT INTO users` statements (`webapp/sql/seed.sql:10-19`) create the admin (id 1) and the four student logins (ids 2-5) — each parenthesized group is one row, matched to the column list by position.
-- `INSERT INTO lots` (`webapp/sql/seed.sql:22-28`) creates all six lots up front, each with its `number` already set, so the space-seeding statements below can reference `lot_id` 1-6 directly.
-- The first `INSERT INTO spaces` (`webapp/sql/seed.sql:32-41`) hand-authors Lot 1's eight spots with real coordinates — this is the layout the map view actually renders pixel-for-pixel. `A8`'s row sets `assigned_user_id`/`assigned_student_id`/`status='assigned'`/`rotation=90` all at once, since it's meant to already be occupied.
-- The five `generate_series` inserts (`webapp/sql/seed.sql:45-54`) fill the other five lots with plain, positionless spaces (`pos_x`/`pos_y`/etc. stay `NULL`) — the UI falls back to a simple grid for lots with no authored layout. `generate_series(1, 10) AS g` produces the numbers 1-10 as rows; `CASE WHEN g = 2 THEN 'disabled' ELSE 'available' END` makes the 2nd space in every lot start disabled, and `'4-' || g` (`||` glues strings together) builds labels like `4-1`, `4-2`, … → [PostgreSQL: Set Returning Functions](https://www.postgresql.org/docs/current/functions-srf.html).
-- `INSERT INTO assignments ... SELECT id, 2, 1, TRUE FROM spaces WHERE lot_id = 1 AND label = 'A8'` (`webapp/sql/seed.sql:57-58`) — since `spaces.id` is auto-generated, this looks A8's id up by `(lot_id, label)` at insert time instead of hardcoding a guessed number, and records that Alice (user 2) holds it, assigned by the admin (user 1).
-- `INSERT INTO interest` (`webapp/sql/seed.sql:63-66`) gives Alice a single `fulfilled` request on Lot 1 (the spot she already has — one active request per student means she has *no* second row) and two competing `pending` requests on Lot 4 — one from Bob, one from Olivia — with explicit `created_at` timestamps so later lessons can test "oldest first" ordering. Bob and Olivia (not Alice) are the two waiters precisely because an assigned student can't also hold a live request. → [Lesson B6](B6-student-registers-interest.md) enforces that invariant at registration.
-- `INSERT INTO students` (`webapp/sql/seed.sql:69-74`) is the separate roster: five rows, only two of which (`STU001`, `STU002`) match a login `code`. Sarah Smith (`S123213`) has **no** matching login at all — a roster row with no `users` row, on purpose, to prove `assigned_student_id`'s soft reference works without one.
+**Why it works & further reading:**
+- `TRUNCATE ... RESTART IDENTITY CASCADE` resets the ids back to 1 on every rerun, so this file always seeds the exact same rows — handy for the `curl` tests in later lessons. → [PostgreSQL: `TRUNCATE`](https://www.postgresql.org/docs/current/sql-truncate.html).
+- The admin row holds a **password hash** from Step 4, never the plain `admin123` — the same rule real production passwords follow. → [Werkzeug: `generate_password_hash`](https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.generate_password_hash).
+- Lot 1 gets hand-authored coordinates because that's the layout the map view renders pixel-for-pixel; every other lot falls back to `generate_series` for plain, positionless spaces, so the UI's grid fallback has something to show too. → [PostgreSQL: Set Returning Functions](https://www.postgresql.org/docs/current/functions-srf.html).
+- The assignment insert looks A8's id up by `(lot_id, label)` instead of hardcoding a guessed number, since `spaces.id` is auto-generated at insert time.
+- Alice holds a `fulfilled` interest row, not a `pending` one, because the migration's "one pending request per student" index means an already-assigned student can't also hold a live request — Bob and Olivia are the two real waiters on Lot 4. → [Lesson B6](B6-student-registers-interest.md) enforces that invariant at registration.
+- `students` is the separate roster: only `STU001`/`STU002` match a login `code`. Sarah Smith (`S123213`) has no login at all, on purpose, to prove the `assigned_student_id` soft reference works without one.
 
 > **Why is committing this admin hash okay, but committing a real secret isn't?** `admin123` is a throwaway password that only exists for local development — anyone who clones the repo is meant to know it. Never commit a hash (or anything else) derived from a real production password.
 

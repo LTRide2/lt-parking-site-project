@@ -7,6 +7,8 @@
 
 ---
 
+> **New words ahead?** Terms like [Upsert](GLOSSARY.md#upsert), [Transaction](GLOSSARY.md#transaction), and [Role](GLOSSARY.md#role) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
 A backend feature that lets a **student pick one specific spot** in a lot and say "I want this one" — and that keeps at most one live request per student, no matter how many times they change their mind. Concretely, by the end of this hour you will have:
@@ -14,7 +16,29 @@ A backend feature that lets a **student pick one specific spot** in a lot and sa
 - `POST /api/interest` — a student picks exactly one available space in a lot. If they already have a `pending` request it's **updated in place** (not duplicated); otherwise a new one is created.
 - `GET /api/interest/me` — a student sees their own current request as a single object (or `null` if they have none).
 - `DELETE /api/interest/me` — a student withdraws their pending request.
-- `GET /api/interest` — an admin sees *everyone's* requests, with an optional `?status=` filter.
+- `GET /api/interest` — an admin sees *everyone's* requests, with an optional [query parameter](GLOSSARY.md#query-parameter) (`?status=`) filter.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — no student-writable request exists yet; every /api/interest route 404s
+  $ curl -i -X POST http://localhost:8000/api/interest \
+      -H "Authorization: Bearer $S" -H 'Content-Type: application/json' -d '{"lotId":1,"spaceIds":[1]}'
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — a student's token can claim a spot, read it back, and withdraw it
+  $ curl -i -X POST http://localhost:8000/api/interest \
+      -H "Authorization: Bearer $S" -H 'Content-Type: application/json' -d '{"lotId":1,"spaceIds":[1]}'
+  HTTP/1.1 201 CREATED
+  {"data":{"id":9,"user_id":3,"user_name":"Andrew","lot_id":1,"lot_name":"Lot 1","space_ids":[1],"space_labels":["A1"],"status":"pending","created_at":"2026-01-01T12:00:00+00:00"}}
+
+  $ curl -i -X DELETE http://localhost:8000/api/interest/me -H "Authorization: Bearer $S"
+  HTTP/1.1 204 NO CONTENT
+
+  $ curl -s http://localhost:8000/api/interest/me -H "Authorization: Bearer $S"
+  {"data":null}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `POST /api/interest` with an available `spaceId` returns `201` with a `pending` request the first time.
@@ -31,15 +55,15 @@ A backend feature that lets a **student pick one specific spot** in a lot and sa
 
 ## 🤔 Why this lesson matters
 
-Up to now, every endpoint you've built either *reads* data (B4) or is toggled by an *admin* (B5). This lesson is the first time a **student writes something into the database themselves** — and the first time that write has to target one exact row (`spaceIds: [<one id>]`), not a vague "preferred lot."
+Up to now, every [endpoint](GLOSSARY.md#endpoint) you've built either *reads* data (B4) or is toggled by an *admin* (B5). This lesson is the first time a **student writes something into the database themselves** — and the first time that write has to target one exact row (`spaceIds: [<one id>]`), not a vague "preferred lot."
 
-It's also the first time you'll write an **upsert**: instead of rejecting a second submission outright, `POST /api/interest` checks whether the caller already has a `pending` request and, if so, `UPDATE`s it to point at the new spot; only a caller with no pending request gets a fresh `INSERT`. That's the natural fix for "a student changes their mind and picks a different spot" — a flow a flat "reject the duplicate" rule would make clumsy (withdraw, then re-request, just to swap spots).
+It's also the first time you'll write an **[upsert](GLOSSARY.md#upsert)**: instead of rejecting a second submission outright, `POST /api/interest` checks whether the caller already has a `pending` request and, if so, `UPDATE`s it to point at the new spot; only a caller with no pending request gets a fresh `INSERT`. That's the natural fix for "a student changes their mind and picks a different spot" — a flow a flat "reject the duplicate" rule would make clumsy (withdraw, then re-request, just to swap spots).
 
 But the upsert only dedupes *pending* rows. The invariant we actually want is stronger — **one active request per student, period** — so a student who's *already been assigned a spot* (a `fulfilled` row) must not be able to open a second request while still holding it. So before the upsert, `create_interest` rejects with `409 "You already have a parking spot assigned"` when a `fulfilled` row exists (`webapp/App/views/interest.py:54-57`). Enforcing it here, at the source, is why later flows stay simple: when an admin unassigns a student, [B7](B7-admin-assigns-a-space.md) just flips that one `fulfilled` row back to `pending` — with no risk of colliding with a rival `pending` row, because there can never be one.
 
 The `one_active_interest_per_user` partial unique index you created in B2 (`webapp/sql/migrations/001_init.sql:88-90`) is still the structural backstop: the database can never hold two `pending` rows for the same user, upsert code or not. One honest gap to know about: this endpoint's checks and its `INSERT`/`UPDATE` aren't wrapped in a specific handler for that index (`webapp/App/views/interest.py:62-80` catches a bare `Exception` only to roll back and re-raise), so a genuinely *simultaneous* double-submit would surface as a `500`, not a friendly `409` — the index still protects the data, just not the error message, in that narrow race window.
 
-You'll also write your first endpoint with **four different access rules on four routes in the same file** — student, student, student, admin — which is exactly the shape most real APIs take: the same resource (`interest`), different views and permissions depending on who's asking.
+You'll also write your first endpoint with **four different access rules on four routes in the same file** — student, student, student, admin — which is exactly the shape most real APIs take: the same resource (`interest`), different views and permissions depending on the caller's **[role](GLOSSARY.md#role)**.
 
 ---
 
@@ -57,7 +81,7 @@ You'll also write your first endpoint with **four different access rules on four
 
 ## ✅ Before you start
 
-**Prerequisites:** you've finished [Lesson B5 — Admin enables/disables spaces](B5-admin-enable-disable-spaces.md) — this lesson branches off B5's branch, so `interest`'s parent table dependencies (`users`, `lots`, `spaces`) and the `require_role` decorator already exist. You'll also lean on the `interest` table, its `space_ids INTEGER[]` column, and the `one_active_interest_per_user` partial unique index, all created back in B2 (`webapp/sql/migrations/001_init.sql:77-90`).
+**Prerequisites:** you've finished [Lesson B5 — Admin enables/disables spaces](B5-admin-enable-disable-spaces.md) — this lesson branches off B5's branch, so `interest`'s parent table dependencies (`users`, `lots`, `spaces`), linked via [foreign keys](GLOSSARY.md#foreign-key), and the `require_role` decorator already exist. You'll also lean on the `interest` table, its `space_ids INTEGER[]` column, and the `one_active_interest_per_user` partial unique index, all created back in B2 (`webapp/sql/migrations/001_init.sql:77-90`).
 
 **Time budget for the hour:** branch (5 min) → write `views/interest.py` (30) → register the blueprint (5) → local testing (15) → commit (5).
 
@@ -84,14 +108,14 @@ from ..db import query, query_one, get_db
 from ..auth import require_role
 from .. import serialize
 
-bp = Blueprint("interest", __name__)
+bp = Blueprint("interest", __name__)                # one file, one feature area — same pattern as every earlier blueprint
 
 
-def _err(code, message, status):
+def _err(code, message, status):                    # shared shape for every error response below
     return jsonify({"error": {"code": code, "message": message}}), status
 
 
-def _interest(interest_id):
+def _interest(interest_id):                          # re-fetch one row through the shared SELECT + serializer
     row = query_one(serialize.INTEREST_SELECT + " WHERE i.id = %s", (interest_id,))
     return serialize.interest(row) if row else None
 
@@ -102,7 +126,7 @@ def _coerce_ids(raw):
         return []
     ids = []
     for value in raw:
-        if isinstance(value, bool):
+        if isinstance(value, bool):              # bool is an int subclass in Python — exclude it explicitly
             continue
         if isinstance(value, int):
             ids.append(value)
@@ -112,50 +136,50 @@ def _coerce_ids(raw):
 
 
 @bp.post("/api/interest")
-@require_role("student")
+@require_role("student")                             # only students may create/replace a request
 def create_interest():
     body = request.get_json(silent=True) or {}
     lot_id = body.get("lotId")
     if not isinstance(lot_id, int) or query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
-        return _err("bad_request", "Unknown lot", 400)
+        return _err("bad_request", "Unknown lot", 400)                          # check 1: lotId must be real
 
     requested_ids = _coerce_ids(body.get("spaceIds"))
     if len(requested_ids) == 0:
-        return _err("bad_request", "Pick an available spot", 400)
+        return _err("bad_request", "Pick an available spot", 400)              # check 2a: nothing picked
     if len(requested_ids) > 1:
-        return _err("bad_request", "Only one spot can be requested", 400)
+        return _err("bad_request", "Only one spot can be requested", 400)      # check 2b: array column, one pick only
     available = query(
         "SELECT id FROM spaces WHERE lot_id = %s AND status = 'available' AND id = ANY(%s)",
-        (lot_id, requested_ids))
+        (lot_id, requested_ids))   # id = ANY(%s) matches the array param against the single-element list
     if len(available) != len(requested_ids):
-        return _err("conflict", "The chosen spot is no longer available", 409)
+        return _err("conflict", "The chosen spot is no longer available", 409)  # check 3: must be free & in this lot
 
     # One active request per student: an assigned student (fulfilled request)
     # cannot open a second request while still holding a spot.
     if query_one("SELECT id FROM interest WHERE user_id = %s AND status = 'fulfilled'", (g.user["id"],)):
-        return _err("conflict", "You already have a parking spot assigned", 409)
+        return _err("conflict", "You already have a parking spot assigned", 409)  # check 4: not already assigned
 
     existing = query_one(
         "SELECT id FROM interest WHERE user_id = %s AND status = 'pending'", (g.user["id"],))
     connection = get_db()
     try:
         with connection.cursor() as cursor:
-            if existing:
+            if existing:                                       # upsert: replace the caller's pending row in place
                 cursor.execute(
                     "UPDATE interest SET lot_id = %s, space_ids = %s, created_at = now() "
                     "WHERE id = %s RETURNING id",
                     (lot_id, requested_ids, existing["id"]))
                 status_code = 200
-            else:
+            else:                                               # no pending row yet — this is a fresh request
                 cursor.execute(
                     "INSERT INTO interest (user_id, lot_id, space_ids, status) "
                     "VALUES (%s, %s, %s, 'pending') RETURNING id",
                     (g.user["id"], lot_id, requested_ids))
                 status_code = 201
             interest_id = cursor.fetchone()["id"]
-        connection.commit()
+        connection.commit()                                    # both branches commit together...
     except Exception:
-        connection.rollback()
+        connection.rollback()                                  # ...or roll back together — no half-written row
         raise
     return jsonify({"data": _interest(interest_id)}), status_code
 
@@ -165,7 +189,7 @@ def create_interest():
 def my_interest():
     row = query_one(
         serialize.INTEREST_SELECT + " WHERE i.user_id = %s AND i.status <> 'cancelled' "
-        "ORDER BY i.id DESC LIMIT 1", (g.user["id"],))
+        "ORDER BY i.id DESC LIMIT 1", (g.user["id"],))          # latest live row only — never a list
     return jsonify({"data": serialize.interest(row) if row else None})
 
 
@@ -176,54 +200,50 @@ def withdraw_interest():
     with connection.cursor() as cursor:
         cursor.execute(
             "UPDATE interest SET status = 'cancelled' "
-            "WHERE user_id = %s AND status = 'pending'", (g.user["id"],))
+            "WHERE user_id = %s AND status = 'pending'", (g.user["id"],))  # 0 rows matched is fine — still 204
     connection.commit()
     return "", 204
 
 
 @bp.get("/api/interest")
-@require_role("admin")
+@require_role("admin")                                # only admins see every student's requests
 def list_interest():
     status = request.args.get("status")
     sql = serialize.INTEREST_SELECT
     params = ()
     if status:
-        sql += " WHERE i.status = %s"
+        sql += " WHERE i.status = %s"                 # optional ?status= filter narrows the admin's view
         params = (status,)
     sql += " ORDER BY i.created_at ASC, i.id ASC"
     rows = query(sql, params)
     return jsonify({"data": [serialize.interest(row) for row in rows]})
 ```
 
-**Explanation, piece by piece:**
-- `serialize.INTEREST_SELECT` (`webapp/App/serialize.py:20-27`) — the one query every route below reuses: `interest` joined to `users` (`user_name`), left-joined to `lots` (`lot_name`), plus `space_labels` via `ARRAY(SELECT sp.label FROM spaces sp WHERE sp.id = ANY(i.space_ids))`. `serialize.interest(row)` (`serialize.py:71-84`) turns that row into `{id, user_id, user_name, lot_id, lot_name, space_ids, space_labels, status, created_at}` — the same shape from every route, so nothing here invents its own response format.
-- `_coerce_ids(raw)` (`interest.py:20-32`) — defends against a malformed body: anything that isn't a list becomes `[]`; non-numeric entries (and `bool`, which is a `int` subclass in Python) are dropped rather than silently coerced.
-- **Four checks in `create_interest`, in order:**
-  1. `lot_id` must be an `int` naming a real row in `lots` (`interest.py:39-41`), else `400 "Unknown lot"`.
-  2. `requested_ids` must have exactly one element (`interest.py:44-47`) — zero → `400 "Pick an available spot"`; more than one → `400 "Only one spot can be requested"`. The PoC's `space_ids` column is an array "for forward-compat," but today the API only ever accepts one.
-  3. That one id must resolve to a `status = 'available'` space **in that lot** (`interest.py:48-52`) — `id = ANY(%s)` matches the array parameter against the single-element list; a mismatched count means the spot is taken, disabled, or in the wrong lot → `409 "The chosen spot is no longer available"`.
-  4. The caller must not **already hold a spot** (`interest.py:54-57`) — if a `fulfilled` row exists for this user, `409 "You already have a parking spot assigned"`. This is the "one active request per student, period" invariant: an assigned student can't queue for a second spot without first being unassigned.
-- **The upsert** (`interest.py:59-81`) — look up the caller's `pending` row first. If one exists, `UPDATE` it (new `lot_id`, new `space_ids`, refreshed `created_at`) and return `200`; otherwise `INSERT` a new `pending` row and return `201`. Because both branches run inside the same `try`/`with connection.cursor()`/`commit()`, and any exception triggers `rollback()` before re-raising, the caller never ends up with a half-written row. → [PostgreSQL docs: UPDATE](https://www.postgresql.org/docs/current/sql-update.html).
-- `my_interest()` (`interest.py:84-90`) — filtered to `i.user_id = g.user["id"]` and `i.status <> 'cancelled'`, `ORDER BY i.id DESC LIMIT 1`, so it's the caller's latest live request as **one object**, or `null` — never a list.
-- `withdraw_interest()` (`interest.py:93-102`) — `UPDATE ... WHERE user_id = %s AND status = 'pending'`. If the caller has no pending row, the `UPDATE` matches zero rows and nothing happens; either way the response is `204`, so there's no need to check the row count first.
-- `list_interest()` (`interest.py:105-116`) — the admin's view: no `user_id` filter (admins see everyone), an optional `?status=` query filter, `ORDER BY i.created_at ASC, i.id ASC`. Because it reuses `INTEREST_SELECT`, the admin sees `user_name` and `lot_name` for free — no separate `JOIN` to hand-roll.
+**Why it works & further reading:**
+- **`serialize.INTEREST_SELECT`** (`webapp/App/serialize.py:20-27`) — the one query every route reuses: `interest` joined to `users`/`lots`, plus `space_labels` via `ARRAY(SELECT ...)`. `serialize.interest(row)` (`serialize.py:71-84`) turns that row into `{id, user_id, user_name, lot_id, lot_name, space_ids, space_labels, status, created_at}` — the same shape from every route.
+- **`_coerce_ids(raw)`** (`interest.py:20-32`) defends against a malformed body: non-list input becomes `[]`, non-numeric entries are dropped rather than silently coerced.
+- **The four checks** in `create_interest` (`interest.py:39-57`) reject in order: unknown lot, zero/too-many `spaceIds` (the `space_ids` column is an array "for forward-compat," but today the API only ever accepts one), an unavailable spot, then an already-`fulfilled` request — see the "Done when" checklist above for the exact codes/messages each returns.
+- **The upsert** (`interest.py:59-81`) runs the `UPDATE`-or-`INSERT` and its `RETURNING id` inside one **[transaction](GLOSSARY.md#transaction)** — `commit()` on success, `rollback()` on any exception — so the caller never sees a half-written row. → [PostgreSQL docs: UPDATE](https://www.postgresql.org/docs/current/sql-update.html)
+- **`my_interest()`** (`interest.py:84-90`) and **`withdraw_interest()`** (`interest.py:93-102`) never need a row-count check: a `query_one` with no match is `None` → `null`, and an `UPDATE` matching zero rows is still a harmless `204`.
+- **`list_interest()`** (`interest.py:105-116`) reuses `INTEREST_SELECT` for the admin's cross-student view — no `user_id` filter, `user_name`/`lot_name` come along for free.
 
 ### Step 2 — Register the blueprint (~5 min)
 
-Open `webapp/App/__init__.py` and register it alongside the other blueprints:
+Open `webapp/App/__init__.py` and register it alongside the other [blueprints](GLOSSARY.md#blueprint):
 
 ```python
     from .views import interest
-    app.register_blueprint(interest.bp)
+    app.register_blueprint(interest.bp)   # without this line Flask has no idea /api/interest exists
 ```
 
-**Why this line matters:** a Blueprint is just a bundle of routes until the app registers it — without this line, Flask has no idea `/api/interest` exists, no matter how correct `interest.py` is. (Register only `interest` here — later lessons add their own blueprint one at a time; the shipped app registers all of them at once, but that's a PoC-local shortcut you shouldn't backport into the stacked CRs.)
+**Why it works & further reading:**
+- A Blueprint is just a bundle of routes until the app registers it, no matter how correct `interest.py` is. (Register only `interest` here — later lessons add their own blueprint one at a time; the shipped app registers all of them at once, but that's a PoC-local shortcut you shouldn't backport into the stacked CRs.) → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
 
 ---
 
 ## 🧪 Prove it works — testing guide
 
-**Setup:** server running (`flask run` or however B1 set it up); `$S` = a student's login token (use STU003 / Andrew — he's the one seeded student with *no* interest row, so his first POST is a clean `201`; Bob and Olivia already have seeded `pending` rows, and Alice a `fulfilled` one), `$A` = an admin's login token. Seed data (`webapp/sql/seed.sql:32-41`) makes Lot 1 (id `1`) spaces `A1`..`A8` = space ids `1`..`8`: `A1`-`A3`,`A5`-`A7` available, `A4` (id `4`) disabled, `A8` (id `8`) assigned to Alice.
+**Setup:** server running (`flask run` or however B1 set it up); `$S` = a student's login [token](GLOSSARY.md#jwt) (use STU003 / Andrew — he's the one seeded student with *no* interest row, so his first POST is a clean `201`; Bob and Olivia already have seeded `pending` rows, and Alice a `fulfilled` one), `$A` = an admin's login token. Seed data (`webapp/sql/seed.sql:32-41`) makes Lot 1 (id `1`) spaces `A1`..`A8` = space ids `1`..`8`: `A1`-`A3`,`A5`-`A7` available, `A4` (id `4`) disabled, `A8` (id `8`) assigned to Alice.
 
 **Steps:**
 

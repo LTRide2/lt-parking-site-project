@@ -7,14 +7,34 @@
 
 ---
 
+> **New words ahead?** Terms like [endpoint](GLOSSARY.md#endpoint), [serialization](GLOSSARY.md#serialization), and [foreign key](GLOSSARY.md#foreign-key) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
+
 ## 🎯 Goal — what you'll have at the end
 
-The first endpoints that actually **read real data out of the database** and hand it to whoever is logged in. Concretely, by the end of this hour you will have:
+The first [endpoints](GLOSSARY.md#endpoint) that actually **read real data out of the database** and hand it to whoever is logged in. Concretely, by the end of this hour you will have:
 
 - `webapp/App/serialize.py` — a shared module holding the SQL fragment and the functions that turn a lot/space row into the exact JSON shape the frontend expects, so every view that touches lots or spaces reads from one place instead of re-inventing the shape.
 - `GET /api/lots` — returns every parking lot, each with a `capacity` (total spaces) and an `available_count` (spaces still free), computed by the database in one query.
 - `GET /api/lots/:id/spaces` — returns every space inside one specific lot as a bare array, or a `404` if that lot doesn't exist.
-- Both routes protected by the `@require_auth` guard you built in B3 — no token, no data.
+- Both [routes](GLOSSARY.md#route) protected by the `@require_auth` guard you built in B3 — no token, no data.
+
+**🖼 Before → after — what the API does:**
+
+```text
+BEFORE  — no lots endpoint is registered yet
+  $ curl -i http://localhost:8000/api/lots -H "Authorization: Bearer $T"
+  HTTP/1.1 404 NOT FOUND
+  {"error":{"code":"not_found","message":"Not found"}}
+
+AFTER   — real lots and spaces, straight from the database
+  $ curl -i http://localhost:8000/api/lots -H "Authorization: Bearer $T"
+  HTTP/1.1 200 OK
+  {"data":[{"id":1,"name":"Lot 1","number":1,"display_order":1,"map_image_url":"/lots/lot1.jpg","capacity":8,"available_count":6}, ...]}
+
+  $ curl -i http://localhost:8000/api/lots/1/spaces -H "Authorization: Bearer $T"
+  HTTP/1.1 200 OK
+  {"data":[{"id":1,"lot_id":1,"label":"A1","status":"available", ...}, {"id":8,"lot_id":1,"label":"A8","status":"assigned","assigned_user_name":"Alice","rotation":90, ...}]}
+```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `curl .../api/lots -H "Authorization: Bearer $T"` → `200` with Lot 1 (`number` 1, `capacity` 8, `available_count` 6, since A4 is disabled and A8 is assigned) plus the other five seeded lots.
@@ -91,6 +111,8 @@ Before writing the first view, create the module every lot/space (and later, int
 
 # Shared SELECT so every view reads a space the same way. Callers append their
 # own WHERE/ORDER BY and pass the rows straight to space().
+# LEFT JOINs keep the space even if unassigned; COALESCE below picks whichever
+# join (login user or roster-only student) actually matched.
 SPACE_SELECT = """
     SELECT s.id, s.lot_id, s.label, s.status,
            s.assigned_user_id, s.assigned_student_id,
@@ -110,8 +132,8 @@ def lot(row):
         "number": row["number"],
         "display_order": row["display_order"],
         "map_image_url": row["map_image_url"],
-        "capacity": row["capacity"],
-        "available_count": row["available_count"],
+        "capacity": row["capacity"],                  # from the SQL's count(s.id) alias
+        "available_count": row["available_count"],    # from the SQL's FILTERed count alias
     }
 
 
@@ -122,23 +144,22 @@ def space(row):
         "lot_id": row["lot_id"],
         "label": row["label"],
         "status": row["status"],
-        "x": row["pos_x"],
+        "x": row["pos_x"],           # renamed: DB says pos_x, the map frontend calls it x
         "y": row["pos_y"],
         "w": row["pos_w"],
         "h": row["pos_h"],
         "rotation": row["rotation"],
         "assigned_user_id": row["assigned_user_id"],
-        "assigned_user_name": row.get("assigned_user_name"),
+        "assigned_user_name": row.get("assigned_user_name"),  # .get(): only present on SPACE_SELECT rows
         "assigned_student_id": row["assigned_student_id"],
     }
 ```
 
-**Explanation, piece by piece:**
-- **Why a shared module at all:** a space gets read here in B4, then rewritten by B8's layout editor and read again by the assignments endpoints later. Without one shared shape-function, each of those view files would invent its own dict — and the moment one of them forgets a field, or spells `assigned_user_id` differently, the frontend gets inconsistent JSON depending which endpoint answered. `serialize.py` makes that impossible: there is exactly one place that decides what a "space" looks like on the wire.
-- `SPACE_SELECT` is a SQL *fragment*, not a full query — see `webapp/App/serialize.py:10`. It always joins `users` and `students` so a space can report who holds it (`assigned_user_name`) whether that's a login user or a roster-only student, but it deliberately has no `WHERE`/`ORDER BY` — callers append those, then run the fragment through `query()`/`query_one()`.
-- `COALESCE(u.name, st.first || ' ' || st.last)` — a space's occupant is either a `users` row (login-holding student) or a `students`-only row; `COALESCE` picks whichever join actually matched. → [Postgres: `COALESCE`](https://www.postgresql.org/docs/current/functions-conditional.html#FUNCTIONS-COALESCE).
-- `lot(row)` (`webapp/App/serialize.py:40`) and `space(row)` (`webapp/App/serialize.py:53`) are the row→JSON translators: every key on the right is the **snake_case** name the frontend actually consumes (`display_order`, `map_image_url`, `available_count`, `assigned_user_name`) — there's no camelCase renaming step to remember, because the database columns and the JSON keys already agree almost everywhere. The one deliberate rename is `space()`'s `x`/`y`/`w`/`h`: those come from the DB's `pos_x`/`pos_y`/`pos_w`/`pos_h` columns, because "position" is an implementation detail but `x`/`y`/`w`/`h` is what the map-rendering frontend code calls them.
-- `row.get("assigned_user_name")` uses `.get` (not `row["..."]`) because that column only exists on rows built from `SPACE_SELECT` — a defensive touch in case some future caller passes a differently-shaped row into `space()`.
+**Why it works & further reading:**
+- **A shared [serialization](GLOSSARY.md#serialization) point:** a space gets read here, then rewritten by B8's layout editor and read again by later assignment endpoints — one shared shape-function means none of those views can invent a differently-spelled JSON dict. → [Wikipedia: Don't repeat yourself](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself)
+- `SPACE_SELECT` is a SQL *fragment*, not a full query — it has no `WHERE`/`ORDER BY`; callers append those and run it through `query()`/`query_one()`. Its `LEFT JOIN`s follow the [foreign key](GLOSSARY.md#foreign-key)s `assigned_user_id`/`assigned_student_id`, and `COALESCE` picks whichever join actually matched. → [Postgres: `COALESCE`](https://www.postgresql.org/docs/current/functions-conditional.html#FUNCTIONS-COALESCE)
+- `lot()` and `space()` translate rows into the frontend's own field names — almost every key already matches the database column. The one deliberate rename is `space()`'s `x`/`y`/`w`/`h`: "position" is a DB detail, but `x`/`y`/`w`/`h` is what the map-rendering frontend calls them.
+- `row.get("assigned_user_name")` uses `.get` (not `row["..."]`) defensively, because that column only exists on rows built from `SPACE_SELECT`.
 
 ### Step 2 — Create `webapp/App/views/lots.py` (~20 min)
 
@@ -148,64 +169,62 @@ Create the file:
 # webapp/App/views/lots.py
 from flask import Blueprint, jsonify
 
-from ..db import query, query_one
-from ..auth import require_auth
-from .. import serialize
+from ..db import query, query_one            # B3's database helpers
+from ..auth import require_auth              # B3's login guard
+from .. import serialize                     # the row->JSON shapes from Step 1
 
 bp = Blueprint("lots", __name__)
 
 
-def _err(code, message, status):
+def _err(code, message, status):             # tiny helper: same {"error": {...}} shape everywhere
     return jsonify({"error": {"code": code, "message": message}}), status
 
 
-@bp.get("/api/lots")
-@require_auth
+@bp.get("/api/lots")                          # decorator: run this function for GET /api/lots
+@require_auth                                 # runs first (bottom-up) — no token, no query
 def list_lots():
     rows = query("""
         SELECT l.id, l.name, l.number, l.display_order, l.map_image_url,
                count(s.id)                                     AS capacity,
                count(s.id) FILTER (WHERE s.status='available') AS available_count
         FROM lots l
-        LEFT JOIN spaces s ON s.lot_id = l.id
+        LEFT JOIN spaces s ON s.lot_id = l.id  -- keep a lot even with zero spaces
         GROUP BY l.id
         ORDER BY l.display_order, l.id
     """)
-    return jsonify({"data": [serialize.lot(row) for row in rows]})
+    return jsonify({"data": [serialize.lot(row) for row in rows]})  # the {"data": ...} envelope
 ```
 
-**Explanation, piece by piece:**
-- `from ..db import query, query_one` / `from ..auth import require_auth` / `from .. import serialize` — the two double-dots mean "go up one package level, into `App/`." You're reusing the database helper from B3's `db.py`, the login guard from `auth.py`, and the row-shaping module you just wrote — nothing here reinvents them. → [Python: Relative imports](https://docs.python.org/3/reference/import.html#package-relative-imports).
-- `bp = Blueprint("lots", __name__)` — same pattern as `health.py` and `auth.py` before it: one file, one blueprint, one group of related routes. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/).
-- `_err(code, message, status)` — a tiny helper that builds the standard `{"error": {...}}` envelope, so every error return in this file (starting with the `404` below, and all the write routes B8/B9 add later) is one short line instead of a repeated `jsonify({...}), status`. It's the same helper `auth.py` (B3) and `spaces.py` (B5) each define for themselves.
-- `@bp.get("/api/lots")` then `@require_auth` **underneath** it — decorators apply bottom-up, so `require_auth` runs *first* and checks the token before Flask ever calls `list_lots`. No valid token, no query, no data. → [Flask Quickstart: Routing](https://flask.palletsprojects.com/en/stable/quickstart/#routing).
-- The SQL itself, in plain English: "for every lot, count how many spaces it has (`capacity`), and separately count only the ones that are still `available` (`available_count`)." The `LEFT JOIN` matters — it keeps a lot in the results even if it has zero spaces; a plain `JOIN` would silently drop it. `FILTER (WHERE ...)` is a neat trick that lets one `count()` ignore rows that don't match, so you get two different counts from one query instead of two separate ones. → [Postgres: Table joins](https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-JOIN) · [Postgres: Aggregate expressions (`FILTER`)](https://www.postgresql.org/docs/current/sql-expressions.html#SYNTAX-AGGREGATES).
-- `serialize.lot(row)` does the row→JSON translation for you — see `webapp/App/views/lots.py:46`. Because the SQL's column aliases (`capacity`, `available_count`) already match what `serialize.lot()` expects, there's nothing left for this view to do but hand each row to the serializer.
-- `return jsonify({"data": [...]})` — the same `{"data": ...}` envelope you already saw in `health.py` and `auth.py`. Keeping every success response wrapped the same way means the frontend can handle them all the same way. → [Flask API: `jsonify`](https://flask.palletsprojects.com/en/stable/api/#flask.json.jsonify).
+**Why it works & further reading:**
+- Reuses B3's database helper, login guard, and the `serialize` module from Step 1 — nothing here reinvents them. → [Python: Relative imports](https://docs.python.org/3/reference/import.html#package-relative-imports)
+- `_err(...)` builds the standard `{"error": {...}}` [envelope](GLOSSARY.md#envelope), so every error return in this file (and the write routes B8/B9 add later) is one short line instead of a repeated `jsonify({...}), status`.
+- `@bp.get("/api/lots")` is the route; `@require_auth` sits directly under it because [decorator](GLOSSARY.md#decorator)s apply bottom-up — the token check runs *before* Flask ever calls `list_lots`. → [Flask Quickstart: Routing](https://flask.palletsprojects.com/en/stable/quickstart/#routing)
+- `LEFT JOIN` keeps a lot even with zero spaces (a plain `JOIN` would drop it); `FILTER (WHERE ...)` lets one `count()` compute `capacity` and `available_count` in a single trip to the database. → [Postgres: Table joins](https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-JOIN) · [Postgres: Aggregate expressions (`FILTER`)](https://www.postgresql.org/docs/current/sql-expressions.html#SYNTAX-AGGREGATES)
+- `serialize.lot(row)` does the row→JSON translation — the SQL's aliases already match what it expects, so there's nothing left for this view to do.
 
 Now add the second route, in the same file:
 
 ```python
 def _lot_spaces(lot_id):
     """Every space in a lot, serialized, ordered by id."""
-    rows = query(serialize.SPACE_SELECT + " WHERE s.lot_id = %s ORDER BY s.id", (lot_id,))
+    rows = query(serialize.SPACE_SELECT + " WHERE s.lot_id = %s ORDER BY s.id", (lot_id,))  # %s: safe placeholder
     return [serialize.space(row) for row in rows]
 
 
-@bp.get("/api/lots/<int:lot_id>/spaces")
+@bp.get("/api/lots/<int:lot_id>/spaces")      # <int:lot_id> captures the URL segment as a Python int
 @require_auth
 def lot_spaces(lot_id):
-    if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:
-        return _err("not_found", "Lot not found", 404)
-    return jsonify({"data": _lot_spaces(lot_id)})
+    if query_one("SELECT id FROM lots WHERE id = %s", (lot_id,)) is None:  # exists check, before fetching spaces
+        return _err("not_found", "Lot not found", 404)                    # clean 404, not an empty/misleading list
+    return jsonify({"data": _lot_spaces(lot_id)})                         # bare array under "data" — no extra wrapper
 ```
 
-**Explanation, piece by piece:**
-- `"/api/lots/<int:lot_id>/spaces"` — the `<int:lot_id>` segment is a **URL path parameter**. Flask reads whatever number is in that position of the URL, converts it to a Python `int`, and passes it into `lot_spaces(lot_id)` as an argument. Visit `/api/lots/1/spaces` and `lot_id` is `1`. → [Flask Quickstart: Variable Rules](https://flask.palletsprojects.com/en/stable/quickstart/#variable-rules).
-- `query_one("SELECT id FROM lots WHERE id = %s", (lot_id,))` — the `%s` is a placeholder, and `(lot_id,)` is the value that fills it in. psycopg substitutes it *safely*, so a weird value in the URL can never be misread as SQL. Always use `%s` + a parameter tuple — never build SQL by pasting a variable into a string. → [psycopg3: Passing parameters](https://www.psycopg.org/psycopg3/docs/basic/params.html).
-- `if ... is None: return _err("not_found", "Lot not found", 404)` — checking the lot exists *before* querying its spaces means a bad id gets a clean `404 Not Found` instead of an empty (and misleading) list. `_err` builds the same `{"error": {"code": ..., "message": ...}}` shape used everywhere else in the API.
-- `_lot_spaces(lot_id)` (`webapp/App/views/lots.py:26`) is pulled into its own helper because B8's layout editor needs the exact same "fetch + serialize every space in a lot" step to build its response — one helper, reused, instead of the query copy-pasted into two view functions.
-- The response is `{"data": [...] }` — **a bare array**, not `{"data": {"lot_id": ..., "spaces": [...]}}`. The URL already says which lot (`/api/lots/1/spaces`), so the body doesn't repeat it; each space already carries its own `lot_id` field from `SPACE_SELECT` if a caller needs to double-check.
+**Why it works & further reading:**
+- `<int:lot_id>` captures whatever number is in that URL position and hands it to `lot_spaces` as an argument — visit `/api/lots/1/spaces` and `lot_id` is `1`. → [Flask Quickstart: Variable Rules](https://flask.palletsprojects.com/en/stable/quickstart/#variable-rules)
+- `%s` + a parameter tuple lets psycopg substitute `lot_id` *safely* — never build SQL by pasting a variable into a string. → [psycopg3: Passing parameters](https://www.psycopg.org/psycopg3/docs/basic/params.html)
+- Checking the lot exists *before* fetching its spaces turns a bad id into a clean `404` [status code](GLOSSARY.md#status-code) instead of an empty, misleading list; `_err` builds the same error shape used everywhere else in the API.
+- `_lot_spaces(lot_id)` is its own helper because B8's layout editor needs this exact "fetch + serialize every space in a lot" step too — one helper, reused, instead of copy-pasted into two view functions.
+- The response is `{"data": [...]}` — a bare array, not `{"lot_id": ..., "spaces": [...]}`. The URL already says which lot, and each space still carries its own `lot_id` from `SPACE_SELECT` if a caller needs to double-check.
 
 ### Step 3 — Register the blueprint (~5 min)
 
@@ -213,7 +232,7 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
 
 ```python
     from .views import lots
-    app.register_blueprint(lots.bp)
+    app.register_blueprint(lots.bp)            # wires lots.py's routes into the running app
 ```
 
 **Why this step exists:** creating a `Blueprint` in `lots.py` doesn't make Flask aware of it — `register_blueprint` is the step that actually wires its routes into the running app. Forget this line and every request to `/api/lots` will 404, even though the code looks correct. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/).
