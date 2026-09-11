@@ -24,6 +24,22 @@ Once they submit, the request **locks**: the map and Submit/Clear go read-only a
 - [ ] Everything **survives a page refresh**.
 - [ ] Work committed on `cr/u5-student-interest` and pushed, PR base = `cr/u4-save-status`.
 
+**🖼 What changes on screen (before → after):**
+```
+        BEFORE (U2 stub)                     AFTER (U5 — pick & submit)
+┌───────────────────────────┐      ┌─────────────────────────────────┐
+│   Student dashboard       │      │   Lot A:   [Y][Y][G][Y]         │
+│     (coming in U5)        │  ─▶  │            [Y][Y][Y][X]         │
+│                           │      │   Your selection: Spot 3        │
+│                           │      │      [ Submit ]   [ Clear ]     │
+└───────────────────────────┘      └─────────────────────────────────┘
+   a placeholder heading —              the real campus→lot→spots map;
+   nothing on screen to click            click an available (Y) spot to
+                                          pick it — it turns green (G),
+                                          then Submit locks the request
+```
+Once submitted, Submit/Clear disappear and a read-only "Your request" panel with a **Withdraw request** button takes their place — see Step 3.
+
 ---
 
 ## 🤔 Why this lesson matters
@@ -31,7 +47,7 @@ Once they submit, the request **locks**: the map and Submit/Clear go read-only a
 Up to now the student dashboard has been a stub. This lesson turns it into the app's **first core feature** — and it's the moment the two halves of the product meet: the student picks a spot on the **same map** the admin arranged in U8, reading the **same** spaces the admin manages. It's worth the extra time over a plain button list because:
 
 - **Students think in spots, not lot names.** Letting them point at the actual spot they want (and see which are taken) is the real product; a "register interest in Lot A" button was a scaffold.
-- **You'll reuse the map everywhere.** The campus→lot→spots view with pan/zoom is the same one from U3/U8 — here you render it *without* the sidebar and make spots *clickable to pick*. Seeing the same map serve admin and student cements how normalized coordinates (`x/y/w/h`) make one layout work for both.
+- **You'll reuse the map everywhere.** The campus→lot→spots view with pan/zoom is the same one from U3/U8 — here you render it *without* the sidebar and make spots *clickable to pick*. Seeing the same map serve admin and student cements how [normalized coordinates](GLOSSARY.md#normalized-coordinates) (`x/y/w/h`) make one layout work for both.
 - **"One active request, lockable, withdrawable" is a real state machine.** Pick → submit → (locked) → withdraw → pick again is the same request lifecycle U6 drives from the admin side. Building the student side here makes U6 click into place.
 
 ---
@@ -46,13 +62,15 @@ Up to now the student dashboard has been a stub. This lesson turns it into the a
 | **Normalized coordinates** | Spots stored as fractions (`x/y/w/h` ∈ 0..1) so one layout renders at any map size — shared with U3/U8. | [Lesson U3](U3-show-real-lots-and-spaces.md), [U8](U8-place-and-arrange-spots.md) |
 | **Idempotent upsert** | Submitting replaces your single active request rather than piling up duplicates. | [Wikipedia: Idempotence](https://en.wikipedia.org/wiki/Idempotence) |
 
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
+
 ---
 
 ## ✅ Before you start
 
 **Time budget for the hour:** setup & branch (5 min) → `interestSlice.ts` (15) → register the slice (5) → rewrite `StudentDashboard.tsx` as the map view (30) → test & commit (15).
 
-**The backend contract this lesson calls.** An `interest` request now carries the **picked spot**, not just a lot:
+**The backend contract this lesson calls.** An `interest` request now carries the **picked spot**, not just a lot. Each bullet below is one [endpoint](GLOSSARY.md#endpoint) this lesson calls, using the [HTTP methods](GLOSSARY.md#http-methods) `GET`, `POST`, and `DELETE`:
 
 - `Interest` gains **`space_ids: number[]`** and **`space_labels: string[]`** — arrays for forward-compatibility, but the PoC holds **at most one** (a student picks one spot).
 - `GET /api/interest/me` → the student's one active request (or `null`).
@@ -75,13 +93,14 @@ git checkout -b cr/u5-student-interest
 
 ### Step 1 — Create the interest slice (~15 min)
 
-Create `src/store/interestSlice.ts`. Note `space_ids`/`space_labels` on the type, and the new `withdrawInterest` thunk:
+Create `src/store/interestSlice.ts`. Note `space_ids`/`space_labels` on the type, and the new `withdrawInterest` [thunk](GLOSSARY.md#thunk):
 
 ```ts
 // src/store/interestSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api } from "../api/client";
 
+// The shape of ONE request, as the server sends it back.
 export interface Interest {
   id: number;
   user_id: number;
@@ -93,6 +112,7 @@ export interface Interest {
   created_at: string;
 }
 
+// The shape of this slice's corner of the store — this student's own request.
 interface InterestState {
   mine: Interest | null;    // this student's one active request
   status: "idle" | "loading" | "error";
@@ -101,6 +121,7 @@ interface InterestState {
 
 const initialState: InterestState = { mine: null, status: "idle", error: null };
 
+// GET /api/interest/me -> my one active request, or null if I haven't asked for a spot yet.
 export const fetchMyInterest = createAsyncThunk(
   "interest/me",
   () => api.get("/api/interest/me") as Promise<Interest | null>
@@ -117,16 +138,17 @@ export const registerInterest = createAsyncThunk(
 export const withdrawInterest = createAsyncThunk(
   "interest/withdraw",
   async (_: void, { dispatch }) => {
-    await api.del("/api/interest/me");
-    await dispatch(fetchMyInterest());
+    await api.del("/api/interest/me");     // cancel on the server
+    await dispatch(fetchMyInterest());     // then reload "mine" (now null)
   }
 );
 
 const interestSlice = createSlice({
   name: "interest",
   initialState,
-  reducers: {},
+  reducers: {},                            // no plain (non-async) actions needed here
   extraReducers: (builder) => {
+    // Shared handlers, reused across all three thunks below.
     const pending = (s: InterestState) => { s.status = "loading"; s.error = null; };
     const fail = (s: InterestState, a: { error: { message?: string } }) => {
       s.status = "error"; s.error = a.error.message ?? "Something went wrong";
@@ -139,25 +161,27 @@ const interestSlice = createSlice({
       .addCase(registerInterest.fulfilled, (s, a) => { s.status = "idle"; s.mine = a.payload; })
       .addCase(registerInterest.rejected, fail)
       .addCase(withdrawInterest.pending, pending)
+      // no .fulfilled case for withdraw — the fetchMyInterest it triggers handles that
       .addCase(withdrawInterest.rejected, fail);
   },
 });
 
-export default interestSlice.reducer;
+export default interestSlice.reducer;    // this reducer gets plugged into the store in Step 2
 ```
 
-**Explanation, piece by piece:**
-- **`space_ids` / `space_labels`** — the picked spot travels with the request. They're arrays because the API is built to allow multiple picks later, but the PoC enforces exactly one (the backend rejects `>1`).
-- **`registerInterest({ lotId, spaceIds })`** — your first **`POST`** thunk. The PoC only ever picks one spot, but the payload is always the **plural** `spaceIds` array — the caller wraps it as `[pickedSpaceId]` (you'll see that in Step 3). `api.post` (from U0/U1) sends the JSON body and attaches your token.
-- **`withdrawInterest`** — a **`DELETE`** to `/api/interest/me` (`api.del`, the same client method U6 uses for unassign), then it **re-dispatches `fetchMyInterest`** to pick up the now-cancelled state. It has no `.fulfilled` case of its own — the refetch's `fetchMyInterest.fulfilled` is what sets `mine` (to `null`, since a withdrawn request no longer comes back from `GET /api/interest/me`).
-- **`extraReducers`** — the familiar `pending`/`fulfilled`/`rejected` shape. `register` and `fetch` set `mine = payload`; `withdraw` has no `fulfilled` handler of its own and instead relies on the `fetchMyInterest` it triggers to clear `mine`.
+**Why it works & further reading:**
+- **[Interface](GLOSSARY.md#interface) `Interest`** — one shape shared by every request object, so a missing or misspelled field (like `space_ids`) is caught as you type. → [TS: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
+- **Plural `spaceIds`, singular PoC** — the payload is always an array because the [API](GLOSSARY.md#api) is built for multiple picks later; only the backend's own validation enforces "at most one" for now.
+- **`api.post` / `api.del`** — the same [API](GLOSSARY.md#api) client from U0/U1; it sends the JSON body and attaches your token, so this thunk doesn't have to.
+- **`withdrawInterest` has no `.fulfilled` of its own** — it dispatches `fetchMyInterest` again, and *that* thunk's `.fulfilled` is what actually clears `mine` to `null`. One source of truth for "what's my request right now?"
+- **[`extraReducers`](GLOSSARY.md#extrareducers)** — the same `pending`/`fulfilled`/`rejected` wiring from U1, reused for all three thunks here.
 
 ### Step 2 — Register the slice (~5 min)
 
 In `src/store/index.ts`:
 
 ```ts
-import interestReducer from "./interestSlice";
+import interestReducer from "./interestSlice";   // Step 1's default export
 // ...
 export const store = configureStore({
   reducer: {
@@ -168,16 +192,19 @@ export const store = configureStore({
 });
 ```
 
-Without this, `useAppSelector((s) => s.interest)` would be `undefined`.
+**Why it works & further reading:**
+- **`interestReducer`** — Step 1's `default export`, the actual [reducer](GLOSSARY.md#reducer) function that updates `InterestState` in response to [actions](GLOSSARY.md#action).
+- **`configureStore({ reducer: { ... } })`** — `reducer` is a map from a name you pick to the reducer that owns that [slice](GLOSSARY.md#slice) of state; `configureStore` wires every entry into one global [store](GLOSSARY.md#store), added alongside the existing `auth` and `parking` keys. → [RTK: configureStore](https://redux-toolkit.js.org/api/configureStore).
+- **The key must match** — `useAppSelector((s) => s.interest)`, a [selector](GLOSSARY.md#selector) used throughout this lesson, reads the store by that exact `interest` key. Register it under a different name and `s.interest` is `undefined` — every `mine`/`status`/`error` read from it breaks.
 
 ### Step 3 — Rewrite `StudentDashboard.tsx` as the map view (~30 min)
 
-The student dashboard now reuses the **campus map → lot → spots** view you built for admin in U3, **minus the sidebar**, plus spot-picking. Rather than repeat the whole pan/zoom map here, lift the map-rendering pieces you already have (campus image with lot markers, per-lot spaces render, the shared `translate`-offset pan + cursor-anchored wheel zoom from U3/U8) into a component the student screen can render read-only. The **new** behaviour is spot-picking and the lock/withdraw states:
+The student dashboard now reuses the **campus map → lot → spots** view you built for admin in U3, **minus the sidebar**, plus spot-picking. Rather than repeat the whole pan/zoom map here, lift the map-rendering pieces you already have (campus image with lot markers, per-lot spaces render, the shared `translate`-offset pan + cursor-anchored wheel zoom from U3/U8) into a [component](GLOSSARY.md#component) the student screen can render read-only. The **new** behaviour is spot-picking and the lock/withdraw states:
 
 ```tsx
 // src/StudentDashboard.tsx  (key logic — map/pan/zoom reused from U3)
-const { mine, status, error } = useAppSelector((s) => s.interest);
-const [pickedSpaceId, setPickedSpaceId] = useState<number | null>(null);
+const { mine, status, error } = useAppSelector((s) => s.interest);   // this student's one active request
+const [pickedSpaceId, setPickedSpaceId] = useState<number | null>(null);   // local: highlighted spot pre-Submit
 
 const locked = mine != null;                          // submitted → read-only
 const canPick = !locked;
@@ -240,12 +267,13 @@ The two panels — pick mode vs locked — are pure "controlled UI by state":
 {error && <p style={{ color: "red" }}>{error}</p>}
 ```
 
-**Explanation, piece by piece:**
-- **`locked = mine != null`** — once a request exists, the whole map + Submit/Clear go read-only. The student *can still pan/zoom and look*, but `onSpaceClick` early-returns because `canPick` is false. This is the "controlled UI by state" concept: the request's existence, not a flag, decides the mode.
-- **Toggle / replace in one line** — `setPickedSpaceId(cur => cur === space.id ? null : space.id)` clears if you click the same spot, otherwise selects the new one. Because there's a single `pickedSpaceId`, picking a different spot *automatically* replaces the old pick — you never track more than one.
-- **Pre-load on open** — when the student opens the lot their request is in, `openLot` seeds `pickedSpaceId` from `mine.space_ids[0]`, so the green spot shows where they already asked.
-- **Withdraw only while `pending`** — a `fulfilled` request (admin already assigned them, U6) is fully locked; the student contacts the office. `withdrawInterest` deletes the request, then re-dispatches `fetchMyInterest`, which comes back `null` and drops `locked` to false, re-opening picking.
-- **Don't set state in an effect** — reset `pickedSpaceId` in the `openLot`/nav **click handlers**, not in a `useEffect`, to respect the `react-hooks/set-state-in-effect` rule you met in U3/U8.
+**Why it works & further reading:**
+- **[`useState`](GLOSSARY.md#usestate) for the pick, `useAppSelector` for the request** — `pickedSpaceId` is a [hook](GLOSSARY.md#hook)-backed local [state](GLOSSARY.md#state) value; only this screen cares about it before Submit, so it doesn't belong in Redux. → [React: useState](https://react.dev/reference/react/useState).
+- **`locked = mine != null`** — the request's existence, not a separate flag, decides pick-mode vs read-only ("controlled UI by state," from the Concepts table above).
+- **Toggle / replace in one line** — a single `pickedSpaceId` means picking a new spot automatically replaces the old one; you never track more than one.
+- **Pre-load on open** — `openLot` seeds `pickedSpaceId` from `mine.space_ids[0]`, so the green spot shows where the student already asked.
+- **Withdraw only while `pending`** — a `fulfilled` request is fully locked; `withdrawInterest` deletes it, then [dispatches](GLOSSARY.md#dispatch) `fetchMyInterest` again, whose `.fulfilled` drops `locked` back to `false`.
+- **Reset in the click handler, not a [`useEffect`](GLOSSARY.md#useeffect)** — respects the `react-hooks/set-state-in-effect` rule from U3/U8.
 
 > **Hover tooltip (optional polish).** Like the admin map (U3), give student spots a floating cursor tooltip showing **lot number · spot label · availability** (*Available / Taken / Unavailable / Selected by you*) instead of the native `title`.
 

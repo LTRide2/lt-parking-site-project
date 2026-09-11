@@ -19,6 +19,22 @@ Right now the parking grid is **faked**: `renderParkingLot()` just draws 3 rows 
 - [ ] While a lot's spaces are loading you briefly see **"Loading…"**; if you stop the backend and click a lot, you see a **red error message**, not a blank or crashed page.
 - [ ] Your work is committed on branch `cr/u3-real-lots` and pushed, PR base = `cr/u2-routing`.
 
+**🖼 What changes on screen (before → after):**
+```
+        BEFORE (faked)                        AFTER (data-driven)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│  Home Lot1 Lot2 … Lot17   │      │      Home   Lot A   Lot B  │
+│  (hard-coded button list) │  ─▶  │   (from GET /api/lots)     │
+│  ▢▢ ▢▢ ▢▢   ▢▢ ▢▢ ▢▢      │      │   [ map photo ]             │
+│  ▢▢ ▢▢ ▢▢   ▢▢ ▢▢ ▢▢      │      │    🟨🟨 ⬜ 🟦 🟨            │
+│  (3×2×20 fake boxes,      │      │    yellow=available         │
+│   ids like "1-0-5")       │      │    grey=disabled blue=taken │
+└───────────────────────────┘      └───────────────────────────┘
+  every lot looks identical;         each lot draws its OWN real
+  "disabled" forgotten on refresh    spaces, colored by server status
+```
+Nothing about *where* the lot-nav or the map sit moves — what changes is that the boxes are now real spaces, positioned and colored from the server, that survive a refresh.
+
 ---
 
 ## 🤔 Why this lesson matters (read this first — it's the "why")
@@ -44,6 +60,8 @@ This lesson only makes the map **show** real data. Actually *changing* that data
 | **`fetch` / HTTP requests** | The browser API that `api.get(...)` uses under the hood to ask a server for data over the network. | [MDN: Using Fetch](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) |
 | **Normalized coordinates** | A spot's position/size stored as fractions of the map image (`x`,`y`,`w`,`h` in 0..1), so it stays put and correctly sized at any zoom. | [MDN: CSS percentage](https://developer.mozilla.org/en-US/docs/Web/CSS/percentage) |
 | **Floating tooltip** | A cursor-following box you render yourself (vs. the native `title`), so you control its content and style. | [MDN: `position: fixed`](https://developer.mozilla.org/en-US/docs/Web/CSS/position) |
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -137,38 +155,45 @@ const parkingSlice = createSlice({
       state.selectedLotId = action.payload;
       state.selectedSpaces = [];           // clear selection when switching lots
     },
+    // flips Edit Mode on/off; turning it off also drops any in-progress action + selection
     toggleEditMode(state) {
       state.isEditMode = !state.isEditMode;
       if (!state.isEditMode) { state.editAction = null; state.selectedSpaces = []; }
     },
+    // same reset, but for a specific target value instead of a toggle
     setIsEditMode(state, action: PayloadAction<boolean>) {
       state.isEditMode = action.payload;
       if (!action.payload) { state.editAction = null; state.selectedSpaces = []; }
     },
+    // records which admin action (disable/enable/… — U4/U6) is currently armed
     setEditAction(state, action: PayloadAction<EditAction>) {
       state.editAction = action.payload;
     },
+    // on/off toggle: add the id if it's not selected yet, remove it if it is
     toggleSpaceSelection(state, action: PayloadAction<number>) {
       const id = action.payload;
       const idx = state.selectedSpaces.indexOf(id);
       if (idx === -1) state.selectedSpaces.push(id);
       else state.selectedSpaces.splice(idx, 1);
     },
+    // wipes the selection, e.g. once an admin action has been applied
     clearSelectedSpaces(state) {
       state.selectedSpaces = [];
     },
   },
   extraReducers: (builder) => {
     builder
+      // lots rarely change mid-session, so there's no pending/error handling here
       .addCase(fetchLots.fulfilled, (state, action) => { state.lots = action.payload; })
+      // entering "loading" is what triggers the "Loading…" text in Step 4
       .addCase(fetchSpaces.pending, (state) => { state.status = "loading"; state.error = null; })
       .addCase(fetchSpaces.fulfilled, (state, action) => {
         state.status = "idle";
-        state.spacesByLot[action.payload.lotId] = action.payload.spaces;
+        state.spacesByLot[action.payload.lotId] = action.payload.spaces;   // cache this lot's spaces
       })
       .addCase(fetchSpaces.rejected, (state, action) => {
         state.status = "error";
-        state.error = action.error.message ?? "Could not load spaces";
+        state.error = action.error.message ?? "Could not load spaces";     // shown as the red error in Step 4
       });
   },
 });
@@ -180,13 +205,13 @@ export const {
 export default parkingSlice.reducer;
 ```
 
-**Explanation, piece by piece:**
-- `interface Lot` / `interface Space` — these describe the exact shape the backend sends back. Note `status` is a **union of string literals**, not just `string` — TypeScript will now catch a typo like `"disbaled"` at compile time.
-- `createAsyncThunk("parking/fetchLots", () => api.get("/api/lots") as Promise<Lot[]>)` — wraps the API call so Redux automatically fires three actions for you as the request happens: `pending` (started), `fulfilled` (succeeded, with the data), and `rejected` (failed, with an error). You never dispatch those three by hand. → [Redux Toolkit docs: `createAsyncThunk`](https://redux-toolkit.js.org/api/createAsyncThunk).
-- `fetchSpaces` takes a `lotId` argument and returns `{ lotId, spaces }` — it bundles the id back in because by the time the response arrives, the reducer needs to know *which* lot's cache slot (`spacesByLot[lotId]`) to fill.
-- **The spaces endpoint returns a bare array, not an envelope.** `GET /api/lots/:id/spaces` responds with `Space[]` directly (inside the standard `{data}` wrapper, but the `data` payload itself *is* the array) — so we `as Space[]` the whole body and bundle it with `lotId` ourselves for the reducer to key by. Field names are **snake_case** everywhere the server owns them (`lot_id`, `available_count`, `assigned_user_id`, `assigned_user_name`, `map_image_url`, `display_order`); match them exactly or the fields read back `undefined`.
-- `extraReducers` — this is where a slice reacts to actions it didn't define itself, like the three auto-generated thunk actions. `.addCase(fetchSpaces.pending, ...)` sets `status: "loading"` the instant the request starts; `.fulfilled` stores the data and clears loading; `.rejected` stores a human-readable error message from `action.error.message`.
-- `selectedSpaces: number[]` — this used to be `string[]` holding fake ids like `"1-0-5"`. Now it holds the real numeric `id` values the backend assigned, which is also what `toggleSpaceSelection` now expects.
+**Why it works & further reading:**
+- **[Interface](GLOSSARY.md#interface)** `Lot`/`Space` — [TypeScript](GLOSSARY.md#typescript) checks every object against this shape, so a typo like `"disbaled"` in `status` (a union of string literals, not just `string`) is caught before it ships. → [TS: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
+- **[`createAsyncThunk`](GLOSSARY.md#thunk)** — wraps the network call and auto-fires `pending`/`fulfilled`/`rejected` [actions](GLOSSARY.md#action) for you; no manual [dispatch](GLOSSARY.md#dispatch) of those three needed. → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
+- **The spaces [endpoint](GLOSSARY.md#endpoint) returns a bare array, not an [envelope](GLOSSARY.md#envelope)** — `fetchSpaces` bundles `lotId` back into its result itself, since the reducer needs to know which `spacesByLot[lotId]` slot to fill.
+- **[`extraReducers`](GLOSSARY.md#extrareducers)** — how this [slice](GLOSSARY.md#slice) reacts to the thunks' three stages without dispatching them by hand. → [RTK: createSlice](https://redux-toolkit.js.org/api/createSlice).
+- `selectedSpaces` is now `number[]`, holding the real server `id`s — not the old fake string ids like `"1-0-5"`.
+- Field names are **snake_case** wherever the server owns them (`lot_id`, `available_count`, `assigned_user_id`, `assigned_user_name`, `map_image_url`, `display_order`); match them exactly or the fields read back `undefined`.
 
 > **What's gone, and why:** the old `enableSelectedSpaces` / `disableSelectedSpaces` reducers and the `disabledSpaces` array are **not** in this version. They used to edit a local, browser-only list — but per this lesson's whole point, "disabled" is now a fact the *server* owns (`status === "disabled"`), not something the browser can just set. Actually flipping that status is lesson **U4**'s job. If your editor flags old imports of those in `ControlBoard.tsx`, that's expected — the next steps fix them.
 
@@ -203,7 +228,9 @@ const user = useAppSelector(state => state.auth.user);
 
 Then update its two usages: `if (userType === 'student')` → `if (user?.role === 'student')`, and `Logged in as: {userCode}` → `Logged in as: {user?.name}`.
 
-**Explanation:** `state.auth.user` is the shape U1's `authSlice` actually stores (an object with `role` and `name`), not the old flat `userType`/`userCode` fields. `user?.role` uses **optional chaining** — if `user` happens to be `null` (nobody logged in yet), this safely evaluates to `undefined` instead of crashing.
+**Why it works & further reading:**
+- `state.auth.user` is the shape U1's `authSlice` actually stores — an object with `role` and `name` — not the old flat `userType`/`userCode` fields.
+- `user?.role` is **optional chaining**: if `user` is `null` (nobody logged in yet), it safely evaluates to `undefined` instead of crashing. → [MDN: Optional chaining](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Optional_chaining).
 
 ### Step 3 — Load data and react to the selected lot (~10 min)
 
@@ -217,6 +244,7 @@ import {
 // ...
 const dispatch = useAppDispatch();
 const user = useAppSelector(state => state.auth.user);
+// pulls the parking data + status/error flags Step 4's loading/error UI needs
 const { lots, selectedLotId, spacesByLot, isEditMode, editAction, selectedSpaces, status, error } =
   useAppSelector(state => state.parking);
 
@@ -226,11 +254,11 @@ useEffect(() => { dispatch(fetchLots()); }, [dispatch]);
 useEffect(() => { if (selectedLotId != null) dispatch(fetchSpaces(selectedLotId)); }, [selectedLotId, dispatch]);
 ```
 
-**Explanation, line by line:**
-- The first `useEffect` has a dependency array of `[dispatch]` — since `dispatch` never actually changes, this effect really only runs **once**, right when `ControlBoard` first mounts. That's exactly what "load the list of lots" needs. → [React docs: `useEffect`](https://react.dev/reference/react/useEffect).
-- The second `useEffect` depends on `[selectedLotId, dispatch]` — it re-runs **every time the selected lot changes**, which is what makes clicking a different lot in the nav fetch that lot's spaces.
-- `if (selectedLotId != null)` guards against fetching spaces for the "Home" view (`selectedLotId === null`), where there's no lot selected yet.
-- Pulling `status` and `error` out of `state.parking` here is what Step 4's loading/error UI will read.
+**Why it works & further reading:**
+- **[`useEffect`](GLOSSARY.md#useeffect)** with `[dispatch]` as its only dependency really means "once, on mount" — `dispatch` itself never changes. → [React docs: useEffect](https://react.dev/reference/react/useEffect).
+- The second effect's `[selectedLotId, dispatch]` dependency list is what makes clicking a different lot in the nav re-fetch that lot's spaces.
+- `if (selectedLotId != null)` skips fetching for the "Home" view, where nothing is selected yet.
+- `useAppSelector` is a [selector](GLOSSARY.md#selector) — it reads values out of the [store](GLOSSARY.md#store) so this component redraws whenever they change.
 
 ### Step 4 — Draw spaces from data (~15 min)
 
@@ -245,18 +273,18 @@ const spaceColor = (space: Space) => {
 };
 
 const renderParkingLot = () => {
-  const spaces = selectedLotId != null ? (spacesByLot[selectedLotId] ?? []) : [];
-  if (status === 'loading' && spaces.length === 0) return <div style={{ color: '#333' }}>Loading…</div>;
-  if (error) return <div style={{ color: '#900' }}>{error}</div>;
-  if (spaces.length === 0) return <div style={{ color: '#333' }}>No spaces in this lot.</div>;
+  const spaces = selectedLotId != null ? (spacesByLot[selectedLotId] ?? []) : [];   // cached spaces, empty until fetchSpaces resolves
+  if (status === 'loading' && spaces.length === 0) return <div style={{ color: '#333' }}>Loading…</div>;   // first landing on this lot
+  if (error) return <div style={{ color: '#900' }}>{error}</div>;                                          // last fetch failed
+  if (spaces.length === 0) return <div style={{ color: '#333' }}>No spaces in this lot.</div>;             // loaded, genuinely empty
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '400px' }}>
       {spaces.map(space => (
         <div
           key={space.id}
-          title={`${space.label} — ${space.status}`}
-          onClick={() => isSelecting && dispatch(toggleSpaceSelection(space.id))}
+          title={`${space.label} — ${space.status}`}   // native tooltip — Step 4b swaps this for a floating one
+          onClick={() => isSelecting && dispatch(toggleSpaceSelection(space.id))}   // no-op unless Edit Mode + an action are armed
           style={{
             width: '30px', height: '12px',
             backgroundColor: spaceColor(space),
@@ -271,12 +299,12 @@ const renderParkingLot = () => {
 };
 ```
 
-**Explanation, piece by piece:**
-- `spaceColor` checks selection **first**, then `disabled`, then `assigned`, falling through to **yellow** (`#ffeb3b`) for `available`. Order matters here: a selected-but-disabled space should still show as selected (gold), not grey. The full legend: available = yellow, selected = gold (`#f5c542`), disabled = grey (`#aaa`), assigned = blue (`#7aa7ff`) — the same four colors U4 and U8 reuse.
-- `spaces.map(space => ...)` turns the array of `Space` objects into an array of `<div>` elements — one per space. Each one needs a `key={space.id}` so React can tell them apart across re-renders without repainting the whole grid every time. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
-- The three `if` checks before the `return` are the **loading / error / empty** states, checked in that order: still loading with nothing cached yet → "Loading…"; the last fetch failed → the red error message; loaded but the lot genuinely has zero spaces → "No spaces in this lot." Only if none of those apply do you reach the real grid. → [React docs: Conditional Rendering](https://react.dev/learn/conditional-rendering).
-- `title={...}` sets the native browser tooltip — hover any space and you'll see its label and status, e.g. `"A-04 — available"`. No extra library needed; this is a plain HTML attribute. **Refinement (folded in):** the native `title` is slow to appear and can't say *who* holds a spot, so replace it with a small **floating tooltip** — a `tip` state `{ x, y, text }` set on `onMouseEnter`/`onMouseMove` and cleared on `onMouseLeave`, rendered as one `position:fixed` div at `tip.x+14, tip.y+14`. Its text is `Spot ${space.label} — <status>`, where `<status>` is `Taken — ${space.assigned_user_name}` / `Available` / `Disabled` (see the exact `availability()` helper in Step 4b) — which is why the `Space` contract carries `assigned_user_name`. The exact same tooltip helper is reused for the arrange editor in U8.
-- `isSelecting && dispatch(...)` — clicking only does something while `isSelecting` is true (Edit Mode is on with an action chosen); otherwise the click is a no-op.
+**Why it works & further reading:**
+- Checking **selection before status** means a selected-but-disabled space still shows as selected (gold), not grey — order matters. Full legend: available = yellow, selected = gold (`#f5c542`), disabled = grey (`#aaa`), assigned = blue (`#7aa7ff`) — the same four colors U4 and U8 reuse.
+- Every mapped item needs a `key={space.id}` so [React](GLOSSARY.md#react) can track it across re-renders without repainting the whole grid. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
+- The three `if` checks run in that order — **loading → error → empty** — before the grid ever draws. → [React docs: Conditional Rendering](https://react.dev/learn/conditional-rendering).
+- The native `title` tooltip here is temporary: it's slow to appear and can't say *who* holds a spot. Step 4b below replaces it with a floating tooltip that can.
+- `isSelecting && dispatch(...)` — the click is a no-op unless Edit Mode is on with an action chosen.
 
 ### Step 4b — Position spots on the map, size them right, and add a floating tooltip (~10 min)
 
@@ -286,11 +314,13 @@ The plain wrap-grid above is the **fallback** for a lot with no authored positio
 // x, y, w, h are fractions of the map image (0..1). Render position AND size as % of the map box.
 <div style={{ position: 'relative' }}>
   <img src={lot.map_image_url ?? undefined} style={{ width: '100%', display: 'block' }} />
+  {/* only spaces already placed in U8 get drawn here; the rest fall back to Step 4's plain grid */}
   {spaces.filter(s => s.x != null).map(space => (
     <div key={space.id} {...hoverProps(space)}
       onClick={() => isSelecting && dispatch(toggleSpaceSelection(space.id))}
       style={{
         position: 'absolute',
+        // position + size as % of the map box — fractions (0..1) × 100
         left: `${space.x! * 100}%`, top: `${space.y! * 100}%`,
         width: `${(space.w ?? 0.05) * 100}%`, height: `${(space.h ?? 0.03) * 100}%`,
         backgroundColor: spaceColor(space), border: '1px solid #888', boxSizing: 'border-box',
@@ -299,27 +329,40 @@ The plain wrap-grid above is the **fallback** for a lot with no authored positio
 </div>
 ```
 
-**Why fractions (the key idea):** because `x`/`y`/`w`/`h` are all fractions of the map, both the **position** and the **size** stay correct at any display size — you do **not** need to store the map's zoom scale anywhere. That is also why size is `w`/`h` fractions, not a fixed `26×12px`: a pixel size wouldn't scale with the map, so spots would drift out of their painted spaces the moment the image resized.
+**Why it works & further reading:**
+- `.filter(s => s.x != null)` — only spaces already placed in [U8](U8-place-and-arrange-spots.md) draw here (`!= null` catches both `null` and `undefined`); everything else falls back to Step 4's plain grid.
+- `{...hoverProps(space)}` — spreads the three hover handlers (defined in the tooltip block below) onto the `div` in one go, instead of writing each one out by hand.
+- The trailing `!` is TypeScript's **non-null assertion operator** — safe only because the `.filter(...)` above already excluded every case where `x`/`y` could be null. → [TS Handbook: Non-null assertion operator](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-0.html#non-null-assertion-operator).
+- `w`/`h` can still be `null` even once a space has `x`/`y` (position and size are authored separately in U8); `??` falls back to a sensible default (5% × 3% of the map) instead of a zero-size, invisible spot.
+
+**Why fractions:** the key idea — see [normalized coordinates](GLOSSARY.md#normalized-coordinates). Because `x`/`y`/`w`/`h` are all fractions of the map, position *and* size stay correct at any display size, and the map's zoom scale never needs to be stored anywhere.
 
 **A floating hover tooltip** (nicer than the native `title` from Step 4): track the cursor and show one absolutely-positioned box.
 
 ```tsx
-const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
-const availability = (s: Space) =>
+const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);   // null = hidden
+const availability = (s: Space) =>          // turns status into the tooltip's wording
   s.status === 'assigned' ? `Taken${s.assigned_user_name ? ` — ${s.assigned_user_name}` : ''}`
   : s.status === 'disabled' ? 'Disabled' : 'Available';
-const hoverProps = (s: Space) => ({
+const hoverProps = (s: Space) => ({         // bundles the 3 hover handlers so they can be spread onto a spot
   onMouseEnter: (e: React.MouseEvent) => setTip({ x: e.clientX, y: e.clientY, text: `Spot ${s.label} — ${availability(s)}` }),
-  onMouseMove:  (e: React.MouseEvent) => setTip({ x: e.clientX, y: e.clientY, text: `Spot ${s.label} — ${availability(s)}` }),
-  onMouseLeave: () => setTip(null),
+  onMouseMove:  (e: React.MouseEvent) => setTip({ x: e.clientX, y: e.clientY, text: `Spot ${s.label} — ${availability(s)}` }),   // keeps the tooltip following the cursor
+  onMouseLeave: () => setTip(null),         // hide it the instant the cursor leaves
 });
 // …render once, near the end of the component:
+// pointerEvents:'none' below lets hover/click events pass through the box to the spot underneath
 {tip && (
-  <div style={{ position: 'fixed', left: tip.x + 14, top: tip.y + 14, zIndex: 200,
+  <div style={{ position: 'fixed', left: tip.x + 14, top: tip.y + 14, zIndex: 200,   // offset so the box isn't under the pointer
     background: '#222', color: 'white', padding: '4px 8px', borderRadius: '6px',
     fontSize: '0.75rem', pointerEvents: 'none' }}>{tip.text}</div>
 )}
 ```
+
+**Why it works & further reading:**
+- One **[`useState`](GLOSSARY.md#usestate)** holds either `null` (hidden) or `{x, y, text}`; hovering sets it, leaving clears it. → [React docs: useState](https://react.dev/reference/react/useState).
+- `onMouseMove` (not just `onMouseEnter`) is what makes the tooltip follow the cursor instead of freezing where it first appeared. → [MDN: mousemove event](https://developer.mozilla.org/en-US/docs/Web/API/Element/mousemove_event).
+- `e.clientX`/`clientY` are viewport-relative — exactly what a `position: 'fixed'` box needs for its own `left`/`top`. → [MDN: MouseEvent.clientX](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/clientX).
+- `pointerEvents: 'none'` makes the tooltip invisible to the mouse, so hover/click events pass through to the spot underneath instead of the tooltip box swallowing them (which could fire `onMouseLeave` early or block a click). → [MDN: pointer-events](https://developer.mozilla.org/en-US/docs/Web/CSS/pointer-events).
 
 Delete the `title={...}` attribute from Step 4 and spread `{...hoverProps(space)}` on each spot instead — in both the grid and the positioned view.
 
@@ -334,6 +377,7 @@ Replace the hard-coded `['Home', 'Lot 1', ..., 'Lot 17']` buttons with a **Home*
   <button style={lotButtonStyle(selectedLotId === null)} onClick={() => dispatch(setSelectedLot(null))}>
     Home
   </button>
+  {/* one button per real lot, in whatever order the server returns them */}
   {lots.map(lot => (
     <button key={lot.id} style={lotButtonStyle(selectedLotId === lot.id)} onClick={() => dispatch(setSelectedLot(lot.id))}>
       {lot.name}
@@ -344,7 +388,9 @@ Replace the hard-coded `['Home', 'Lot 1', ..., 'Lot 17']` buttons with a **Home*
 
 Then update the two view conditions that used to compare against the old string-based `selectedLot`: `selectedLot === 'Home'` becomes `selectedLotId === null`, and the `selectedLot === 'Lot 1'` / `renderParkingLot()` branch becomes `selectedLotId !== null && renderParkingLot()`. Search the file for `selectedLot` (not `selectedLotId`) — there are a handful more in the map drag/zoom effects; those all become `selectedLotId === null` too.
 
-**Explanation:** `lots.map(...)` is the exact same "array → elements, with a `key`" pattern from Step 4, just for lots instead of spaces. `lotButtonStyle(selectedLotId === lot.id)` presumably highlights whichever button matches the currently-selected lot — you're just feeding it the new numeric comparison instead of a string one.
+**Why it works & further reading:**
+- `lots.map(...)` is the same array → elements + `key` pattern as rendering spaces in Step 4, just for lots.
+- `lotButtonStyle(selectedLotId === lot.id)` now feeds in a numeric comparison instead of the old string one, to highlight the active lot.
 
 ### Step 6 — Give the lot view the SAME pan + zoom as Home (folded refinement) (~10 min)
 
@@ -352,7 +398,7 @@ The campus "Home" view already pans and zooms; the selected-lot view was fixed-s
 
 - The map image + its spots live in one layer with `transform: translate(lotOffsetX, lotOffsetY) scale(lotZoom)` and `transform-origin: 0 0`; the container is `overflow:hidden` (no scrollbars). The toolbar (−/%/＋/Reset) sits **outside** the translated layer.
 - Drag to pan: `onMouseDown`/`onMouseMove` update `lotOffset` by the drag delta; a move greater than ~4px sets a `moved` flag so the mouse-up doesn't also count as a space click.
-- Wheel to zoom is **cursor-anchored** and registered `{ passive: false }`: read the current zoom/offset from a ref mirror and shift the offset by `cursor * (1 - ratio)` using the layer's `getBoundingClientRect()`, so the point under the cursor stays put.
+- Wheel to zoom is **cursor-anchored** and registered `{ passive: false }`: read the current zoom/offset from a ref mirror and shift the offset by `cursor * (1 - ratio)` using the layer's [`getBoundingClientRect()`](GLOSSARY.md#getboundingclientrect), so the point under the cursor stays put.
 - **Reset zoom inside the lot-nav click handler**, not in a `useEffect` — `react-hooks/set-state-in-effect` forbids setting state from an effect, and doing it on nav-click is where it belongs anyway.
 
 **Pin the sidebar against zoom.** Zooming a wide map used to steal width from the left menu. The flexbox fix: `flexShrink: 0` on the sidebar `aside` **and** `minWidth: 0` on the `main` column, so the growing map is clipped by `main` instead of squashing the sidebar.

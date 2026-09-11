@@ -29,6 +29,23 @@ Concretely, you will have:
 - [ ] A lot with **no** saved layout still renders via the flex-wrap grid of coloured boxes (no regression to Lots you haven't arranged yet).
 - [ ] Work committed on `cr/u8-arrange-spots` and pushed, PR base = `cr/u7-map-upload`.
 
+**🖼 What changes on screen (before → after):**
+```
+     BEFORE (frozen in code)                 AFTER ("Arrange Spots" edit mode)
+┌───────────────────────────┐      ┌────────────────────────────────┐
+│      [lot map photo]      │      │ [lot map photo]   Arrange spots│
+│   ▭   ▭   ▭    ▭          │  ─▶  │  ▭   ▭  ▧◀drag me  ➕ Add Spot  │
+│   ▭   ▭   ▭    ▭          │      │  ▭   ▭   ▭   drag map = pan,   │
+│                            │      │              wheel = zoom      │
+│ (a dev edits               │      │ Label [____]  Bigger  Smaller  │
+│  LOT_MAP_CONFIGS in code   │      │ ↺CCW  CW↻     Delete [Save Lay]│
+│  to move/resize a spot)    │      │                                │
+└───────────────────────────┘      └────────────────────────────────┘
+  positions are source code            admin drags/resizes/rotates/
+  — only a redeploy moves one            saves; it's server data now
+```
+Nothing about *viewing* a lot changes for a student — what's new is this admin-only edit mode where a spot's place on the map is something you author in the browser, not something a developer hard-codes.
+
 ---
 
 ## 🤔 Why this lesson matters
@@ -37,8 +54,10 @@ Up to now the app has been a **viewer**: it fetches data the server owns (lots, 
 
 Two ideas do the heavy lifting:
 
-1. **Normalized position *and size*.** We never store "spot is at pixel (417, 232), 26×12px" — that's meaningless the moment the image is scaled, zoomed, or shown on a different screen. We store four fractions: `x = 0.63, y = 0.41` means "63% across, 41% down the map image," and `w = 0.05, h = 0.03` means "5% of the map wide, 3% tall." To draw a spot we multiply by the image's *rendered* size; to save a drag we divide the drop point by that same size. The numbers are stable forever. **The payoff: you never persist the map's zoom level.** Because `x/y/w/h` are all fractions *of the map*, a spot lands in the right place and keeps its shape whether the map is shown at 40% or 300% — arrange-time zoom is purely a placement convenience, not something to save. (A first cut stored `x/y` as fractions but hard-coded the size at `26×12px`; the spots then refused to scale with the map — that's why size is normalized too.)
-2. **Author-then-persist.** Dragging updates local React state instantly (so it feels direct), but nothing is real until **Save Layout** sends the whole set to the server and we refetch the truth back — the exact optimistic pattern you built in [U4](U4-enable-disable-saves.md).
+1. **[Normalized position and size](GLOSSARY.md#normalized-coordinates).** We never store "spot is at pixel (417, 232), 26×12px" — that's meaningless the moment the image is scaled, zoomed, or shown on a different screen. We store four fractions: `x = 0.63, y = 0.41` means "63% across, 41% down the map image," and `w = 0.05, h = 0.03` means "5% of the map wide, 3% tall." To draw a spot we multiply by the image's *rendered* size; to save a drag we divide the drop point by that same size. The numbers are stable forever. **The payoff: you never persist the map's zoom level.** Because `x/y/w/h` are all fractions *of the map*, a spot lands in the right place and keeps its shape whether the map is shown at 40% or 300% — arrange-time zoom is purely a placement convenience, not something to save. (A first cut stored `x/y` as fractions but hard-coded the size at `26×12px`; the spots then refused to scale with the map — that's why size is normalized too.)
+2. **Author-then-persist.** Dragging updates local React [state](GLOSSARY.md#state) instantly (so it feels direct), but nothing is real until **Save Layout** sends the whole set to the server and we refetch the truth back — the exact optimistic pattern you built in [U4](U4-enable-disable-saves.md).
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -60,14 +79,14 @@ Two ideas do the heavy lifting:
 
 **Time budget for the hour+:** setup & branch (5 min) → Step 1, types + thunk (15) → Step 2, editable canvas + drag (25) → Step 3, add/rotate/delete + Save (20) → test & commit (15).
 
-You need **U7** merged (or on your machine) and backend **B8** running — the endpoint that persists a lot's layout. This CR **depends on** both.
+You need **U7** merged (or on your machine) and backend **B8** running — the [endpoint](GLOSSARY.md#endpoint) that persists a lot's layout. This CR **depends on** both.
 
 > **📸 What's already in the prototype:** `ControlBoard.tsx` draws spots two ways today — an **absolute-positioned overlay** when the server's spaces carry `x`/`y`, and otherwise a **flex-wrap grid of status-coloured boxes rendered below the map photo** (no hard-coded pixel tables — that fallback is the only one). **Keep that grid fallback.** This lesson makes the `x`/`y` overlay path *authorable*: the admin places and arranges spots, and Save Layout persists the coordinates so the overlay — not the grid — is what everyone sees. Nothing you built in U3–U7 is thrown away.
 
 **The backend contract this lesson calls (backend B8):**
 
-- `GET /api/lots/:id/spaces` now returns each space with optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees). Legacy spaces have them `null`. (These are stored and returned under the same `x`/`y`/`w`/`h`/`rotation` names — the mock backend keeps no separate column naming.)
-- `PUT /api/lots/:id/layout` — body `{ spaces: [{ id?: number, label: string, x: number, y: number, w: number, h: number, rotation?: number }] }`. The server **replaces** the lot's spot set in one transaction: entries with an `id` are updated, entries without one are created, and existing spaces missing from the list are deleted. It refuses to delete a space that is currently `assigned` (returns `409`), so you can't strand a student's spot. Returns the updated `Space[]`.
+- `GET /api/lots/:id/spaces` now returns each space with optional `x`, `y`, `w`, `h` (floats `0..1`) and `rotation` (degrees). Legacy spaces have them `null`. (These are stored and returned under the same `x`/`y`/`w`/`h`/`rotation` names — the [mock backend](GLOSSARY.md#mock-backend) keeps no separate column naming.)
+- [`PUT`](GLOSSARY.md#http-methods) `/api/lots/:id/layout` — body `{ spaces: [{ id?: number, label: string, x: number, y: number, w: number, h: number, rotation?: number }] }`. The server **replaces** the lot's spot set in one transaction: entries with an `id` are updated, entries without one are created, and existing spaces missing from the list are deleted. It refuses to delete a space that is currently `assigned` (returns `409`), so you can't strand a student's spot. Returns the updated `Space[]`.
 
 **Make your branch.** U8 continues from U7:
 
@@ -82,14 +101,14 @@ git checkout -b cr/u8-arrange-spots
 
 ### Step 1 — Add the `rotation` field + a save-layout thunk to `parkingSlice.ts` (~15 min)
 
-The `Space` type already carries `x`/`y`/`w`/`h` from [U3](U3-show-real-lots-and-spaces.md) (that's what draws a spot at its saved position). The only *new* field U8 needs is `rotation`; the full shape, for reference, is:
+The `Space` [interface](GLOSSARY.md#interface) already carries `x`/`y`/`w`/`h` from [U3](U3-show-real-lots-and-spaces.md) (that's what draws a spot at its saved position). The only *new* field U8 needs is `rotation`; the full shape, for reference, is:
 
 ```ts
 export interface Space {
-  id: number;
-  lot_id: number;
-  label: string;
-  status: "available" | "disabled" | "assigned";
+  id: number;                // unique space id
+  lot_id: number;            // which lot this space belongs to
+  label: string;              // display name, e.g. "A-12"
+  status: "available" | "disabled" | "assigned";   // current occupancy state
   assigned_user_id: number | null;      // who holds it (from U3)
   assigned_user_name: string | null;    // who holds it (from U3) — shown in the hover tooltip
   x: number | null;          // 0..1 across the map image (from U3; null = legacy, use grid fallback)
@@ -100,25 +119,27 @@ export interface Space {
 }
 ```
 
-Now add the thunk that saves a whole lot's layout. Put it next to `updateSpaces`:
+This is a reprint for reference — every field except `rotation` is unchanged from [U3](U3-show-real-lots-and-spaces.md); only `rotation` is new here.
+
+Now add the [thunk](GLOSSARY.md#thunk) that saves a whole lot's layout. Put it next to `updateSpaces`:
 
 ```ts
 // PUT /api/lots/:id/layout  body { spaces: [{id?, label, x, y, w, h, rotation?}] } -> Space[]
 export const saveLayout = createAsyncThunk(
   "parking/saveLayout",
   async (args: { lotId: number; spaces: Array<Pick<Space, "id" | "label" | "x" | "y" | "w" | "h" | "rotation">> }, { dispatch }) => {
-    await api.put(`/api/lots/${args.lotId}/layout`, { spaces: args.spaces });
+    await api.put(`/api/lots/${args.lotId}/layout`, { spaces: args.spaces });   // replace the whole layout in one call
     await dispatch(fetchSpaces(args.lotId));   // reload the server's truth
     return args.lotId;
   }
 );
 ```
 
-Handle its `rejected` case in `extraReducers` so a failed save surfaces (e.g. the 409 for an assigned spot):
+Handle its `rejected` case in [`extraReducers`](GLOSSARY.md#extrareducers) so a failed save surfaces (e.g. the 409 for an assigned spot):
 
 ```ts
 .addCase(saveLayout.rejected, (state, action) => {
-  state.error = action.error.message ?? "Could not save the layout";
+  state.error = action.error.message ?? "Could not save the layout";   // e.g. the 409 for deleting an assigned spot
 })
 ```
 
@@ -131,44 +152,57 @@ Handle its `rejected` case in `extraReducers` so a failed save surfaces (e.g. th
 **2a. Add the edit action.** In `parkingSlice.ts`, extend the `EditAction` union with `"arrange"`:
 
 ```ts
-type EditAction = "single" | "group" | "disable" | "enable" | "manual" | "update" | "arrange" | null;
+type EditAction = "single" | "group" | "disable" | "enable" | "manual" | "update" | "arrange" | null;   // "arrange" is the new value this lesson adds
 ```
+
+**Why it works & further reading:**
+- The rest of the app already switches on `editAction` to decide what the sidebar and canvas show, so adding one value here is enough to make every `editAction === 'arrange'` check later in this lesson type-check.
 
 Add an **Arrange Spots** button to the admin control panel in `ControlBoard.tsx`, next to the others:
 
 ```tsx
 <button
-  style={sideButtonStyle(editAction === 'arrange', !isControlPanelActive)}
-  onClick={() => dispatch(setEditAction('arrange'))}
+  style={sideButtonStyle(editAction === 'arrange', !isControlPanelActive)}   // highlight when active, dim when the panel itself is off
+  onClick={() => dispatch(setEditAction('arrange'))}                          // flips editAction to "arrange"
   disabled={!isControlPanelActive}
 >
   Arrange Spots
 </button>
 ```
 
-**2b. Hold the working layout — and the map's pan/zoom — in local state.** While arranging, edits live in component state; only **Save Layout** commits them. Near the top of `ControlBoard`:
+**Why it works & further reading:**
+- Reuses the same `sideButtonStyle`/`disabled` pattern as every other edit-mode button, so **Arrange Spots** behaves consistently with **Enable**/**Disable**/etc.
+- Clicking the button [dispatches](GLOSSARY.md#dispatch) the Redux [action](GLOSSARY.md#action) that flips `editAction` to `"arrange"`, which is what the [`useEffect`](GLOSSARY.md#useeffect) in the next step watches for.
+
+**2b. Hold the working layout — and the map's pan/zoom — in local state.** While arranging, edits live in [component](GLOSSARY.md#component) state; only **Save Layout** commits them. Near the top of `ControlBoard`:
 
 ```tsx
 const DEFAULT_SPOT_W = 0.05, DEFAULT_SPOT_H = 0.03;   // a new spot's size, as fractions of the map
 
-const [draft, setDraft] = useState<Space[] | null>(null);   // the layout being edited
-const [pickedId, setPickedId] = useState<number | null>(null);
+const [draft, setDraft] = useState<Space[] | null>(null);   // the layout being edited; null = not arranging
+const [pickedId, setPickedId] = useState<number | null>(null);   // which spot is selected in the toolbar
 const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);  // hover tooltip
 
 const mapBoxRef = useRef<HTMLDivElement>(null);   // the translate layer we measure
 const draggingRef = useRef<number | null>(null);  // id of the spot being dragged (null = pan the map)
-const panRef = useRef({ startX: 0, startY: 0, ox: 0, oy: 0, moved: false });
+const panRef = useRef({ startX: 0, startY: 0, ox: 0, oy: 0, moved: false });   // pan start point + the offset it started from
 
-const selectedLot = lots.find((l) => l.id === selectedLotId);
+const selectedLot = lots.find((l) => l.id === selectedLotId);   // full lot object, e.g. for its map image
 const isSpaceAssigned = (id: number) =>
+  // checks the SERVER's saved state, not the in-progress draft, so Delete can be gated mid-edit
   (spacesByLot[selectedLotId ?? -1]?.find((x) => x.id === id)?.status) === 'assigned';
 
 // When Arrange turns on for a lot, seed the draft from the server's spaces.
 useEffect(() => {
   if (editAction === 'arrange' && selectedLotId != null) setDraft(spacesByLot[selectedLotId] ?? []);
-  else { setDraft(null); setPickedId(null); }
+  else { setDraft(null); setPickedId(null); }   // leaving arrange mode clears any edit-in-progress
 }, [editAction, selectedLotId, spacesByLot]);
 ```
+
+**Why it works & further reading:**
+- **[useState](GLOSSARY.md#usestate) vs. [useRef](GLOSSARY.md#useref)** — `draft`/`pickedId`/`tip` need to redraw the screen when they change, so they're state; `mapBoxRef`/`draggingRef`/`panRef` are read and written on every pointer move and must **not** trigger a re-render each time, so they're refs. → [React: useRef](https://react.dev/reference/react/useRef).
+- **The `draggingRef.current === null` convention** — the container's pointer handlers (Step 2d) use this one ref to decide "move a spot" vs. "pan the map," instead of duplicating that logic in state.
+- **The seeding `useEffect`** copies the lot's server spaces into `draft` when Arrange turns on, and clears `draft`/`pickedId` when it turns off — so a stale edit-in-progress can't leak into the next session.
 
 > **Pan (`lotOffset`) and wheel-zoom (`lotZoom`) are the *same* state and handlers you built for the campus map in [U3](U3-show-real-lots-and-spaces.md)** — reuse them for the lot view; don't invent a new mechanism. Reset them to zero **in the lot-nav click handler** when you switch lots, *not* in a `useEffect` (eslint's `react-hooks/set-state-in-effect` forbids setting state from an effect).
 
@@ -176,24 +210,28 @@ useEffect(() => {
 
 ```tsx
 const toNorm = (clientX: number, clientY: number) => {
-  const rect = mapBoxRef.current!.getBoundingClientRect();
-  const x = (clientX - rect.left) / rect.width;
-  const y = (clientY - rect.top) / rect.height;
+  const rect = mapBoxRef.current!.getBoundingClientRect();   // the map layer's live on-screen box (pan/zoom already baked in)
+  const x = (clientX - rect.left) / rect.width;    // pixel offset from the box's left edge, as a 0..1 fraction of its width
+  const y = (clientY - rect.top) / rect.height;     // same idea, top edge / height
   return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };  // clamp inside the map
 };
 ```
+
+**Why it works & further reading:**
+- **[`getBoundingClientRect()`](GLOSSARY.md#getboundingclientrect)** reads the map layer's *current* on-screen size and position, so whatever pan/zoom is active is automatically baked into the fraction — no separate math needed for that. The `!` tells TypeScript "trust me, this ref is attached by the time this runs." → [MDN: getBoundingClientRect](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect).
+- **Clamping to `0..1`** means a fast drag off the map still lands the spot at the nearest edge instead of storing a nonsensical coordinate.
 
 **2d. Render the editable layout.** First, one helper adds a spot — used by the **➕ Add Spot** button *only* (dropping it at the map's center), never by clicking the map:
 
 ```tsx
 const addSpotToDraft = (x: number, y: number) => {
-  if (!draft || selectedLotId == null) return;
+  if (!draft || selectedLotId == null) return;    // bail out if arrange mode isn't active
   const tempId = -Date.now();                     // negative = "new, no server id yet"
   const n = draft.length + 1;
   const label = selectedLot?.number != null ? `${selectedLot.number}-${n}` : `S${n}`;  // lot-number prefix (U9)
   setDraft([...draft, { id: tempId, lot_id: selectedLotId, label, status: 'available',
-    x, y, w: DEFAULT_SPOT_W, h: DEFAULT_SPOT_H, rotation: 0 }]);
-  setPickedId(tempId);
+    x, y, w: DEFAULT_SPOT_W, h: DEFAULT_SPOT_H, rotation: 0 }]);   // append the new spot at the given point
+  setPickedId(tempId);   // select it immediately so its toolbar shows up
 };
 ```
 
@@ -204,13 +242,14 @@ const renderArrangeCanvas = () => {
   if (!draft || selectedLotId == null) return null;
   return (
     <div
+      // overflow:hidden + this fixed box is the pan/zoom viewport — never a scroll container
       style={{ overflow: 'hidden', position: 'relative', width: '100%', maxWidth: '640px', aspectRatio: '4 / 3', background: '#c9c9c9' }}
       onPointerDown={(e) => {
         if (draggingRef.current != null) return;          // a spot grabbed the pointer first
-        panRef.current = { startX: e.clientX, startY: e.clientY, ox: lotOffset.x, oy: lotOffset.y, moved: false };
+        panRef.current = { startX: e.clientX, startY: e.clientY, ox: lotOffset.x, oy: lotOffset.y, moved: false };   // remember where this gesture started
       }}
       onPointerMove={(e) => {
-        if (draggingRef.current != null) {                // dragging a spot
+        if (draggingRef.current != null) {                // dragging a spot: move just that one
           const { x, y } = toNorm(e.clientX, e.clientY);
           const id = draggingRef.current;
           setDraft((d) => d!.map((o) => (o.id === id ? { ...o, x, y } : o)));
@@ -219,22 +258,26 @@ const renderArrangeCanvas = () => {
         if (e.buttons === 0) return;                      // panning the empty map
         const dx = e.clientX - panRef.current.startX, dy = e.clientY - panRef.current.startY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) panRef.current.moved = true;
-        setLotOffset({ x: panRef.current.ox + dx, y: panRef.current.oy + dy });
+        setLotOffset({ x: panRef.current.ox + dx, y: panRef.current.oy + dy });   // move the whole map instead
       }}
-      onPointerUp={() => { draggingRef.current = null; }}
+      onPointerUp={() => { draggingRef.current = null; }}   // release: nothing is being dragged anymore
     >
       <div ref={mapBoxRef} style={{ position: 'absolute', inset: 0,
         transform: `translate(${lotOffset.x}px, ${lotOffset.y}px) scale(${lotZoom})`, transformOrigin: '0 0' }}>
+        {/* the layer toNorm() measures — pan/zoom live entirely in this one transform */}
         {selectedLot?.map_image_url &&
           <img src={selectedLot.map_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />}
+        {/* pointerEvents:none so the map photo never steals the drag from a spot underneath */}
         {draft.map((s) => (
           <div key={s.id}
             onPointerDown={(e) => { e.stopPropagation(); draggingRef.current = s.id; setPickedId(s.id); }}
+            // grabs the pointer for THIS spot; stopPropagation so the container doesn't also start a pan
             {...draftHoverProps(s)}
             style={{
               position: 'absolute',
               left: `${(s.x ?? 0.5) * 100}%`, top: `${(s.y ?? 0.5) * 100}%`,
               width: `${(s.w ?? DEFAULT_SPOT_W) * 100}%`, height: `${(s.h ?? DEFAULT_SPOT_H) * 100}%`,
+              // translate(-50%,-50%) re-centers the box on its stored x/y fraction before rotating it
               transform: `translate(-50%, -50%) rotate(${s.rotation ?? 0}deg)`,
               background: isSpaceAssigned(s.id) ? 'rgba(122,167,255,.85)' : 'rgba(255,235,59,.8)',
               border: pickedId === s.id ? '2px solid #c8a000' : '1px solid #1a3d7a',
@@ -247,11 +290,10 @@ const renderArrangeCanvas = () => {
 };
 ```
 
-**Explanation of the tricky bits:**
-- **Capture on the container, not the spot.** The spot's `onPointerDown` only records `draggingRef.current = s.id` and stops propagation; the *container's* `onPointerMove` then moves that spot. An earlier version called `setPointerCapture` on the 26px spot itself — a fast drag that left the box dropped the spot ("not moveable"). Tracking a `draggingRef` on the big container fixes it. → [MDN: Pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events).
-- **Dragging empty map = pan.** When no spot grabbed the pointer, the same handlers pan the whole `translate` layer; a move past ~4px sets `panRef.moved` so the release isn't mistaken for a spot click. The layer is one `translate(...) scale(...)` box (`transform-origin:0 0`) inside an `overflow:hidden` container — never a scroll container (see 🧯).
-- **Size is normalized too.** `width/height` are **percentages** (`s.w * 100%`, `s.h * 100%`) of the map box, and `left/top` + `translate(-50%,-50%)` center the box on its stored fraction — so both position *and shape* are identical at any image size.
-- **Colors match the lot-view legend:** assigned = blue, available/new = yellow (`isSpaceAssigned`).
+**Why it works & further reading:**
+- **Capture on the container, not the spot.** The spot's `onPointerDown` only records `draggingRef.current = s.id` and stops propagation; the *container's* `onPointerMove` then moves that spot. An earlier version called `setPointerCapture` on the 26px spot itself — a fast drag that left the box dropped the spot ("not moveable"). → [MDN: Pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events).
+- **`draggingRef.current == null` is what decides pan vs. drag** — a move past ~4px sets `panRef.moved` so the release isn't mistaken for a spot click.
+- **Size is normalized too**, so both position *and shape* are identical at any image size — not just position.
 - The negative `id` (`-Date.now()`) marks a spot the server hasn't seen yet — Step 3's Save omits those `id`s so the backend creates them.
 
 **2e. Show this canvas when arranging.** In the main canvas body, before the existing map/grid branches, add:
@@ -269,9 +311,10 @@ First, a few small helpers that edit the **picked** spot. Put them near `addSpot
 ```tsx
 const [angle, setAngle] = useState(15);   // degrees per rotate click
 
-const patchPicked = (patch: Partial<Space>) => setDraft((d) => d!.map((o) => (o.id === pickedId ? { ...o, ...patch } : o)));
+const patchPicked = (patch: Partial<Space>) => setDraft((d) => d!.map((o) => (o.id === pickedId ? { ...o, ...patch } : o)));   // merge a patch into just the picked spot
 const clampSize = (v: number) => Math.min(0.6, Math.max(0.01, v));   // keep a spot a sane fraction of the map
 const rotatePicked = (dir: 1 | -1) =>
+  // add ±angle degrees, then wrap into 0..359 (the extra +360 handles JS's negative %)
   setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, rotation: ((((o.rotation ?? 0) + dir * angle) % 360) + 360) % 360 } : o));
 
 // hover tooltip: existing spot -> status/assignee; unsaved spot -> its size as a % of the map
@@ -280,18 +323,28 @@ const draftSummary = (s: Space) =>
     ? `Spot ${s.label} — ${isSpaceAssigned(s.id) ? `Assigned to ${s.assigned_user_name ?? 'a student'}` : s.status === 'disabled' ? 'Disabled' : 'Available'}`
     : `Spot ${s.label} — new · ${Math.round((s.w ?? 0) * 100)}%×${Math.round((s.h ?? 0) * 100)}% of map`;
 const draftHoverProps = (s: Space) => ({
+  // spreadable handlers that drive the floating tooltip's position + text
   onMouseEnter: (e: React.MouseEvent) => setTip({ x: e.clientX, y: e.clientY, text: draftSummary(s) }),
   onMouseMove:  (e: React.MouseEvent) => setTip({ x: e.clientX, y: e.clientY, text: draftSummary(s) }),
   onMouseLeave: () => setTip(null),
 });
 ```
 
+**Why it works & further reading:**
+- **`patchPicked`** is the shared updater for the toolbar's simple fields (like Label): it finds the picked spot by `pickedId` and merges a patch in, leaving every other spot untouched.
+- **Wrapping rotation into `0..359`** matters because JavaScript's `%` can return a *negative* remainder for a subtraction — without the extra `+ 360`, CCW rotation would drift into negative degrees instead of wrapping around.
+- **`draftSummary` branches on `s.id > 0`** because a brand-new, unsaved spot (negative temp id) has no server status yet, so it shows its size instead.
+
 Resize needs the spot's *current* `w`/`h` to compute the next one, so write `scale` (uniform) and `adjust` (per-axis) as their own `setDraft` maps rather than routing through `patchPicked`:
 
 ```tsx
-const scale  = (f: number)              => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) * f), h: clampSize((o.h ?? DEFAULT_SPOT_H) * f) } : o));
-const adjust = (dw: number, dh: number) => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) + dw), h: clampSize((o.h ?? DEFAULT_SPOT_H) + dh) } : o));
+const scale  = (f: number)              => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) * f), h: clampSize((o.h ?? DEFAULT_SPOT_H) * f) } : o));   // uniform: grow/shrink both dimensions by the same factor
+const adjust = (dw: number, dh: number) => setDraft((d) => d!.map((o) => o.id === pickedId ? { ...o, w: clampSize((o.w ?? DEFAULT_SPOT_W) + dw), h: clampSize((o.h ?? DEFAULT_SPOT_H) + dh) } : o));   // per-axis: nudge one dimension (the other delta is usually 0)
 ```
+
+**Why it works & further reading:**
+- Both read the spot's *current* `o.w`/`o.h` inside the `setDraft` updater function, not from a variable captured earlier — that's why each button click computes from the latest size instead of a stale one.
+- Splitting **uniform** (`scale`) from **per-axis** (`adjust`) keeps proportional resizing (Bigger/Smaller) separate from stretching (Wider/Narrower/Taller/Shorter), without duplicating the clamp logic.
 
 Now the toolbar (shown only while arranging). Put it in the sidebar under the control panel:
 
@@ -300,26 +353,30 @@ Now the toolbar (shown only while arranging). Put it in the sidebar under the co
   <div style={{ background: '#fff', color: '#000', borderRadius: '10px', padding: '8px', fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
     <b>Arrange spots</b>
     <div>Press <b>➕ Add Spot</b> · drag a spot to move it · drag the empty map to pan · wheel to zoom.</div>
+    {/* the only way to add a spot — always drops it at the map's center */}
     <button onClick={() => addSpotToDraft(0.5, 0.5)}>➕ Add Spot</button>
 
     {pickedId != null && (() => {
-      const picked = draft!.find((o) => o.id === pickedId)!;
-      const lockedDelete = isSpaceAssigned(picked.id);
+      const picked = draft!.find((o) => o.id === pickedId)!;   // the full picked spot
+      const lockedDelete = isSpaceAssigned(picked.id);          // true if it's assigned server-side
       return (
         <>
           <label>Label
             <input value={picked.label} onChange={(e) => patchPicked({ label: e.target.value })} style={{ width: '100%', marginTop: '2px' }} />
           </label>
+          {/* uniform resize via scale() */}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button onClick={() => scale(1.15)}>Bigger</button>
             <button onClick={() => scale(0.87)}>Smaller</button>
           </div>
+          {/* per-axis resize via adjust() */}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button onClick={() => adjust(0.006, 0)}>Wider</button>
             <button onClick={() => adjust(-0.006, 0)}>Narrower</button>
             <button onClick={() => adjust(0, 0.006)}>Taller</button>
             <button onClick={() => adjust(0, -0.006)}>Shorter</button>
           </div>
+          {/* rotate by the adjustable angle (default 15deg) */}
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button onClick={() => rotatePicked(-1)}>↺ CCW</button>
             <button onClick={() => rotatePicked(1)}>CW ↻</button>
@@ -346,8 +403,8 @@ Now the toolbar (shown only while arranging). Put it in the sidebar under the co
           w: s.w ?? DEFAULT_SPOT_W, h: s.h ?? DEFAULT_SPOT_H,
           rotation: s.rotation ?? 0,
         }));
-        dispatch(saveLayout({ lotId: selectedLotId, spaces }));
-        dispatch(setEditAction(null));
+        dispatch(saveLayout({ lotId: selectedLotId, spaces }));   // PUT the whole layout (thunk refetches after)
+        dispatch(setEditAction(null));                            // close arrange mode
       }}
     >Save Layout</button>
   </div>
@@ -356,28 +413,32 @@ Now the toolbar (shown only while arranging). Put it in the sidebar under the co
 
 Add `saveLayout` to the `./store/parkingSlice` import list.
 
-**Explanation of the new controls:**
-- **➕ Add Spot is the *only* way to add** — it drops a spot at the map's center (`0.5, 0.5`) via `addSpotToDraft`. There is deliberately **no click-on-map handler** (see 🧯): once the map is draggable, stray clicks would litter it with spots.
-- **Resize because the drawn box rarely matches the painted space.** Uniform **Bigger/Smaller** (`×1.15`/`×0.87`) plus per-axis **Wider/Narrower/Taller/Shorter** (`±0.006`), all clamped to `0.01..0.6`. Since `w/h` are fractions, the fit holds at any display size — you never rescale the whole map to fit a fixed spot.
-- **Rotate both ways by an adjustable angle.** `↺ CCW` / `CW ↻` apply `±angle`, normalized to `0..359` so CCW never goes negative; the **Angle** field sets the degrees per click (default 15).
-- **Delete is gated.** If the picked spot is a saved space that's currently `assigned`, Delete is disabled with a note — the server would reject removing it (`409`) anyway.
+**Why it works & further reading:**
+- **➕ Add Spot is the *only* way to add.** There is deliberately **no click-on-map handler** (see 🧯): once the map is draggable, stray clicks would litter it with spots.
+- **Resize splits uniform from per-axis** so proportional resizing (Bigger/Smaller) and stretching (Wider/Narrower/Taller/Shorter) don't fight each other, both clamped to `0.01..0.6`.
+- **Delete is gated** — the server would reject removing an `assigned` spot (`409`) anyway, so the button is disabled with a note before that round-trip happens.
 
 Finally, render the floating hover tooltip once, near the end of the component's returned JSX (outside the `translate` layer so it isn't clipped or panned):
 
 ```tsx
-{tip && (
+{tip && (   // nothing renders while no spot is hovered
   <div style={{ position: 'fixed', left: tip.x + 14, top: tip.y + 14, zIndex: 200,
+    // fixed positioning ignores the map's translate/scale layer entirely; +14px offsets it past the cursor
     background: '#111', color: '#fff', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', pointerEvents: 'none' }}>
     {tip.text}
   </div>
 )}
 ```
 
+**Why it works & further reading:**
+- **`position: 'fixed'`** is relative to the browser window, not any scrolled/panned/zoomed ancestor — so the tooltip is unaffected by the map's own `translate`/`scale` transform.
+- **`pointerEvents: 'none'`** keeps the tooltip from intercepting mouse events itself, so hovering it can't steal a drag from the spot underneath.
+
 **Finally — draw saved layouts outside edit mode too.** So an admin (and, later, everyone) *sees* the arranged spots normally, update `renderParkingLot` to prefer a saved layout. Near its top:
 
 ```tsx
 const spaces = selectedLotId != null ? (spacesByLot[selectedLotId] ?? []) : [];
-const hasSavedLayout = spaces.some((s) => s.x != null && s.y != null);
+const hasSavedLayout = spaces.some((s) => s.x != null && s.y != null);   // true once ANY space has real x/y, not the legacy null default
 if (hasSavedLayout) {
   // Read-only version of the arrange canvas: same absolute placement, no drag handlers.
   return (
@@ -399,6 +460,11 @@ if (hasSavedLayout) {
 }
 // ...otherwise fall through to the existing flex-wrap grid of coloured boxes below the map photo (unchanged).
 ```
+
+**Why it works & further reading:**
+- **One arranged spot is enough** to switch the whole lot onto this path — `hasSavedLayout` only needs to find a single space with real `x`/`y`, so partially-arranged lots still render correctly.
+- **Same percentage placement as the arrange canvas** (Step 2c/2d) — a stored fraction becomes a CSS percentage the browser recalculates on every resize, with no JavaScript needed to keep it in sync. → [MDN: transform](https://developer.mozilla.org/en-US/docs/Web/CSS/transform).
+- **`{...hoverProps(s)}` reuses U3's tooltip handlers as-is** — a saved-layout spot gets the same floating tooltip as every other spot in the app, with no new code.
 
 **UI mock (after this phase).** Admin in **Arrange Spots**: one spot picked (gold outline), the full toolbar on the left, empty-map drag pans.
 ```
