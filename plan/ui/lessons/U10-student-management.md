@@ -15,7 +15,7 @@ By the end of this hour an **admin** can:
 
 - See a searchable **student table** (name, student ID, grade, email, parking status, assigned slot).
 - **Add / edit / delete** a student row.
-- **Import a CSV** (a spreadsheet export) that *upserts* the roster — new rows added, existing ones updated — keyed by the **student ID**.
+- **Import a [CSV](GLOSSARY.md#csv)** (a spreadsheet export) that *upserts* the roster — new rows added, existing ones updated — keyed by the **student ID**.
 - **Download a CSV** in the same columns, so it round-trips: export → edit in a spreadsheet → re-import.
 - **Assign or move** a student straight to a lot spot — including a student who has no login account and never filed a request.
 
@@ -28,6 +28,22 @@ By the end of this hour an **admin** can:
 - [ ] **Assign / Move** places a student into a chosen lot's available spot; the button reads **Assign** when they hold no slot and **Move** when they already hold one; assigning frees any spot they previously held.
 - [ ] The roster's **parking status** and **assigned slot** update when you assign/unassign (from here or from U6).
 - [ ] Work committed on `cr/u10-student-management` and pushed, PR base = `cr/u9-add-lot`.
+
+**🖼 What changes on screen (before → after):**
+```
+      BEFORE (no roster)                       AFTER (Student Management)
+┌───────────────────────────┐      ┌─────────────────────────────────────┐
+│      Admin Dashboard      │      │  👥 Students     [Import] [Export]  │
+│                           │      │  Search: [ STU___________ ]         │
+│  (no student list — a    │  ─▶  │  Name       ID     Grade  Status  •  │
+│   "student" only exists   │      │  Doe, Jane  STU001  10   valid  Move│
+│   as seeded login data)   │      │  Roe, Sam   STU014   9   unassn Asgn│
+│                           │      │       [ + Add Student ]             │
+└───────────────────────────┘      └─────────────────────────────────────┘
+  no admin view of students           a searchable table with Add/Edit/
+  at all — only seed data              Delete, CSV Import/Export, and a
+                                        per-row Assign/Move action
+```
 
 ---
 
@@ -52,13 +68,15 @@ It also closes a gap U6 left: U6 assigns a spot to a student who **filed a reque
 | **Client-side file download** | Building a file in the browser (a `Blob` + object URL) and clicking it to save — no server round-trip. | [MDN: Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob) |
 | **Debounced / live search** | Filtering the list as the admin types (the query is sent to `GET /api/students?q=`). | [MDN: input event](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/input_event) |
 
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
+
 ---
 
 ## ✅ Before you start
 
 **Time budget for the hour:** setup & branch (5 min) → Step 1, `studentsSlice` (12) → Step 2, the table + search (15) → Step 3, add/edit/delete (12) → Step 4, CSV import + download (16) → Step 5, Assign/Move (10) → test & commit (5).
 
-**The backend contract this lesson calls (student-roster endpoints).** The roster is a **new `students` entity**, keyed by `student_id` (a string like `STU001`), *separate* from the login user. Columns: `first, last, student_id (unique), email, grade (9–12), assigned_slot (display text like "Lot 7 · 7-3", or null), parking_status`. `parking_status ∈ {unassigned, valid, expired, suspended}` — whether the student holds/paid for a slot (`valid` = assigned, `suspended` = suspended, `unassigned` = none/unassigned-by-admin, `expired` = lapsed).
+**The backend contract this lesson calls (student-roster [endpoints](GLOSSARY.md#endpoint)).** The roster is a **new `students` entity**, keyed by `student_id` (a string like `STU001`), *separate* from the login user. Columns: `first, last, student_id (unique), email, grade (9–12), assigned_slot (display text like "Lot 7 · 7-3", or null), parking_status`. `parking_status ∈ {unassigned, valid, expired, suspended}` — whether the student holds/paid for a slot (`valid` = assigned, `suspended` = suspended, `unassigned` = none/unassigned-by-admin, `expired` = lapsed).
 
 - `GET /api/students?q=` — admin. Search by **name OR student ID substring** (case-insensitive), sorted last-then-first.
 - `POST /api/students` — admin. `{ first, last, student_id, email?, grade? }`; `first/last/student_id` required; **`409` on duplicate `student_id`**; defaults `assigned_slot=null, parking_status=unassigned`; `201`.
@@ -85,10 +103,12 @@ git checkout -b cr/u10-student-management
 A new slice, registered in the store next to `parkingSlice`. It holds the list, the search query, and thunks for each endpoint. The shape mirrors the slices you've built since U3 — `status`, `error`, and `createAsyncThunk`s that refetch after a mutation.
 
 ```ts
+// One roster row exactly as the backend returns it: `id` is the DB's own auto-increment
+// (surrogate) key; `student_id` is the school's business key — what imports/logins match on.
 export interface Student {
   id: number; first: string; last: string; student_id: string;
-  email: string; grade: string; assigned_slot: string | null;
-  parking_status: "unassigned" | "valid" | "expired" | "suspended";
+  email: string; grade: string; assigned_slot: string | null;   // display text, or null while unassigned
+  parking_status: "unassigned" | "valid" | "expired" | "suspended"; // union of literals — a typo is a compile error
 }
 
 // The editable fields the admin can send when creating or updating a student
@@ -98,12 +118,12 @@ export interface StudentDraft {
   email: string; grade: string; parking_status?: Student["parking_status"];
 }
 
-export interface ImportSummary { added: number; updated: number; errors: string[]; }
+export interface ImportSummary { added: number; updated: number; errors: string[]; } // per-row errors, never all-or-nothing
 
 interface StudentsState {
-  list: Student[]; query: string;
+  list: Student[]; query: string;                                  // query = the live search box text
   status: "idle" | "loading" | "error"; error: string | null;
-  lastImport: ImportSummary | null;
+  lastImport: ImportSummary | null;                                 // most recent CSV import result, or null
 }
 
 export const fetchStudents = createAsyncThunk(
@@ -115,6 +135,7 @@ export const createStudent = createAsyncThunk(
   "students/create",
   async (draft: StudentDraft, { getState, dispatch }) => {
     await api.post("/api/students", draft);
+    // refetch-after-mutation, using the ACTIVE search query so a filtered view isn't reset
     const query = (getState() as { students: StudentsState }).students.query;
     await dispatch(fetchStudents(query));
   }
@@ -138,11 +159,11 @@ export const deleteStudent = createAsyncThunk(
   }
 );
 
-// Place a roster student directly into a spot (Assign or Move).
+// Place a roster student directly into a spot (Assign or Move) — no request or login needed.
 export const assignStudent = createAsyncThunk(
   "students/assign",
   async (args: { id: number; spaceId: number }, { getState, dispatch }) => {
-    await api.post(`/api/students/${args.id}/assign`, { spaceId: args.spaceId });
+    await api.post(`/api/students/${args.id}/assign`, { spaceId: args.spaceId }); // server frees any old spot first
     const query = (getState() as { students: StudentsState }).students.query;
     await dispatch(fetchStudents(query));
   }
@@ -152,25 +173,22 @@ export const assignStudent = createAsyncThunk(
 export const importStudents = createAsyncThunk(
   "students/import",
   async (file: File, { getState, dispatch }) => {
-    const summary = (await uploadFile("/api/students/import", file)) as ImportSummary;
+    const summary = (await uploadFile("/api/students/import", file)) as ImportSummary; // { added, updated, errors }
     const query = (getState() as { students: StudentsState }).students.query;
     await dispatch(fetchStudents(query));
-    return summary;
+    return summary;                                                                    // becomes state.lastImport
   }
 );
 ```
 
-**Explanation:**
-- `export interface Student { ... }` — the shape of one roster row exactly as the backend returns it. `id: number` is the database's own auto-increment key (the **surrogate key** used by `PATCH`/`DELETE /api/students/:id`); `student_id: string` is the separate **business key** the school assigns (`STU001`) — the "Business key vs surrogate key" idea from the concepts table above. `first`/`last`/`email`/`grade` are plain strings; `assigned_slot: string | null` is display text like `"Lot 7 · 7-3"`, or `null` while the student holds no spot. `parking_status` is a **union of string literals** (only `"unassigned" | "valid" | "expired" | "suspended"` are legal values) — the same pattern `Space["status"]` used back in U3, so a typo like `"vald"` is a compile error, not a bug you find in production. → [TS Handbook: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
-- `export interface StudentDraft { ... }` — just the *editable* fields the Add/Edit form (Step 3) can send: `first`, `last`, `student_id`, `email`, `grade`, plus an optional `parking_status`. It leaves out `id` and `assigned_slot` on purpose — those are server-owned facts nobody types directly; a slot is set by `assignStudent` (Step 5), never by this form.
-- `export interface ImportSummary { added: number; updated: number; errors: string[]; }` — what `POST /api/students/import` hands back after a CSV upload: how many rows were brand-new (`added`), how many matched an existing `student_id` and got overwritten (`updated`), and one message per problem row (`errors`) — so a single bad row shows up as one string in that list instead of failing the whole import.
-- `interface StudentsState { ... }` — the whole slice's state shape: `list` (the students currently on screen), `query` (the live search text, written by a `setQuery` reducer you'll add), `status`/`error` (the same loading-state fields U1/U3 used for their slices), and `lastImport` (the most recent `ImportSummary`, or `null` until an import has run) — Step 4 reads `lastImport` to show the import banner.
-- Every mutating thunk (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) ends with `dispatch(fetchStudents(getState().students.query))` — the same **refetch-after-mutation** habit from U4/U6/U9, but reading the *active search query* out of state first, so a mutation made while the admin has typed a filter doesn't silently clear it.
-- `fetchStudents(q)` passes the search box straight to the server (`?q=`), so the *server* does the filtering — the client never holds a "full list" it has to filter itself. Simpler and it scales.
-- `assignStudent` is the cross-entity piece: it doesn't create an *interest request*, it places the student directly (the server handles the "free their old spot first" move semantics).
-- `importStudents` is the CSV piece: it doesn't call `api.post` with a hand-built `FormData` — it uses the same `uploadFile()` multipart helper the `api` client exposes for file bodies (see Step 4).
-
-Handle the states in `extraReducers` the usual way (`pending` → loading + clear error; `fetchStudents.fulfilled` → store `action.payload` as `list`; `rejected` → `state.error = action.error.message`). The slice's state also carries `query` (the active search term, written by a `setQuery` reducer) and `lastImport` (the most recent `ImportSummary`, written by `importStudents.fulfilled` and cleared by a `clearImportSummary` reducer); a `clearStudentsError` reducer resets `error`. Register the slice in `store.ts`.
+**Why it works & further reading:**
+- **[Interface](GLOSSARY.md#interface) `Student`** vs **`StudentDraft`** — `Student` is the full row the server returns; `StudentDraft` is only what a human types (no `id`, no `assigned_slot` — those are server-owned). → [TS Handbook: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
+- **Business key vs surrogate key** — `student_id` is what a CSV import and the login link match on; `id` is only for `PATCH`/`DELETE`. → [Wikipedia: Natural key](https://en.wikipedia.org/wiki/Natural_key).
+- **Refetch-after-mutation** — every mutating [thunk](GLOSSARY.md#thunk) ends by re-[dispatch](GLOSSARY.md#dispatch)ing `fetchStudents`, the same habit from U4/U6/U9, but reading the *active* `query` out of [state](GLOSSARY.md#state) first so a mutation made mid-search doesn't clear the filter.
+- **Search happens on the server** (`?q=`) — the client never holds a "full list" it has to filter itself; simpler, and it scales.
+- **`assignStudent`** is the cross-entity piece: it doesn't create an interest request, it places the student directly — the server handles the "free the old spot first" move semantics.
+- **`importStudents`** posts through the `uploadFile()` multipart helper, not `api.post`, because a file isn't JSON (see Step 4).
+- **[`extraReducers`](GLOSSARY.md#extrareducers)** wires each thunk's pending/fulfilled/rejected the same way as U1/U3's [slices](GLOSSARY.md#slice): `pending` → loading + clear error, `fulfilled` → store the payload, `rejected` → `state.error = action.error.message`. `query`, `lastImport`, and `error` are each cleared/set by their own plain (non-thunk) [reducer](GLOSSARY.md#reducer) (`setQuery`, `clearImportSummary`, `clearStudentsError`). Register the slice in the [store](GLOSSARY.md#store)'s `store.ts`.
 
 ### Step 2 — The Students view: table + live search (~15 min)
 
@@ -179,9 +197,9 @@ Create `src/StudentManagement.tsx` — an admin-only pane. It isn't a separate r
 ```tsx
 export function StudentManagement({ onClose }: { onClose: () => void }) {
   const dispatch = useAppDispatch();
-  const { list, query } = useAppSelector((s) => s.students);
+  const { list, query } = useAppSelector((s) => s.students);   // selector: roster + current search term, both from the store
 
-  useEffect(() => { dispatch(fetchStudents("")); }, [dispatch]);   // initial load
+  useEffect(() => { dispatch(fetchStudents("")); }, [dispatch]);   // initial load: full roster on open
 
   // Search updates the *store's* query, then fetches with it — see the note below.
   const onSearch = (term: string) => { dispatch(setQuery(term)); dispatch(fetchStudents(term)); };
@@ -194,10 +212,10 @@ export function StudentManagement({ onClose }: { onClose: () => void }) {
       <table>
         <thead><tr><th>Name</th><th>Student ID</th><th>Grade</th><th>Email</th><th>Status</th><th>Slot</th><th></th></tr></thead>
         <tbody>
-          {list.map((s) => (
-            <tr key={s.id}>
+          {list.map((s) => (                                    // one <tr> per student the server returned
+            <tr key={s.id}>                                      {/* stable key — never the array index */}
               <td>{s.last}, {s.first}</td><td>{s.student_id}</td><td>{s.grade}</td>
-              <td>{s.email}</td><td>{s.parking_status}</td><td>{s.assigned_slot ?? "—"}</td>
+              <td>{s.email}</td><td>{s.parking_status}</td><td>{s.assigned_slot ?? "—"}</td>  {/* — = no slot yet */}
               <td>{/* edit · delete · assign — Steps 3 & 5 */}</td>
             </tr>
           ))}
@@ -208,19 +226,18 @@ export function StudentManagement({ onClose }: { onClose: () => void }) {
 }
 ```
 
-**Explanation:**
-- **Why the search term lives in the store, not `useState`.** Every mutating thunk (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) re-fetches the list when it finishes, and it reads the *current* filter from `getState().students.query` to do so. If the term lived only in local component state, those thunks would re-fetch with an empty query and silently drop whatever filter the admin had typed. So `onSearch` dispatches `setQuery` (updates the store) **and** `fetchStudents(term)` (reflects it immediately).
+**Why it works & further reading:**
+- **Why the search term lives in the store, not [`useState`](GLOSSARY.md#usestate)** — every mutating [thunk](GLOSSARY.md#thunk) (`createStudent`, `updateStudent`, `deleteStudent`, `assignStudent`, `importStudents`) re-fetches the list when it finishes, reading the *current* filter from `getState().students.query`. If the term lived only in local component state, those re-fetches would use an empty query and silently drop whatever filter the admin had typed — so `onSearch` [dispatches](GLOSSARY.md#dispatch) `setQuery` (updates the store) **and** `fetchStudents(term)` (reflects it immediately).
 - The one-time `useEffect(() => dispatch(fetchStudents("")), [dispatch])` just loads the full roster on open; after that, `onSearch` drives every fetch — no effect keyed on `query`.
-- The server filters via `?q=`, so typing narrows the list without any client-side filtering code.
-- `{list.map((s) => ( <tr key={s.id}> ... ))}` — the same "array of data → array of elements" pattern U3 used for lots and spaces: `list.map(...)` turns the fetched `Student[]` into one `<tr>` per row. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
-- `key={s.id}` — React needs a stable, unique value per row to tell them apart across re-renders (e.g. when a keystroke in the search box swaps in a shorter filtered list); without it, React can't tell "this row moved" from "this row was replaced" and may re-render or lose input state in the wrong row. `s.id` is the right choice here — the roster's own numeric surrogate key from the `Student` interface (Step 1) — never the row's array *index*, which shifts as soon as filtering changes which students are in the list. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
-- `<td>{s.last}, {s.first}</td><td>{s.student_id}</td><td>{s.grade}</td>` … — each `<td>` just reads one field straight off that row's `Student` object; `s.assigned_slot ?? "—"` falls back to an em dash when the student holds no slot (`assigned_slot` is `null` until Step 5's Assign/Move sets it).
+- **Server-side filtering** — the `?q=` param means typing narrows the list with zero client-side filtering code.
+- **`list.map(...)`** is the same "array of data → array of elements" pattern U3 used for lots and spaces: it turns the fetched `Student[]` into one `<tr>` per row. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
+- **`key={s.id}`, never the array index** — React needs a stable id per row to tell "this row moved" from "this row was replaced" across re-renders (e.g. when a keystroke shrinks the filtered list); `s.id` is the roster's own surrogate key from Step 1. → [React docs: Rendering Lists](https://react.dev/learn/rendering-lists).
 
 ### Step 3 — Add, edit, delete a student (~12 min)
 
 Reuse the **modal + validated form** shape from U9's Create Lot and U6's assign modal:
 
-- An **➕ Add Student** button opens a modal with `first`, `last`, `student_id` (all required), `email`, `grade`. On submit, `dispatch(createStudent(...))`; only close on `createStudent.fulfilled.match(res)` so a **duplicate student ID** keeps the modal open with the server's `409` message in red.
+- An **➕ Add Student** button opens a modal with `first`, `last`, `student_id` (all required), `email`, `grade`. On submit, it dispatches `createStudent(...)`; only close on `createStudent.fulfilled.match(res)` so a **duplicate student ID** keeps the modal open with the server's `409` message in red.
 - An **Edit** action per row opens the same modal pre-filled; submit dispatches `updateStudent({ id, changes })` — `changes` is a `Partial<StudentDraft>`, not a raw `Partial<Student>`.
 - A **Delete** action per row does a `window.confirm` then `dispatch(deleteStudent(s.id))`.
 
@@ -232,9 +249,9 @@ There is nothing new here — it's the exact create/validate/refetch pattern fro
 
 ```tsx
 const onCsvChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files?.[0];
+  const file = event.target.files?.[0];               // the one CSV the admin picked, if any
   if (file) dispatch(importStudents(file)); // thunk refetches with the active query and stores lastImport
-  event.target.value = "";
+  event.target.value = "";                             // reset so picking the SAME file again still fires onChange
 };
 // <input type="file" accept=".csv" onChange={onCsvChosen} />
 ```
@@ -245,32 +262,32 @@ Show the stored `lastImport` (`{ added, updated, errors }`) so the admin sees ex
 
 ```tsx
 const downloadCsv = () => {
-  const header = "First,Last,studentId,email,grade";
+  const header = "First,Last,studentId,email,grade";                   // must match the import's expected columns
   const esc = (v: string) => `"${(v ?? "").replace(/"/g, '""')}"`;      // quote-escape every cell
   const rows = list.map((s) => [s.first, s.last, s.student_id, s.email, s.grade].map(esc).join(","));
-  const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
+  const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });  // an in-memory file
+  const url = URL.createObjectURL(blob);                                       // a temporary URL pointing at it
   const a = document.createElement("a");
-  a.href = url; a.download = "students.csv"; a.click();
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = "students.csv"; a.click();                        // trigger the browser's "Save As"
+  URL.revokeObjectURL(url);                                                     // free the temporary URL
 };
 ```
 
-**Explanation:**
-- Import uses `multipart/form-data` because a file isn't JSON. The `importStudents` thunk calls a dedicated `uploadFile(path, file)` helper alongside the JSON `api` client — it builds the `FormData` and sends it **without** a `Content-Type` header (the browser sets the multipart boundary itself). → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
-- The import **upserts by `student_id`** and reports per-row errors instead of rejecting the whole file — one typo shouldn't lose 200 good rows.
-- Download quote-escapes every cell (`"` → `""`) so a name with a comma doesn't break the columns, and uses the **exact same header** as the import — that's what makes the export → edit → re-import round-trip clean. → [MDN: Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob).
+**Why it works & further reading:**
+- **Import is [`multipart/form-data`](GLOSSARY.md#formdata)**, not JSON, because a file isn't text. The `importStudents` thunk sends it through a dedicated `uploadFile(path, file)` helper that builds the `FormData` and sends it **without** a `Content-Type` header — the browser sets the multipart boundary itself. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
+- **Per-row errors, not an all-or-nothing failure** — the import upserts by `student_id` and collects one message per bad row, so a single typo doesn't lose 200 good rows.
+- **Quote-escaping + a matching header** — `esc()` doubles any inner `"` so a name with a comma can't break the columns, and the header exactly matches what the import expects — that's what makes export → edit → re-import round-trip cleanly. → [MDN: Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob).
 
-> **Mock-storage caveat (PoC only):** the mock backend keeps everything in `localStorage`; a very large CSV can bump the ~5 MB quota. A real backend stores the roster in the database and has no such limit.
+> **Mock-storage caveat (PoC only):** the [mock backend](GLOSSARY.md#mock-backend) keeps everything in [`localStorage`](GLOSSARY.md#localstorage); a very large CSV can bump the ~5 MB quota. A real backend stores the roster in the database and has no such limit.
 
 ### Step 5 — Assign / Move a student to a spot (~10 min)
 
 A per-row **Assign / Move** action (label it **Assign** when `assigned_slot` is null, **Move** otherwise). It opens a small picker: choose a **lot**, then an **available spot** in that lot (reuse `fetchLots` / `fetchSpaces` from U3), confirm, then `dispatch(assignStudent({ id, spaceId }))`.
 
-**Explanation:**
-- This is the direct-placement path U6 couldn't cover: it works for a student **with no login and no request** (the server sets `assigned_student_id`).
-- The server enforces **one slot per student** — assigning a student who already holds a spot **frees the old one first** (that's why the button reads "Move"). You don't implement that on the client; you just call the endpoint and refetch.
-- After it returns, the roster row flips to `parking_status: valid` and shows the new `assigned_slot` — and `DELETE /api/assignments/:spaceId` (U6's Unassign) will later clear both.
+**Why it works & further reading:**
+- **The direct-placement path U6 couldn't cover** — it works for a student **with no login and no request** (the server sets `assigned_student_id`).
+- **One slot per student, enforced server-side** — assigning a student who already holds a spot frees the old one first (that's why the button reads "Move"); the client just calls the endpoint and refetches.
+- **After it returns**, the roster row flips to `parking_status: valid` and shows the new `assigned_slot` — and `DELETE /api/assignments/:spaceId` (U6's Unassign) will later clear both.
 
 ---
 

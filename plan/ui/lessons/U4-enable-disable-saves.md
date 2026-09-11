@@ -12,17 +12,32 @@
 Right now, when an admin disables a parking space in Edit Mode, the grey colour is a **lie** — it only lives in the browser's memory, and a page refresh erases it. This lesson makes it real: clicking **Disable** or **Enable** sends the change to the backend and saves it in the database, so it **survives a refresh**.
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `src/store/parkingSlice.ts` has an `updateSpaces` thunk that calls `PATCH /api/spaces`.
-- [ ] `updateSpaces`'s `pending`/`fulfilled`/`rejected` cases are handled in `extraReducers` (optimistic recolour on `pending`; on `rejected`, surface the error — no auto-revert).
-- [ ] `ControlBoard.tsx`'s **Disable** and **Enable** sub-panel buttons both dispatch `updateSpaces` on click, instead of the old, deleted `enableSelectedSpaces`/`disableSelectedSpaces`.
+- [ ] `src/store/parkingSlice.ts` has an `updateSpaces` [thunk](GLOSSARY.md#thunk) that calls [PATCH](GLOSSARY.md#http-methods) `/api/spaces`.
+- [ ] `updateSpaces`'s `pending`/`fulfilled`/`rejected` cases are handled in [`extraReducers`](GLOSSARY.md#extrareducers) (optimistic recolour on `pending`; on `rejected`, surface the error — no auto-revert).
+- [ ] `ControlBoard.tsx`'s **Disable** and **Enable** sub-panel buttons both [dispatch](GLOSSARY.md#dispatch) `updateSpaces` on click, instead of the old, deleted `enableSelectedSpaces`/`disableSelectedSpaces`.
 - [ ] Disabling a space, then **refreshing the page**, still shows it grey.
 - [ ] Your work is committed on branch `cr/u4-save-status` and pushed, PR base = `cr/u3-real-lots`.
+
+**🖼 What changes on screen (before → after):**
+```
+        BEFORE (fake)                        AFTER (real save)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│  Disable 2 spaces →       │      │  Disable 2 spaces →       │
+│  they turn grey           │  ─▶  │  they turn grey           │
+│                           │      │                           │
+│  Refresh the page →       │      │  Refresh the page →       │
+│  they're yellow again     │      │  they're STILL grey       │
+│  (the change was a lie)   │      │  (it saved to the server) │
+└───────────────────────────┘      └───────────────────────────┘
+  looked disabled, but only          the database actually
+  lived in browser memory            remembers the new status
+```
 
 ---
 
 ## 🤔 Why this lesson matters
 
-U3 made the parking grid **read** real data from the backend. But the admin's Disable/Enable buttons still only *write* to a local Redux list — the moment you refresh, the server's original data comes back and undoes your change. That's not a real feature; it's a visual trick.
+U3 made the parking grid **read** real data from the backend. But the admin's Disable/Enable buttons still only *write* to a local [Redux](GLOSSARY.md#redux) list — the moment you refresh, the server's original data comes back and undoes your change. That's not a real feature; it's a visual trick.
 
 This lesson closes that gap, and it introduces a pattern you'll use for almost every "admin makes a change" screen for the rest of the app:
 
@@ -44,11 +59,13 @@ Get this pattern comfortable now, because U5 and U6 (student requests, admin ass
 | **Optimistic UI updates** | Updating the screen *before* the server confirms, so the app feels instant — then correcting it if the request fails. | [Redux Toolkit: Optimistic Updates](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates) |
 | **Error handling from a thunk** | `createAsyncThunk` automatically fires a `.rejected` action with the thrown error's message when the request fails. | [Redux Toolkit: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk) |
 
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
+
 ---
 
 ## ✅ Before you start
 
-**Prerequisites:** [Lesson U3](U3-show-real-lots-and-spaces.md) done (you're on `cr/u3-real-lots`), and backend **B5** (the `PATCH /api/spaces` endpoint) running locally.
+**Prerequisites:** [Lesson U3](U3-show-real-lots-and-spaces.md) done (you're on `cr/u3-real-lots`), and backend **B5** (the `PATCH /api/spaces` [endpoint](GLOSSARY.md#endpoint)) running locally.
 
 **Time budget for the hour:** setup & branch (5 min) → `updateSpaces` thunk + `extraReducers` (25) → wire the buttons in `ControlBoard.tsx` (15) → test & commit (15).
 
@@ -70,30 +87,31 @@ Open `src/store/parkingSlice.ts` (the one you rewrote in U3). Add this thunk nex
 ```ts
 // PATCH /api/spaces  body { ids:number[], status:"available"|"disabled" }
 export const updateSpaces = createAsyncThunk(
-  "parking/updateSpaces",
+  "parking/updateSpaces",                          // unique action-type name, same convention as U1's thunks
   async (args: { lotId: number; ids: number[]; status: "available" | "disabled" }, { dispatch }) => {
-    await api.patch("/api/spaces", { ids: args.ids, status: args.status });
+    await api.patch("/api/spaces", { ids: args.ids, status: args.status });   // tell the server the new status
     await dispatch(fetchSpaces(args.lotId));   // re-load the truth from the server
-    return args;
+    return args;                               // available to .fulfilled as action.payload
   }
 );
 ```
 
-**Explanation, piece by piece:**
-- **`api.patch("/api/spaces", ...)`** — this method already exists; you built it back in U0 alongside `api.get`/`api.post`. It sends a `PATCH` request with a JSON body and attaches your login token as an `Authorization: Bearer <token>` header automatically — you never have to add that header yourself. → [MDN: PATCH method](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH), [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
-- **The `{ dispatch }` argument** — `createAsyncThunk` hands your function a second argument with tools, including `dispatch`, so a thunk can trigger *another* thunk. Here, once the PATCH succeeds, we immediately `dispatch(fetchSpaces(args.lotId))` — the same read-thunk from U3 — so the store's `spacesByLot` gets refreshed with whatever the database actually says now. → [Redux Toolkit: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
-- **Why re-fetch instead of trusting the PATCH response?** The backend's answer to "I updated these" doesn't necessarily include full lot data. Re-running `fetchSpaces` guarantees what's on screen matches the database exactly — no risk of drifting out of sync.
+**Why it works & further reading:**
+- **`api.patch`** already attaches your login token as an `Authorization` header, the same client you built in U0. → [MDN: PATCH method](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH), [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
+- **The `{ dispatch }` argument** — [`createAsyncThunk`](GLOSSARY.md#thunk) hands your function a tools object, so one thunk can trigger another; here it re-runs U3's `fetchSpaces` once the PATCH succeeds. → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
+- **Why re-fetch instead of trusting the PATCH response** — the server's "I updated these" answer doesn't necessarily include full lot data, so re-running `fetchSpaces` guarantees the screen matches the database exactly.
 
 Now handle the thunk's three states in `extraReducers`, right after the ones you wrote for `fetchSpaces` in U3 (optimistic: recolour immediately; on failure, surface the error — the optimistic colour is corrected by the next `fetchSpaces`, not auto-reverted here):
 
 ```ts
 .addCase(updateSpaces.pending, (state, action) => {
-  // optimistic: flip the affected spaces right away
-  const { lotId, ids, status } = action.meta.arg;
+  // optimistic: flip the affected spaces right away, before the PATCH resolves
+  const { lotId, ids, status } = action.meta.arg;   // the exact { lotId, ids, status } you dispatched
   const spaces = state.spacesByLot[lotId];
-  if (spaces) for (const s of spaces) if (ids.includes(s.id)) s.status = status;
+  if (spaces) for (const s of spaces) if (ids.includes(s.id)) s.status = status;   // Immer makes this safe
 })
 .addCase(updateSpaces.fulfilled, (state) => {
+  // fetchSpaces (triggered inside the thunk) already refreshed spacesByLot — just close out the edit UI
   state.selectedSpaces = [];
   state.isEditMode = false;
   state.editAction = null;
@@ -101,15 +119,15 @@ Now handle the thunk's three states in `extraReducers`, right after the ones you
 .addCase(updateSpaces.rejected, (state, action) => {
   // fetchSpaces inside the thunk already reloads the real state on success;
   // on failure show the error (the re-fetch in step 1 didn't run).
-  state.error = action.error.message ?? "Could not save changes";
+  state.error = action.error.message ?? "Could not save changes";   // drives the red error banner
 });
 ```
 
-**Explanation, piece by piece:**
-- **`updateSpaces.pending`** — RTK fires this the *instant* you `dispatch(updateSpaces(...))`, before `api.patch` has even reached the server. `action.meta.arg` is the exact object you passed in (`{ lotId, ids, status }`) — that's how a `pending` handler gets at the thunk's arguments. Looping over `spacesByLot[lotId]` and flipping `s.status` for every selected id is the **optimistic update**: the grid recolours immediately, before any network round trip finishes. → [Redux Toolkit: Optimistic Updates](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates).
-- **Mutating `s.status` directly** — this looks like it breaks Redux's "never mutate state" rule, but Redux Toolkit wraps every reducer in [Immer](https://redux-toolkit.js.org/usage/immer-reducers), which safely turns this style of code into an immutable update behind the scenes. That's what makes the one-line `for` loop above safe to write.
-- **`updateSpaces.fulfilled`** — by the time this fires, the thunk's own `dispatch(fetchSpaces(...))` has already re-loaded the real data, so this handler doesn't need to touch `spacesByLot` again. It just cleans up the editing UI: clear the selection and close Edit Mode.
-- **`updateSpaces.rejected`** — if `api.patch` throws (network error, or the backend rejecting an already-`assigned` space with a 409), `createAsyncThunk` automatically dispatches this action with the thrown error's message on `action.error.message`. Storing it in `state.error` is what puts a readable message on screen instead of failing silently.
+**Why it works & further reading:**
+- **`pending` fires instantly** — before `api.patch` has even reached the server — so `action.meta.arg` is how a `pending` handler reads the [thunk](GLOSSARY.md#thunk)'s arguments; looping and flipping `s.status` there is the **optimistic update**. → [Redux Toolkit: Optimistic Updates](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates).
+- **Mutating `s.status` directly is safe** — [Redux Toolkit](GLOSSARY.md#redux-toolkit) wraps every [reducer](GLOSSARY.md#reducer) in [Immer](https://redux-toolkit.js.org/usage/immer-reducers), which turns this style of code into an immutable update behind the scenes.
+- **`fulfilled` doesn't touch `spacesByLot`** — the thunk's own `dispatch(fetchSpaces(...))` already reloaded it; this handler just clears the editing UI.
+- **`rejected` gets a free error message** — `createAsyncThunk` auto-dispatches this [action](GLOSSARY.md#action) with the thrown error's message on `action.error.message`, which is what turns a failed PATCH into a visible red message instead of silent failure.
 
 ### Step 2 — Wire the buttons in `ControlBoard.tsx` (~15 min)
 
@@ -130,17 +148,17 @@ onClick={() => {
 The **Enable** button is identical except for the status it sends:
 ```tsx
 onClick={() => {
-  if (selectedLotId != null)
+  if (selectedLotId != null)   // no lot selected → nothing to re-enable
     dispatch(updateSpaces({ lotId: selectedLotId, ids: selectedSpaces, status: 'available' }));
 }}
 ```
 
 Then add `updateSpaces` to the import list from `./store/parkingSlice`.
 
-**Explanation, piece by piece:**
-- **`selectedLotId != null` guard** — `updateSpaces` needs a `lotId` to know which lot's spaces to re-fetch afterward. This is the same "Home view has no lot selected" guard you saw in U3.
-- **`ids: selectedSpaces`** — the numeric space ids the admin has clicked, already tracked in `parkingSlice`'s `selectedSpaces` array since U3.
-- **`status: 'available'` vs `'disabled'`** — the only difference between the two buttons is which status string they send; both go through the exact same thunk and the exact same optimistic logic you wrote in Step 1.
+**Why it works & further reading:**
+- **`selectedLotId != null` guard** — `updateSpaces` needs a `lotId` to know which lot's spaces to re-fetch afterward; the same "Home view has no lot selected" guard from U3.
+- **`ids: selectedSpaces`** — the numeric space ids the admin has clicked, already tracked in `parkingSlice`'s [state](GLOSSARY.md#state) since U3.
+- **`status: 'available'` vs `'disabled'`** — the only difference between the two buttons; both go through the exact same [thunk](GLOSSARY.md#thunk) and the exact same optimistic logic from Step 1.
 - **No confirm step** — the click *is* the save. The only button in the edit-mode chrome is **Cancel ✕**, which just closes Edit Mode (`dispatch(setIsEditMode(false))`); it never calls the server.
 
 **What it looks like — admin about to disable two spaces:**
