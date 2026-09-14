@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html lang="en">
+    <h1>developer</h1>
+    {% for dev in devs %}
+    <p>{{dev.fullname}}, </p>
+    <p>{{dev.email}} </p>
+    <img src="{{ url_for('download_file', filename=dev.picture) }}" alt="image" width="100" height="100">
+    <br />
+    {% endfor %}
+</html>
