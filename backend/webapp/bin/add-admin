@@ -1,0 +1,14 @@
+#!/bin/bash
+# Add or reset the initial admin login. Runs add_admin.py with the repo venv.
+# Usage: ./webapp/bin/add-admin --username admin [--name "Site Admin"] [--email a@b] [--force]
+set -Eeuo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+python_interpreter="$repository_root/.venv/bin/python"
+
+if [ ! -x "$python_interpreter" ]; then
+  echo "Error: $python_interpreter not found. Create the venv and install requirements.txt."
+  exit 1
+fi
+
+exec "$python_interpreter" "$repository_root/webapp/bin/add_admin.py" "$@"
