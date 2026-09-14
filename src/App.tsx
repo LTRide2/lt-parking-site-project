@@ -1,24 +1,46 @@
 // src/App.tsx
 import { useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import "./App.css";
 import Login from "./Login";
-import { useAppDispatch } from "./store";
-import { fetchMe } from "./store/authSlice";
+import StudentDashboard from "./StudentDashboard";   // created in Step 5; stub for now
+import { ControlBoard } from "./ControlBoard";
+import { ProtectedRoute } from "./ProtectedRoute";
+import { useAppDispatch, useAppSelector } from "./store";
+import { fetchMe, logout } from "./store/authSlice";
 
 function App() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const user = useAppSelector((s) => s.auth.user);
 
   useEffect(() => {
-    // Runs once, right after the page loads. If a token was saved last time,
-    // confirm it with the server and reload the user, so a refresh keeps you logged in.
-    if (localStorage.getItem("token")) {
-      dispatch(fetchMe());
-    }
-  }, [dispatch]);   // the [dispatch] list means "run this effect once"; dispatch never changes
+    // Same session-restore call as U1: a saved token means "confirm who I am."
+    if (localStorage.getItem("token")) dispatch(fetchMe());
+  }, [dispatch]);
+
+  // When the user becomes known, send them to their home page.
+  useEffect(() => {
+    if (user?.role === "admin") navigate("/admin");
+    else if (user?.role === "student") navigate("/student");
+  }, [user, navigate]);
 
   return (
     <div className="App">
-      <Login />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/student" element={
+          // Guarded: only a logged-in student may render StudentDashboard.
+          <ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>
+        } />
+        <Route path="/admin" element={
+          // Guarded: only a logged-in admin may render ControlBoard.
+          <ProtectedRoute role="admin">
+            <ControlBoard onLogout={() => { dispatch(logout()); navigate("/login"); }} />
+          </ProtectedRoute>
+        } />
+        <Route path="*" element={<Navigate to="/login" replace />} />  {/* unknown URL: send to login */}
+      </Routes>
     </div>
   );
 }

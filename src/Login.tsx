@@ -64,13 +64,14 @@ const Login = () => {
   const isLoggedIn = useAppSelector((s) => s.auth.isLoggedIn);
   const dispatch = useAppDispatch();
 
-  if (isLoggedIn) {
-    return (
-      <div style={{ height: "100vh", width: "100vw" }}>
-        <ControlBoard onLogout={() => dispatch(logout())} />
-      </div>
-    );
-  }
+// REMOVE this whole block from the top of the Login component:
+if (isLoggedIn) {
+  return (
+    <div style={{ height: "100vh", width: "100vw" }}>
+      <ControlBoard onLogout={() => dispatch(logout())} />
+    </div>
+  );
+}
 
   const content =
     view === "student" ? <StudentLoginForm onBack={() => setView("selection")} /> :
