@@ -56,7 +56,7 @@ nginx is the only thing exposed to the internet. gunicorn listens on `127.0.0.1`
 
 **Open your terminal and branch off D1** — D1b depends on D1's CloudFormation templates, so it stacks on top of that branch, not `main`:
 
-**macOS / Linux (bash/zsh):**
+**macOS / Linux**
 ```bash
 source .venv/bin/activate           # your prompt should now start with (.venv)
 git checkout cr/d1-cfn-templates
@@ -64,17 +64,13 @@ git pull                            # make sure you start from the latest D1 bra
 git checkout -b cr/d1b-server-config   # create + switch to this lesson's branch
 ```
 
-**Windows (PowerShell):**
+**Windows (PowerShell)**
 ```powershell
 .venv\Scripts\Activate.ps1          # your prompt should now start with (.venv)
 git checkout cr/d1-cfn-templates
 git pull                            # make sure you start from the latest D1 branch
 git checkout -b cr/d1b-server-config   # create + switch to this lesson's branch
 ```
-
-Only the venv-activation line differs by OS; the three `git` commands are identical everywhere.
-
-> **A note on platform for this whole lesson.** You *author* these three config files on your laptop (any OS — they're just text). They then run on the **Ubuntu server**, so every operational command below that starts with `sudo systemctl`, `journalctl`, or `nginx` (Step 3's "Operating it" box, and the "Prove it works" checks on the server) runs **on the server over SSH** and is identical whether your laptop is macOS, Linux, or Windows. The only steps that differ by your laptop's OS are the venv activation above and the optional *local* syntax checks in "Prove it works" — both shown in both forms.
 
 **What this does & why:** because D1b's files depend on D1's templates existing (the compute stack's UserData runs this CR's logic), the branch stacks on `cr/d1-cfn-templates` instead of `main`, matching the [stacked-CR workflow](../../plan.md#8-implementation-strategy-stacked-crs). → Reference: [Git Branching basics](https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell).
 
@@ -159,7 +155,7 @@ WantedBy=multi-user.target
 **What each line buys you:**
 - **`After=network.target`** — don't start before networking is up (we connect to RDS over the network).
 - **`User=ltride` / `Group=ltride`** — run as an unprivileged service account, **never root**. If the app is compromised, the damage is limited to this one account.
-- **`EnvironmentFile=…/.env`** — the production secrets (`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`). This is the server's equivalent of your local `.env` from [Lesson B0](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/lessons/B0-clean-slate-and-safety.md) — it lives only on the box, readable only by `ltride`, never committed.
+- **`EnvironmentFile=…/.env`** — the production secrets (`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`). This is the server's equivalent of your local `.env` from [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md) — it lives only on the box, readable only by `ltride`, never committed.
 - **`ExecStart=…/gunicorn …`** — the actual command. Uses the **venv's** gunicorn (not system Python). `--workers 3` runs 3 processes for concurrency (rule of thumb: `2 × CPU + 1`). `--bind 127.0.0.1:8000` = listen on localhost only (nginx is the public door). `webapp.App:app` = import module `webapp.App`, use the object `app` — this is **WSGI**, the standard hookup between gunicorn and Flask. → Reference: [WSGI (PEP 3333)](https://peps.python.org/pep-3333/), [gunicorn docs](https://docs.gunicorn.org/en/stable/). The `-` logfiles send logs to the journal so `journalctl` can show them.
 - **`Restart=always` / `RestartSec=3`** — if gunicorn dies, systemd restarts it after 3s. Survives crashes and reboots. → Reference: [systemd.service man page](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
 - **`WantedBy=multi-user.target`** — lets `systemctl enable ltride` make it start automatically on every boot.
@@ -190,7 +186,7 @@ At the top of the script, **set `REPO_URL`** to your repo's real clone URL — w
 
 ## 🧪 Prove it works — testing guide
 
-**macOS / Linux (bash/zsh):**
+**macOS / Linux**
 ```bash
 cd deploy/server
 bash -n provision.sh                 # shell-syntax check (no execution)
@@ -198,12 +194,11 @@ bash -n provision.sh                 # shell-syntax check (no execution)
 nginx -t -c "$PWD/nginx-ltride.conf" 2>&1 | head    # may warn about paths off-server; syntax is what matters
 ```
 
-**Windows (Git Bash / WSL):**
-```bash
-cd deploy/server
-bash -n provision.sh                 # run in Git Bash or WSL — PowerShell can't syntax-check a .sh script
+**Windows (PowerShell)** — `bash -n` needs bash itself; run it from Git Bash/WSL (nginx for Windows is uncommon, so skip the optional `nginx -t` sanity check here — the real proof is `sudo nginx -t` on the server anyway):
+```powershell
+cd deploy\server
+bash -n provision.sh
 ```
-`provision.sh` is a bash script, so its `bash -n` check needs a bash shell (Git Bash or WSL), not PowerShell. The local `nginx -t` check is macOS/Linux-only (nginx isn't usually installed on Windows) — skip it on Windows and rely on the authoritative `sudo nginx -t` on the server after D2/D3, described next.
 
 **What you should see:**
 1. `bash -n provision.sh` prints **nothing** — that means it's valid; any output is a syntax error to fix.

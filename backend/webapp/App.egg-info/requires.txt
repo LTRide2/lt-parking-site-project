@@ -1,4 +1,0 @@
-arrow
-bs4
-Flask
-requests
