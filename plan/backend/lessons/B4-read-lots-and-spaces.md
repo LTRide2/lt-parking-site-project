@@ -30,7 +30,7 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 
 The first [endpoints](GLOSSARY.md#endpoint) that actually **read real data out of the database** and hand it to whoever is logged in. Concretely, by the end of this hour you will have:
 
-- `webapp/App/serialize.py` — a shared module holding the SQL fragment and the functions that turn a lot/space row into the exact JSON shape the frontend expects, so every view that touches lots or spaces reads from one place instead of re-inventing the shape.
+- `backend/webapp/App/serialize.py` — a shared module holding the SQL fragment and the functions that turn a lot/space row into the exact JSON shape the frontend expects, so every view that touches lots or spaces reads from one place instead of re-inventing the shape.
 - `GET /api/lots` — returns every parking lot, each with a `capacity` (total spaces) and an `available_count` (spaces still free), computed by the database in one query.
 - `GET /api/lots/:id/spaces` — returns every space inside one specific lot as a bare array, or a `404` if that lot doesn't exist.
 - Both [routes](GLOSSARY.md#route) protected by the `@require_auth` guard you built in B3 — no token, no data.
@@ -70,7 +70,7 @@ It's also a template. Look closely and you'll notice the shape repeats for the r
 
 There's one more idea worth calling out: the `capacity`/`available_count` numbers are computed **by the database**, in the same query that fetches the lots — not by fetching every space separately and counting them in Python. One well-written SQL query beats a loop of small ones; it's faster and it's the pattern professional backends use whenever they can.
 
-And a third idea, new to this lesson: this is also the first CR to reshape a row that more than one view module will need — spaces get read here, but they'll also get read (and rewritten) in B8's layout editor and later in assignments. Rather than let each view module invent its own `{...}` dict for a space, B4 introduces `webapp/App/serialize.py`: one shared SELECT and one shared shape-function per resource. Every later lesson imports it instead of re-deriving the shape, so the API can't drift out from under the frontend one view at a time.
+And a third idea, new to this lesson: this is also the first CR to reshape a row that more than one view module will need — spaces get read here, but they'll also get read (and rewritten) in B8's layout editor and later in assignments. Rather than let each view module invent its own `{...}` dict for a space, B4 introduces `backend/webapp/App/serialize.py`: one shared SELECT and one shared shape-function per resource. Every later lesson imports it instead of re-deriving the shape, so the API can't drift out from under the frontend one view at a time.
 
 ---
 
@@ -98,7 +98,7 @@ And a third idea, new to this lesson: this is also the first CR to reshape a row
 **macOS / Linux**
 
 ```bash
-source .venv/bin/activate      # your prompt should start with (.venv)
+source backend/.venv/bin/activate  # your prompt should start with (.venv)
 git checkout cr/b3-auth
 git checkout -b cr/b4-lots      # create + switch to this lesson's branch
 ```
@@ -106,7 +106,7 @@ git checkout -b cr/b4-lots      # create + switch to this lesson's branch
 **Windows (PowerShell)**
 
 ```powershell
-.venv\Scripts\Activate.ps1     # your prompt should start with (.venv)
+backend\.venv\Scripts\Activate.ps1  # your prompt should start with (.venv)
                                 # blocked by execution policy? run once: Set-ExecutionPolicy -Scope Process RemoteSigned
 git checkout cr/b3-auth
 git checkout -b cr/b4-lots      # create + switch to this lesson's branch
@@ -118,12 +118,12 @@ git checkout -b cr/b4-lots      # create + switch to this lesson's branch
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Create `webapp/App/serialize.py` (~15 min)
+### Step 1 — Create `backend/webapp/App/serialize.py` (~15 min)
 
 Before writing the first view, create the module every lot/space (and later, interest/student) view will import instead of shaping its own JSON:
 
 ```python
-# webapp/App/serialize.py
+# backend/webapp/App/serialize.py
 """Turn database rows into the exact JSON shapes the frontend slices consume."""
 
 # Shared SELECT so every view reads a space the same way. Callers append their
@@ -178,12 +178,12 @@ def space(row):
 - `lot()` and `space()` translate rows into the frontend's own field names — almost every key already matches the database column. The one deliberate rename is `space()`'s `x`/`y`/`w`/`h`: "position" is a DB detail, but `x`/`y`/`w`/`h` is what the map-rendering frontend calls them.
 - `row.get("assigned_user_name")` uses `.get` (not `row["..."]`) defensively, because that column only exists on rows built from `SPACE_SELECT`.
 
-### Step 2 — Create `webapp/App/views/lots.py` (~20 min)
+### Step 2 — Create `backend/webapp/App/views/lots.py` (~20 min)
 
 Create the file:
 
 ```python
-# webapp/App/views/lots.py
+# backend/webapp/App/views/lots.py
 from flask import Blueprint, jsonify
 
 from ..db import query, query_one            # B3's database helpers
@@ -245,7 +245,7 @@ def lot_spaces(lot_id):
 
 ### Step 3 — Register the blueprint (~5 min)
 
-Open `webapp/App/__init__.py` and add these two lines next to where you registered `health` and `auth` in earlier lessons:
+Open `backend/webapp/App/__init__.py` and add these two lines next to where you registered `health` and `auth` in earlier lessons:
 
 ```python
     from .views import lots
@@ -298,7 +298,7 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
    - `/api/lots/1/spaces` → `200` **a bare array** under `data`, 8 spaces (`A1`..`A8`). `A1`–`A3`,`A5`–`A7` are `"status":"available"` with non-null `x`/`y`/`w`/`h`/`rotation`; `A4` is `"status":"disabled"`; `A8` is `"status":"assigned"` with `"rotation":90`, `"assigned_user_id":2`, `"assigned_user_name":"Alice"`, `"assigned_student_id":"STU001"`.
    - Lot `999` → `404`; no token → `401`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, with a token from the server's `/api/auth/student`:
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, with a token from the server's `/api/auth/student`:
 
 **macOS / Linux**
 
@@ -331,8 +331,8 @@ Then open a Pull Request on GitHub with **base = `cr/b3-auth`** — not `main` �
 ## 🧯 If something breaks
 
 - **`401` even with a token** — double-check the header is exactly `Authorization: Bearer <token>` (one space, capital `B`), that you copied the whole token with no trailing newline, and that it hasn't expired (`JWT_EXP_HOURS` from your `.env`, set back in B0).
-- **`/api/lots` itself 404s** — you likely skipped Step 3. Confirm `app.register_blueprint(lots.bp)` is actually in `webapp/App/__init__.py` and that the import path is `.views` (not a typo).
-- **`500 Internal Server Error`** — almost always a column-name mismatch between `serialize.py` and the migration from B2. Compare `pos_x`/`pos_y`/`pos_w`/`pos_h`, `assigned_user_id`, `assigned_student_id` in `SPACE_SELECT` against `webapp/sql/migrations/001_init.sql` exactly.
+- **`/api/lots` itself 404s** — you likely skipped Step 3. Confirm `app.register_blueprint(lots.bp)` is actually in `backend/webapp/App/__init__.py` and that the import path is `.views` (not a typo).
+- **`500 Internal Server Error`** — almost always a column-name mismatch between `serialize.py` and the migration from B2. Compare `pos_x`/`pos_y`/`pos_w`/`pos_h`, `assigned_user_id`, `assigned_student_id` in `SPACE_SELECT` against `backend/webapp/sql/migrations/001_init.sql` exactly.
 - **`KeyError` inside `serialize.lot()`/`serialize.space()`** — the SQL you wrote and the serializer disagree on column names/aliases. `lot()` expects the query to alias its counts as `capacity` and `available_count`; `space()` expects the raw `pos_x`/`pos_y`/`pos_w`/`pos_h` names from `SPACE_SELECT`, not `x`/`y`/`w`/`h` (that rename happens *inside* the serializer, not the SQL).
 - **Lot `1` returns `404` even though you have a token** — the database probably isn't seeded. Re-run B2's seed step and confirm `DATABASE_URL` in `.env` points at the same database you seeded.
 - **`capacity`/`available_count` come back as `0` for lots that should have spaces** — check you used `LEFT JOIN`, not `JOIN`; a plain `JOIN` still returns the lot correctly if it *has* spaces, but the more common bug here is a typo in the `FILTER (WHERE s.status='available')` clause silently filtering everything out.
@@ -343,7 +343,7 @@ Then open a Pull Request on GitHub with **base = `cr/b3-auth`** — not `main` �
 ## 📝 Recap — what you built and learned
 
 - You wrote the backend's **first read endpoints** — the first time a request actually reaches into the PostgreSQL database and comes back with real data.
-- You introduced `webapp/App/serialize.py`, the **shared serializer module** that will own every lot/space/interest/student JSON shape for the rest of the backend, so the view files that read and write these resources can never drift out of sync with each other.
+- You introduced `backend/webapp/App/serialize.py`, the **shared serializer module** that will own every lot/space/interest/student JSON shape for the rest of the backend, so the view files that read and write these resources can never drift out of sync with each other.
 - You saw how a single SQL query with `LEFT JOIN` + `count(...) FILTER (...)` can compute two aggregates (`capacity`, `available_count`) per lot without a loop or a second query.
 - You used a **URL path parameter** (`<int:lot_id>`) to build a "one resource by id" endpoint, and the "check it exists, else 404" pattern you'll reuse constantly.
 - You reused `@require_auth`, the `%s` parameter style, and the `{"data": ...}` / `{"error": ...}` envelopes from earlier lessons — proof that the patterns you learned in B1–B3 keep paying off.

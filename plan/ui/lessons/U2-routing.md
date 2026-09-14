@@ -102,10 +102,10 @@ git checkout -b cr/u2-routing
 
 Right now, any runtime render error (a typo'd [prop](GLOSSARY.md#props), a `null` where an object was expected) blanks the whole page silently — no error, no stack, just white. Before wiring up routes, give the app a **safety net** that turns that silent blank page into an on-screen error message.
 
-Create `src/ErrorBoundary.tsx`:
+Create `frontend/src/ErrorBoundary.tsx`:
 
 ```tsx
-// src/ErrorBoundary.tsx
+// frontend/src/ErrorBoundary.tsx
 import { Component, type ReactNode } from "react";
 
 interface Props { children: ReactNode }              // whatever this boundary wraps
@@ -134,10 +134,10 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
-Then open `src/main.tsx` and wrap `<App />` in both the boundary and `BrowserRouter`:
+Then open `frontend/src/main.tsx` and wrap `<App />` in both the boundary and `BrowserRouter`:
 
 ```tsx
-// src/main.tsx
+// frontend/src/main.tsx
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
@@ -167,12 +167,12 @@ createRoot(document.getElementById("root")!).render(
 - **Wrapping order** — `<ErrorBoundary>` wraps `<Provider>` ([Redux](GLOSSARY.md#redux)), which wraps `<BrowserRouter>`, which wraps `<App>`, so every component can read Redux state *and* use routing while the boundary sits outside both to catch a crash even in store or router setup.
 - You installed the `react-router-dom` package back in **U0** ([`npm`](GLOSSARY.md#npm) `install react-router-dom`) specifically so it would be ready for this lesson.
 
-### Step 2 — Build the route guard: `src/ProtectedRoute.tsx` (~10 min)
+### Step 2 — Build the route guard: `frontend/src/ProtectedRoute.tsx` (~10 min)
 
 This is the "are you allowed here?" check, written **once** and reused by every protected page:
 
 ```tsx
-// src/ProtectedRoute.tsx
+// frontend/src/ProtectedRoute.tsx
 import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAppSelector } from "./store";
@@ -194,12 +194,12 @@ export function ProtectedRoute({ role, children }: { role?: "student" | "admin";
 - The two checks run **top to bottom**: not logged in beats everything; only then does a mismatched `role` also bounce to `/login`.
 - `<>{children}</>` uses a **[Fragment](GLOSSARY.md#fragment)** so `children` render without an extra wrapping element.
 
-### Step 3 — Define the routes in `src/App.tsx` (~15 min)
+### Step 3 — Define the routes in `frontend/src/App.tsx` (~15 min)
 
 Now `App` owns the URLs. `Login.tsx` becomes just the login *page*, not the gatekeeper — replace the whole file:
 
 ```tsx
-// src/App.tsx
+// frontend/src/App.tsx
 import { useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import "./App.css";
@@ -280,7 +280,7 @@ Everything else — the selection screen, `StudentLoginForm`, `AdminLoginForm` �
 `StudentDashboard` doesn't exist yet — it's built for real in lesson U5. Create a placeholder so `App.tsx` has something to import:
 
 ```tsx
-// src/StudentDashboard.tsx  (replaced for real in U5)
+// frontend/src/StudentDashboard.tsx  (replaced for real in U5)
 export default function StudentDashboard() {
   return <h2>Student dashboard (coming in U5)</h2>;
 }

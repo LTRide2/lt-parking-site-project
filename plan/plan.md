@@ -12,9 +12,9 @@ This is the **master/orchestrator design doc**. It captures **what exists today*
 - **Frontend:** [`ui/ui-development-guide.md`](ui/ui-development-guide.md)
 - **Backend + deployment:** [`backend/backend-development-guide.md`](backend/backend-development-guide.md)
 
-**Current runtime reality.** Everything the app does today runs against an in-memory **mock backend** (`src/api/mock/backend.ts`, persisted to `localStorage`), which is **on by default** — `USE_MOCK` in `src/api/client.ts` treats an unset `VITE_USE_MOCK` as `true`. The Flask backend this doc designs (§3, §7, §8) is the next increment the frontend will point at, not what it currently talks to; §2 has the full mock/API-parity detail.
+**Current runtime reality.** Everything the app does today runs against an in-memory **mock backend** (`frontend/src/api/mock/backend.ts`, persisted to `localStorage`), which is **on by default** — `USE_MOCK` in `frontend/src/api/client.ts` treats an unset `VITE_USE_MOCK` as `true`. The Flask backend this doc designs (§3, §7, §8) is the next increment the frontend will point at, not what it currently talks to; §2 has the full mock/API-parity detail.
 
-**Scope / out of scope.** In scope: a decoupled React SPA + Flask JSON API + relational DB, JWT auth, the parking domain (lots, spaces, interest, assignments), and a single-instance AWS deployment. Out of scope (for now): direct student *self-claim* without admin approval (the PoC instead ships the in-scope request→approve flow — a single-spot pick with lock/withdraw, see §2), payments, notifications, multi-campus, and horizontal scale-out (the HA option is costed in the [deployment guide §B.13](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) but not built).
+**Scope / out of scope.** In scope: a decoupled React SPA + Flask JSON API + relational DB, JWT auth, the parking domain (lots, spaces, interest, assignments), and a single-instance AWS deployment. Out of scope (for now): direct student *self-claim* without admin approval (the PoC instead ships the in-scope request→approve flow — a single-spot pick with lock/withdraw, see §2), payments, notifications, multi-campus, and horizontal scale-out (the HA option is costed as a scale-up scenario in the [deployment guide §B.13](deploy/deployment-guide.md#b13-monthly-cost-estimate-scaling-scenarios) but not built — the templates default to a single `t3.micro`).
 
 ---
 
@@ -42,7 +42,7 @@ lt-parking-site-project/                 ← monorepo root
 |---|---|---|
 | **`plan.md`** (this file) | The **master reference / orchestrator**: architecture, data model, diagrams, cross-cutting contracts, the stacked-CR plan + [status tracker](#82-cr-status-tracker), and the deployment map (§10 → the detail lives in the deployment guide). | You want the big picture, the CR ordering, or how the halves fit together. |
 | **[`ui/ui-development-guide.md`](ui/ui-development-guide.md)** | A **beginner, step-by-step guide to building the website (frontend)**, including every git command and a local test for each CR (U0–U9). Its [Frontend architecture reference](ui/ui-development-guide.md#appendix--frontend-architecture-reference) holds the frontend design detail (moved from this file's old §7.2). | You're sitting down to write frontend code. |
-| **[`backend/backend-development-guide.md`](backend/backend-development-guide.md)** | A **beginner, step-by-step guide to building the server + database (backend)**, with every git command and a local test for each CR (B0–B7). Its [API Reference](backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) holds the full endpoint contracts (moved from this file's old §7.1). | You're sitting down to write backend code. |
+| **[`backend/backend-development-guide.md`](backend/backend-development-guide.md)** | A **beginner, step-by-step guide to building the server + database (backend)**, with every git command and a local test for each CR (B0–B9). Its [API Reference](backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) holds the full endpoint contracts (moved from this file's old §7.1). | You're sitting down to write backend code. |
 | **[`deploy/deployment-guide.md`](deploy/deployment-guide.md)** | A **step-by-step guide to putting the app on AWS** (CRs D0–D4), plus live-server operations and the full architecture / IaC / [cost reference](deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). | You're ready to deploy, operate, or price the live system. |
 
 ### How the four documents relate
@@ -51,7 +51,7 @@ lt-parking-site-project/                 ← monorepo root
 flowchart TB
     plan["<b>plan.md</b> (master / orchestrator)<br/>architecture · data model · diagrams<br/>cross-cutting contracts · stacked-CR tracker"]
     ui["<b>ui/ui-development-guide.md</b><br/>frontend CRs U0–U9<br/>+ Frontend architecture reference"]
-    be["<b>backend/backend-development-guide.md</b><br/>backend CRs B0–B7<br/>+ API Reference (endpoint contracts)"]
+    be["<b>backend/backend-development-guide.md</b><br/>backend CRs B0–B9<br/>+ API Reference (endpoint contracts)"]
     dep["<b>deploy/deployment-guide.md</b><br/>deploy CRs D0–D4 · live-server ops<br/>+ AWS architecture / IaC / cost reference"]
 
     plan -->|"§7 → detailed frontend design"| ui
@@ -77,12 +77,18 @@ flowchart TB
 
 ---
 
-## 1. Repositories
+## 1. Repository
 
-| Repo | Path | Stack | State |
+Everything lives in **one monorepo** — `lt-parking-site-project`
+([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)),
+cloned locally at `~/workspace/lt-parking-site-project`. The frontend and backend are
+top-level folders in that repo, not separate repositories:
+
+| Part | Path in the repo | Stack | State |
 |---|---|---|---|
-| Frontend (UI) | `lt-parking-site-project` ([`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)) · local `~/workspace/LT_Proj/lt-parking-site-project` | Vite + React 19 + Redux Toolkit + TypeScript | Feature-complete SPA prototype against a mock backend (mirrors the API contract); real API pending |
-| Backend | `LTR-Backend` ([`github.com/LTRide2/LTR-Backend`](https://github.com/LTRide2/LTR-Backend)) | Python / Flask + PostgreSQL | Course scaffold; a one-shot PoC proved B0–B9 run end-to-end (see backend `backport.md`), not yet split into the stacked CRs |
+| Frontend (UI) | `frontend/` | Vite + React 19 + Redux Toolkit + TypeScript | Feature-complete SPA prototype against a mock backend (mirrors the API contract); real API pending |
+| Backend | `backend/` (Flask app under `backend/webapp/`) | Python / Flask + PostgreSQL | Course scaffold; a one-shot PoC proved B0–B9 run end-to-end (see backend `backport.md`), not yet split into the stacked CRs |
+| Deploy / infra | `deploy/` (CloudFormation + server config) + `scripts/` (`deploy.sh`, `local.sh`) | CloudFormation + bash + AWS CLI | Runnable four-concern deploy tooling; D0–D4 not yet run against an account |
 
 **Overall completion ≈ 45%** — the frontend is a feature-complete prototype driven through a mock backend that mirrors the planned API contract (§7.1), and a throwaway PoC has shown the backend design runs; the *shippable* Flask backend (B0–B9) and AWS deployment (D0–D4) are not yet built.
 
@@ -90,7 +96,7 @@ flowchart TB
 
 ## 2. What We Have in the UI (today)
 
-The frontend is a **feature-complete SPA prototype** that runs against an **independent mock backend** (`src/api/mock/backend.ts`), persisted to `localStorage` and swapped into the `api/` client by the `VITE_USE_MOCK` flag. The mock implements the planned JSON API (§7.1) route-for-route — same `{data}`/`{error}` envelope, same `Authorization: Bearer` token, same paths — so every screen is driven by real thunks/slices and network-shaped calls, **not** local Redux mutation. Flipping `VITE_USE_MOCK=false` points the identical client at the real Flask API once it exists.
+The frontend is a **feature-complete SPA prototype** that runs against an **independent mock backend** (`frontend/src/api/mock/backend.ts`), persisted to `localStorage` and swapped into the `api/` client by the `VITE_USE_MOCK` flag. The mock implements the planned JSON API (§7.1) route-for-route — same `{data}`/`{error}` envelope, same `Authorization: Bearer` token, same paths — so every screen is driven by real thunks/slices and network-shaped calls, **not** local Redux mutation. Flipping `VITE_USE_MOCK=false` points the identical client at the real Flask API once it exists.
 
 This prototype was built on the throwaway `poc` branch to de-risk the frontend and lock down the API contract before backend work starts. The bugs and refinements it surfaced are recorded in the UI `backport.md` (items U-1..U-31) and folded into the matching U# lessons' troubleshooting notes; contract changes it forced on the real backend are digested in the backend `backport.md`.
 
@@ -105,10 +111,10 @@ This prototype was built on the throwaway `poc` branch to de-risk the frontend a
 
 ### Implemented beyond the original U0–U9 plan
 These were added during the PoC and are **not yet on the CR tracker**; each surfaced a real-backend contract change catalogued in the backend `backport.md` digest.
-- **Student roster / Student Management** (`src/StudentManagement.tsx`) — a `students` entity keyed by `student_id`, with search, CRUD, CSV import (upsert) + CSV export, and a `parking_status` lifecycle; the PoC links roster↔login by `user.code === student.student_id`. (backport U-26, U-28)
+- **Student roster / Student Management** (`frontend/src/StudentManagement.tsx`) — a `students` entity keyed by `student_id`, with search, CRUD, CSV import (upsert) + CSV export, and a `parking_status` lifecycle; the PoC links roster↔login by `user.code === student.student_id`. (backport U-26, U-28)
 - **Direct assign / move a roster student to a spot**, including students with no login account (a space carries `assigned_student_id`), with one-slot-per-student move semantics. (U-27)
 - **Unassign & re-queue; move a request to another lot** — from both Student Management and the map's Assign-to-Spot mode. (U-23, U-29)
-- **Student self-service map** (`src/StudentDashboard.tsx`) mirroring the admin map (no sidebar): a student picks **exactly one** available spot and submits; the selection then **locks**. While `pending` they may **withdraw** (rescind) and re-pick; once `fulfilled` it is read-only. (U-30, U-31)
+- **Student self-service map** (`frontend/src/StudentDashboard.tsx`) mirroring the admin map (no sidebar): a student picks **exactly one** available spot and submits; the selection then **locks**. While `pending` they may **withdraw** (rescind) and re-pick; once `fulfilled` it is read-only. (U-30, U-31)
 
 ### Still mock-only (not yet real)
 - All state persists to `localStorage` through the mock backend; **nothing is saved to a real server**. The Flask backend (B0–B9) is not built, so `VITE_USE_MOCK=false` has no API to reach.
@@ -119,19 +125,18 @@ These were added during the PoC and are **not yet on the CR tracker**; each surf
 
 ## 3. What We Have in the Backend (today)
 
-`LTR-Backend` is a **generic Flask course template** (UMich "insta485" pattern), essentially unmodified for parking.
+The backend (`backend/webapp/`) is a **generic Flask course template** (UMich "insta485" pattern), essentially unmodified for parking.
 
 - Flask 2.2.2 + SQLite + a Webpack/React bundle served from Jinja templates.
-- **Duplicated app** in two folders: `BK/` and `webapp/` (copy-paste scaffolding).
+- A single `webapp/App/` package — the stock template app (the old copy-paste twin folder was collapsed when the code moved into the monorepo).
 - Only DB table is a placeholder `developer (fullname, email, picture, password)`.
-- `views/index.py` queries for `"John Doe"` and ignores the result.
+- `App/views/index.py` queries for `"John Doe"` and ignores the result.
 - Returns **HTML templates, not JSON** — no REST API.
 - No parking domain, no auth logic, no tests.
 
 ### 🚨 Security issues to fix first
-- **`aws-tutorial.pem` (a private SSH key) is committed** — leaked secret. Remove from history **and rotate the key**.
-- **`SECRET_KEY` is hard-coded** in `config.py` — move to environment variable.
-- Committed `venv/`, `__pycache__/`, `.DS_Store`, `*.sqlite3` — should be gitignored.
+- **`SECRET_KEY` is hard-coded** in `backend/webapp/App/config.py` — move it (and `DATABASE_URL`) to environment variables (**B0**).
+- **Keep secrets and build junk out of git** — `.gitignore` must cover `.env`, `venv/`/`.venv/`, `__pycache__/`, `.DS_Store`, `*.sqlite3`, and `node_modules/` (**B0**). *(The upstream course template also shipped a committed `aws-tutorial.pem` private key; it is **not** present in this monorepo — B0's key-purge-and-rotate walkthrough documents how a leaked key like that is removed from history and rotated.)*
 
 ---
 
@@ -544,7 +549,7 @@ The work is broken into small, independently-reviewable **stacked CRs**. **B#** 
   git rebase --onto cr/b0-cleanup <old-base> cr/b1-app-skeleton
   ```
 - **Merge in order.** When a parent merges to `main`, GitHub auto-retargets the child PR's base to `main`; rebase to drop the now-merged commits, then merge. Use squash-merge to keep `main` history one-commit-per-CR.
-- **Deploying while waiting for review:** `deploy.sh` / `release.sh` accept any checked-out branch, so you can ship a tip-of-stack branch to a staging instance for end-to-end validation before the PRs land. Only merged `main` deploys to production (CI in CR **D3**).
+- **Deploying while waiting for review:** `scripts/deploy.sh` (the `app` concern) ships whatever commit is on the box's checked-out branch, so you can point a staging instance at a tip-of-stack branch for end-to-end validation before the PRs land. Only merged `main` deploys to production (CI in CR **D3**).
 
 Independent CRs (no data dependency) may branch directly off `main` and merge in any order — e.g. **B0** and **U0** are parallel; backend `B#` and the matching frontend `U#` are stacked only where the UI consumes that endpoint.
 
@@ -607,8 +612,8 @@ The PoC (§2) validated four features beyond core U0–U9. The **frontend is alr
 | D0 | One-time AWS account + CLI setup *(not a code CR)* | — | — | [D0](deploy/deployment-guide.md#d0--one-time-aws-account-setup-not-a-code-cr-but-do-it-once) | — | 📋 |
 | D1 | CloudFormation templates (network/db/compute/dns) | `cr/d1-cfn-templates` | `main` | [D1](deploy/deployment-guide.md#cr-d1--write-the-cloudformation-templates-the-infrastructure-code) | — | 📋 |
 | D1b | Server config (nginx, systemd, provision.sh) | `cr/d1b-server-config` | D1 | [D1b](deploy/deployment-guide.md#cr-d1b--server-configuration-files-nginx-gunicornsystemd-provisioning) | — | 📋 |
-| D2 | Stand up the infrastructure (`deploy.sh up`) | `cr/d2-provision` | D1 | [D2](deploy/deployment-guide.md#cr-d2--stand-up-the-infrastructure) | — | 📋 |
-| D3 | Release the application code (`release.sh`) | `cr/d3-release` | D2 | [D3](deploy/deployment-guide.md#cr-d3--release-the-application-code) | — | 📋 |
+| D2 | Stand up the infrastructure (`scripts/deploy.sh infra up`) | `cr/d2-provision` | D1 | [D2](deploy/deployment-guide.md#cr-d2--stand-up-the-infrastructure) | — | 📋 |
+| D3 | Release the application code (`scripts/deploy.sh app`) | `cr/d3-release` | D2 | [D3](deploy/deployment-guide.md#cr-d3--release-the-application-code) | — | 📋 |
 | D4 | Domain + Route 53 + HTTPS (certbot) | `cr/d4-dns-tls` | D3 | [D4](deploy/deployment-guide.md#cr-d4--buy-a-domain-wire-it-to-route-53-and-turn-on-https) | — | 📋 |
 
 **Hardening (`B10/U11`, `B11/U12`, `B12`) — planned, not yet expanded into guide sections.** Validation/error-envelope polish (B10/U11), automated tests — pytest + Vitest (B11/U12), and the SQLite→Postgres path (B12). *Note:* the guides already build directly on **PostgreSQL** from B2 onward, so B12 is largely satisfied by design; it remains listed for the explicit "run the suite against a second Postgres" check. These get their own guide sections + tracker rows when scheduled. *(Frontend hardening is **U11/U12**, not U10 — **U10** is the PoC's Student Management extension above. Backend was earlier renumbered from B8/B9/B10 when the layout-save and create-lot features claimed B8/B9 · U8/U9.)*
@@ -656,7 +661,7 @@ Every CR — backend and frontend — ships with a PR description in this shape.
 - **B2 — Schema + migrations + seed.** `schema.sql` (§5.1) on **PostgreSQL**, seed data (lots, spaces, admin, student codes), dict connection helpers. *(Exact seed set — see the [B2 guide section](backend/backend-development-guide.md#cr-b2--database-schema--seed-data).)*
   - **Local test:** run the migration + seed against the dev Postgres, then `\dt` in `psql` shows all tables and `SELECT count(*) FROM lots;` matches the seed.
 - **B3 — Auth endpoints.** `/api/auth/student|admin|logout|me`, JWT issue/verify, password hashing, `@require_role`.
-  - **Local test:** `curl -XPOST localhost:8000/api/auth/student -d '{"code":"ABC123"}' -H 'Content-Type: application/json'` returns a token; reuse it on `GET /api/auth/me` → 200; a bad code → 401; admin route without token → 401.
+  - **Local test:** `curl -XPOST localhost:8000/api/auth/student -d '{"code":"STU001"}' -H 'Content-Type: application/json'` returns a token; reuse it on `GET /api/auth/me` → 200; a bad code → 401; admin route without token → 401.
 
 #### Phase 2 — Core parking API
 - **B4 — Lots & spaces read API.** `GET /api/lots`, `GET /api/lots/:id/spaces`.
@@ -705,13 +710,13 @@ Every CR — backend and frontend — ships with a PR description in this shape.
 Deployment CRs are **D0–D4** in the [tracker](#82-cr-status-tracker); the full step-by-step lives in the [deployment guide, Part 1](deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4).
 - **D0 — One-time AWS account + CLI setup** *(not a code CR)*. Account, IAM user, AWS CLI, Route 53 hosted zone.
   - **Local test:** `aws sts get-caller-identity` returns your account; the hosted zone exists (`aws route53 list-hosted-zones`).
-- **D1 — CloudFormation templates** (`deploy/cfn/` network/db/compute/dns) + `deploy.sh` + `params/prod.json`.
+- **D1 — CloudFormation templates** (`deploy/cfn/` network/db/compute/dns) + `scripts/deploy.sh` + `params/prod.json`.
   - **Local test:** `aws cloudformation validate-template --template-body file://deploy/cfn/01-network.yaml` (etc.) passes for every template; `cfn-lint deploy/cfn/*.yaml` is clean; a `create-change-set` previews the expected resources without erroring.
 - **D1b — Server configuration files** (nginx site, gunicorn systemd unit, `provision.sh`).
   - **Local test:** `nginx -t -c` against the rendered config passes; `systemd-analyze verify` accepts the unit file; `bash -n provision.sh` parses clean.
-- **D2 — Stand up the infrastructure** (`deploy.sh up` — deploy the stacks).
+- **D2 — Stand up the infrastructure** (`scripts/deploy.sh infra up` — deploy the stacks).
   - **Local test:** stacks reach `CREATE_COMPLETE`; `curl http://<elastic-ip>/api/health` → ok once provisioning finishes; `detect-stack-drift` reports no drift.
-- **D3 — Release the application code** (`release.sh` — build + rsync + restart).
+- **D3 — Release the application code** (`scripts/deploy.sh app` — build + rsync + restart).
   - **Local test:** the SPA loads over the public IP and logs in against RDS-backed data; `/api/health` returns ok from the released build.
 - **D4 — Domain + Route 53 + HTTPS** (certbot).
   - **Local test:** `https://<your-domain>/api/health` returns 200 with a valid cert; HTTP redirects to HTTPS.
@@ -733,10 +738,10 @@ Demoable after **U5** (students register interest, admins manage spaces); featur
 
 > **Where the detail lives.** The deployment design, the CloudFormation stack-by-stack reference, the AWS-services inventory, and the full cost model now live **with the backend implementation guide** (deployment is primarily a backend/ops concern), and the runnable artifacts live in the repo-root [`deploy/`](../deploy/README.md) folder. This section is the orchestrator's map to them.
 
-**Architecture (one paragraph):** Flask served by **gunicorn** behind **nginx** on a single **EC2** instance; **PostgreSQL on RDS** in private subnets; the React static bundle served from the same nginx (or optionally S3 + CloudFront). HTTPS via **Let's Encrypt (certbot)** on a domain in **Route 53**. **All infrastructure is CloudFormation (IaC)** — no manual console clicks.
+**Architecture (one paragraph):** Flask served by **gunicorn** behind **nginx** on a single **EC2** instance; **PostgreSQL on RDS** reachable only from the web tier's security group (not publicly accessible); the React static bundle served from the same nginx (or optionally S3 + CloudFront). HTTPS via **Let's Encrypt (certbot)** on a domain in **Route 53**. **All infrastructure is CloudFormation (IaC)** — no manual console clicks.
 
 ```
-                 ┌──────── EC2 c6g.4xlarge (Ubuntu 22.04, arm64) ──────┐
+                 ┌──────── EC2 t3.micro (Ubuntu 22.04, amd64) ─────────┐
  Internet ──443──┤ nginx (TLS, reverse proxy, serves React build)      │
    (Route 53)    │   │                                                  │
                  │   └─ proxy /api ─▶ gunicorn (systemd) ─▶ Flask app   │
@@ -754,9 +759,9 @@ Demoable after **U5** (students register interest, admins manage spaces); featur
 | **Click-by-click deploy tutorial** (D0–D4: account setup, templates, provision, release, DNS/TLS) | Deployment guide → [Part 1 — Deploy to AWS](deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) |
 | **Live-server operations & troubleshooting** | Deployment guide → [Part 2 — Operating the live server](deploy/deployment-guide.md#part-2--operating--troubleshooting-the-live-server) |
 | **Deployment design reference** — architecture, IaC layout, per-stack CloudFormation snippets, AWS-services inventory, deployment diagram | Deployment guide → [Part 3 — Reference](deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model) |
-| **Cost model** — monthly AWS estimate (min/mid/max for ~1000 users) + professional build/maintenance labor | Deployment guide → [Part 3 §B.13–§B.14](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) |
+| **Cost model** — monthly AWS estimate (default/min through scale-up mid/max for ~1000 users) + professional build/maintenance labor | Deployment guide → [Part 3 §B.13–§B.14](deploy/deployment-guide.md#b13-monthly-cost-estimate-scaling-scenarios) |
 | **Frontend build & serve** (`npm run build` → `dist/`, nginx static serving, prod `VITE_*`, SPA fallback) | UI guide → [Deployment (frontend)](ui/ui-development-guide.md#part-f3--deployment-frontend) |
-| **Runnable artifacts** — CloudFormation templates, `deploy.sh`, `release.sh`, nginx/systemd/provision configs | Repo-root [`deploy/`](../deploy/README.md) |
+| **Runnable artifacts** — CloudFormation templates, `scripts/deploy.sh` (four concerns: secrets/infra/db/app), nginx/systemd/provision configs | Repo-root [`deploy/`](../deploy/README.md) |
 
 ### 10.2 The deployment CRs (tracked in §8.2)
 
@@ -782,7 +787,7 @@ Deployment is delivered as CRs **D0–D4** in the [CR status tracker](#82-cr-sta
 | R4 | **Contract drift** between the two halves (envelope, enums, auth header). | Medium — integration breakage. | §7.1 is the single authoritative contract; both guides link to it, not to each other's copies. | [§7.1](#71-the-contract-that-binds-the-two-halves-authoritative-here) |
 | R5 | **Assignment race** — two admins assign the same space. | Medium — double-booking. | Transactional assign with a conditional update (per §6.3); 409 on conflict. | [§6.3](#63-admin-assigns-a-space-to-a-student-allocation) |
 | R6 | **Single-EC2 SPOF / no backups.** | Medium — downtime, data loss. | RDS automated backups; CloudFormation makes the box reproducible; documented restore. Scale-out is out of scope (§Executive Summary). | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
-| R7 | **Cost overrun** — the sized instance is far larger than a school parking app needs. | Low/Medium — budget. | The [cost model (deployment guide §B.13)](deploy/deployment-guide.md#b13-monthly-cost-estimate-c6g4xlarge) is an explicit planning decision to revisit; right-size before provisioning. | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
+| R7 | **Cost overrun** — over-provisioning the instance far beyond what a school parking app needs. | Low/Medium — budget. | Templates **default to a single `t3.micro`** (free-tier eligible); the larger `c6g.4xlarge` figures in the [cost model (deployment guide §B.13)](deploy/deployment-guide.md#b13-monthly-cost-estimate-scaling-scenarios) are explicit scale-up scenarios, not the default — size up to measured load, not ahead of it. | [§10](#10-aws-deployment--ec2--rds-via-cloudformation) |
 | R8 | **Layout save destroys assigned spots** — the full-replace `PUT /api/lots/:id/layout` (B8/U8) deletes spaces omitted from the payload. | Medium — an admin re-arranging could wipe a space a student is assigned to. | Transactional save that **refuses (409)** to delete any space that is currently `assigned`; positions stored as normalized 0–1 fractions so they don't break on zoom/resize. | [§6.4](#64-admin-creates-a-lot-then-arranges-its-spots-authoring) |
 | R9 | **Roster↔login identity drift** — the PoC links `Student` to `User` by the convention `user.code == student.student_id`; a typo or duplicate leaves a space held by a `student_id` with no matching login (or vice-versa). | Medium — a student can't see the spot assigned to them; orphaned `assigned_student_id`. | Make it a real **FK** in the backend (B13/B14), enforce uniqueness on `student_id` and `user.code`, and reconcile on assign/import; the dual-identity assign path is validated (409 on unavailable spot). | [§5.1](#51-data-model-entities), [§6.5](#65-extension-flows-surfaced-by-the-poc-roster-withdraw-move) |
 

@@ -78,8 +78,8 @@ AFTER   — full CRUD, a CSV upsert-import, and a direct-assign move, all on the
 
 Every entity you've built so far — `lots`, `spaces`, `interest`, `assignments` — is data the *app* invented. The roster is different: it's data the school **already has**, in a spreadsheet, before your app existed. Two ideas make that difference concrete:
 
-- **A business key, not just a surrogate id.** The roster is looked up by the school's own `student_id` (`STU001`), not the database's auto-increment `id` (its [primary key](GLOSSARY.md#primary-key)). That's the value a CSV import matches rows on, and the value that links a roster row to a login account (`users.code == students.student_id`) — see `webapp/App/views/students.py:122-124`. Get the key wrong and an import can't tell "update this student" from "add a duplicate."
-- **Two identities can hold one spot.** A roster student might have no login `users` row at all — Sarah Smith (`S123213`) in the seed is one, and so is anyone an admin adds via `POST /api/students`. (The one exception is CSV import, which *provisions* a login for each row — see Step 4.) So `spaces` carries **two** nullable foreign-ish columns: `assigned_user_id` (the login, may be `NULL`) and `assigned_student_id` (the roster, by `student_id`). The assign [endpoint](GLOSSARY.md#endpoint) in this lesson (`students.py:106-170`) is the one place that has to reconcile both identities in a single transaction — for a login-less roster student it sets only `assigned_student_id`.
+- **A business key, not just a surrogate id.** The roster is looked up by the school's own `student_id` (`STU001`), not the database's auto-increment `id` (its [primary key](GLOSSARY.md#primary-key)). That's the value a CSV import matches rows on, and the value that links a roster row to a login account (`users.code == students.student_id`) — see `backend/webapp/App/views/students.py:122-124`. Get the key wrong and an import can't tell "update this student" from "add a duplicate."
+- **Two identities can hold one spot.** A roster student might have no login `users` row at all — Sarah Smith (`S123213`) in the seed is one, and so is anyone an admin adds via `POST /api/students`. (The one exception is CSV import, which *provisions* a login for each row — see Step 4.) So `spaces` carries **two** nullable foreign-ish columns: `assigned_user_id` (the login, may be `NULL`) and `assigned_student_id` (the roster, by `student_id`). The assign [endpoint](GLOSSARY.md#endpoint) in this lesson (`backend/webapp/App/views/students.py:106-170`) is the one place that has to reconcile both identities in a single transaction — for a login-less roster student it sets only `assigned_student_id`.
 
 This also finishes a gap B7 left open: B7's `POST /api/assignments` is keyed by `userId` and works cleanest once the student has *filed an interest request*. A roster-only student (Sarah, no login) can't be named by `userId` at all; and even a CSV-imported student — who now *does* have a login — still hasn't filed a request, and the admin is working from the roster's numeric `id`, not a `userId`. `POST /api/students/:id/assign` is the direct-placement path for all of them: it takes the roster `id`, links a login if one exists, and fulfils an interest row only when there is one.
 
@@ -101,7 +101,7 @@ This also finishes a gap B7 left open: B7's `POST /api/assignments` is keyed by 
 
 **Time budget for the hour:** setup & branch (5 min) → Step 1, list + search (8) → Step 2, create + update + delete (15) → Step 3, direct assign — the transaction (20) → Step 4, CSV import (15) → register the blueprint (2) → local testing (10).
 
-**You need, from earlier lessons:** the server running locally (B1), the schema seeded (B2) — the `students` table already exists from `001_init.sql`, this lesson adds no migration — and the admin login (B3). You'll also lean on the shared `serialize.py` module introduced in B4: this lesson's `assign` endpoint reuses `serialize.SPACE_SELECT` and `serialize.space()` (`webapp/App/serialize.py:10-18,53-68`) exactly as B7 did, plus a new `serialize.student()` (`webapp/App/serialize.py:87-98`) for every other [response](GLOSSARY.md#response).
+**You need, from earlier lessons:** the server running locally (B1), the schema seeded (B2) — the `students` table already exists from `001_init.sql`, this lesson adds no migration — and the admin login (B3). You'll also lean on the shared `serialize.py` module introduced in B4: this lesson's `assign` endpoint reuses `serialize.SPACE_SELECT` and `serialize.space()` (`backend/webapp/App/serialize.py:10-18,53-68`) exactly as B7 did, plus a new `serialize.student()` (`backend/webapp/App/serialize.py:87-98`) for every other [response](GLOSSARY.md#response).
 
 **Branch off B9** (the last core lesson; B13 stacks after B9, not on `main`):
 
@@ -116,7 +116,7 @@ git checkout -b cr/b13-student-roster
 
 ### Step 1 — List and search the roster (~10 min)
 
-Create `webapp/App/views/students.py`:
+Create `backend/webapp/App/views/students.py`:
 
 ```python
 import csv
@@ -155,7 +155,7 @@ def list_students():
         rows = query("SELECT * FROM students ORDER BY lower(last), lower(first)")   # no q= → full roster
     return jsonify({"data": [serialize.student(row) for row in rows]})   # {"data": [...]} envelope
 ```
-(`webapp/App/views/students.py:1-36`)
+(`backend/webapp/App/views/students.py:1-36`)
 
 **Why it works & further reading:**
 - **`_student_by_id`** is a tiny helper called from four other handlers below — the roster's path param is always the numeric `id`, never `student_id`, so this centralizes that lookup once.
@@ -232,7 +232,7 @@ def delete_student(student_pk):
     connection.commit()
     return "", 204                               # 204: deleted, no body
 ```
-(`webapp/App/views/students.py:39-103`)
+(`backend/webapp/App/views/students.py:39-103`)
 
 **Why it works & further reading:**
 - **Create** re-checks `student_id` uniqueness with `lower(...)` on both sides — the same case-insensitive duplicate check you built for lot names in B9, applied to the roster's business key instead.
@@ -308,7 +308,7 @@ def assign_student(student_pk):
     row = query_one(serialize.SPACE_SELECT + " WHERE s.id = %s", (space_id,))   # re-read the space, not the student
     return jsonify({"data": serialize.space(row)})
 ```
-(`webapp/App/views/students.py:106-170`)
+(`backend/webapp/App/views/students.py:106-170`)
 
 **Why it works & further reading:**
 - **Validate, then resolve the login link.** `spaceId` must be an `int`, the space must exist and be `available` — the same fail-fast-before-the-transaction shape as B7. Then `login = query_one("SELECT id FROM users WHERE code = %s", (student_code,))` implements the convention from plan.md §5.1: *if some login's `code` equals this student's `student_id`, they're the same person.* `login_id` stays `None` when there's no such account — the transaction below has to work either way.
@@ -328,7 +328,7 @@ except Exception:
     raise
 ```
   Every one of those writes has to land together — a crash after step 2 but before step 4 would leave a space `assigned` while the roster still says `unassigned`, exactly the kind of drift B7 taught you a transaction prevents. → Reference: [Lesson B7 — the transaction](B7-admin-assigns-a-space.md#-build-it-step-by-step).
-- **Why the response is a *space*, not a *student*.** The endpoint re-reads the space through `serialize.SPACE_SELECT` / `serialize.space()` — the exact shared [serializer](GLOSSARY.md#serialization) B4 introduced and B7 reused — so the caller sees the same shape `GET /api/lots/:id/spaces` returns, including the freshly-set `assigned_student_id` and the `assigned_user_name` the `SPACE_SELECT` join computes via `COALESCE(u.name, st.first || ' ' || st.last)` (`serialize.py:14`) — that `COALESCE` is precisely what lets a roster-only student (no login) still show a name on the map.
+- **Why the response is a *space*, not a *student*.** The endpoint re-reads the space through `serialize.SPACE_SELECT` / `serialize.space()` — the exact shared [serializer](GLOSSARY.md#serialization) B4 introduced and B7 reused — so the caller sees the same shape `GET /api/lots/:id/spaces` returns, including the freshly-set `assigned_student_id` and the `assigned_user_name` the `SPACE_SELECT` join computes via `COALESCE(u.name, st.first || ' ' || st.last)` (`backend/webapp/App/serialize.py:14`) — that `COALESCE` is precisely what lets a roster-only student (no login) still show a name on the map.
 
 ### Step 4 — CSV import: upsert with per-row errors (~15 min)
 
@@ -391,7 +391,7 @@ def import_students():
         raise
     return jsonify({"data": {"added": added, "updated": updated, "errors": errors}})
 ```
-(`webapp/App/views/students.py:173-229`)
+(`backend/webapp/App/views/students.py:173-229`)
 
 **Why it works & further reading:**
 - **`request.files.get("file")`, not `request.get_json()`.** A CSV upload arrives as `multipart/form-data`; Flask parses that into `request.files` (the file part) and `request.form` (any plain fields) — completely separate from the JSON body every other endpoint in this app reads. → Reference: [Flask: Uploading Files](https://flask.palletsprojects.com/en/stable/patterns/fileuploads/).
@@ -406,7 +406,7 @@ def import_students():
 
 ### Step 5 — Register the blueprint (~2 min)
 
-Open `webapp/App/__init__.py` and add, alongside the other blueprint registrations:
+Open `backend/webapp/App/__init__.py` and add, alongside the other blueprint registrations:
 
 ```python
     from .views import students
@@ -534,7 +534,7 @@ Invoke-RestMethod http://localhost:8000/api/students -SkipHttpErrorCheck -Header
 - The follow-up student login for `STU020` returns `200` — the import provisioned a login (with `email: null`, since metadata stays in `students`), so a brand-new imported student can sign in immediately.
 - Every call with `$S` → `403`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, re-run the assign + import sequence against `http://<ElasticIp>` and confirm the roster and the live map spot colors agree from a second browser.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, re-run the assign + import sequence against `http://<ElasticIp>` and confirm the roster and the live map spot colors agree from a second browser.
 
 ---
 

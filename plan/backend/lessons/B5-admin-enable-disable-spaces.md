@@ -109,10 +109,10 @@ git checkout -b cr/b5-spaces
 
 ### Step 1 — The single-space route (~15 min)
 
-Create `webapp/App/views/spaces.py`:
+Create `backend/webapp/App/views/spaces.py`:
 
 ```python
-# webapp/App/views/spaces.py
+# backend/webapp/App/views/spaces.py
 from flask import Blueprint, request, jsonify
 
 from ..db import query, query_one, get_db
@@ -152,7 +152,7 @@ def update_space(space_id):
     connection.commit()                                # closes the transaction; the write is now durable
     return jsonify({"data": _space(space_id)})         # re-fetch + serialize so the shape matches every other space read
 ```
-(`webapp/App/views/spaces.py:1-39`)
+(`backend/webapp/App/views/spaces.py:1-39`)
 
 **Why it works & further reading:**
 - Decorators run **bottom-up**: `@require_role("admin")` checks the caller's [role](GLOSSARY.md#role) before Flask ever calls `update_space` — a missing token gets `401`, a valid **student** token gets `403`. Only an admin token reaches the function body. → [OWASP: Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
@@ -165,7 +165,7 @@ def update_space(space_id):
 
 ### Step 2 — The bulk route (~15 min)
 
-Add this to the same file, `webapp/App/views/spaces.py`:
+Add this to the same file, `backend/webapp/App/views/spaces.py`:
 
 ```python
 @bp.patch("/api/spaces")                              # PATCH applied to many ids in one call
@@ -188,7 +188,7 @@ def bulk_update_spaces():
     rows = query(serialize.SPACE_SELECT + " WHERE s.id = ANY(%s) ORDER BY s.id", (ids,))  # re-fetch, ordered, for a stable response
     return jsonify({"data": [serialize.space(row) for row in rows]})
 ```
-(`webapp/App/views/spaces.py:42-60`)
+(`backend/webapp/App/views/spaces.py:42-60`)
 
 **Why it works & further reading:**
 - `ids` must be a list and `status` one of the two allowed values — validated before any query runs, same order as the single-space route.
@@ -198,7 +198,7 @@ def bulk_update_spaces():
 
 ### Step 3 — Register the blueprint (~5 min)
 
-Open `webapp/App/__init__.py` and add these two lines next to where you registered `lots` in B4:
+Open `backend/webapp/App/__init__.py` and add these two lines next to where you registered `lots` in B4:
 
 ```python
     from .views import spaces
@@ -227,7 +227,7 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
    $env:S = "<paste-a-student-token>"
    ```
 
-2. **Steps** (ids below are the seeded Lot 1 spaces: A1=1, A2=2, A3=3, A4=4 `disabled`, ... A8=8 `assigned` to Alice — see `webapp/sql/seed.sql`):
+2. **Steps** (ids below are the seeded Lot 1 spaces: A1=1, A2=2, A3=3, A4=4 `disabled`, ... A8=8 `assigned` to Alice — see `backend/webapp/sql/seed.sql`):
 
    **macOS / Linux**
 
@@ -299,7 +299,7 @@ Open `webapp/App/__init__.py` and add these two lines next to where you register
    - Student token → `403` `{"error":{"code":"forbidden",...}}`.
    - `{"status":"banana"}` → `400`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, repeat the bulk-disable against `http://<ElasticIp>` with a server admin token, then re-read the lot to confirm it persisted in RDS.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, repeat the bulk-disable against `http://<ElasticIp>` with a server admin token, then re-read the lot to confirm it persisted in RDS.
 
 ---
 
@@ -320,7 +320,7 @@ Then open a Pull Request on GitHub with **base = `cr/b4-lots`** — not `main` �
 - **`403` on a request you expected to succeed** — check *whose* token you sent. Both routes are admin-only by design; a student token getting `403` here is correct behavior, not a bug.
 - **`409` on a space you expected to disable** — that space's status is already `assigned`. That's the business rule working as intended; it can't be disabled until it's unassigned (the assign flow handles that).
 - **`409` on a bulk call where most ids looked fine** — check whether *any* id in the list is currently `assigned` (e.g. id 8 / A8 in the seed data). The bulk route rejects the entire call if even one target is assigned, so none of the ids changed — remove the offending id (or unassign it first) and resend.
-- **Both `PATCH` routes 404** — you likely skipped Step 3. Confirm `app.register_blueprint(spaces.bp)` is actually in `webapp/App/__init__.py`.
+- **Both `PATCH` routes 404** — you likely skipped Step 3. Confirm `app.register_blueprint(spaces.bp)` is actually in `backend/webapp/App/__init__.py`.
 - **`curl` seems to "hang" or do nothing on the PATCH commands** — you forgot `-X PATCH`; without it `curl` defaults to `GET`, which this route doesn't support. On Windows, the equivalent mistake is forgetting `-Method Patch` on `Invoke-RestMethod` (it defaults to `GET` too).
 
 ---

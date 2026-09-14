@@ -29,7 +29,7 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-t
 Right now, when an admin disables a parking space in Edit Mode, the grey colour is a **lie** — it only lives in the browser's memory, and a page refresh erases it. This lesson makes it real: clicking **Disable** or **Enable** sends the change to the backend and saves it in the database, so it **survives a refresh**.
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `src/store/parkingSlice.ts` has an `updateSpaces` [thunk](GLOSSARY.md#thunk) that calls [PATCH](GLOSSARY.md#http-methods) `/api/spaces`.
+- [ ] `frontend/src/store/parkingSlice.ts` has an `updateSpaces` [thunk](GLOSSARY.md#thunk) that calls [PATCH](GLOSSARY.md#http-methods) `/api/spaces`.
 - [ ] `updateSpaces`'s `pending`/`fulfilled`/`rejected` cases are handled in [`extraReducers`](GLOSSARY.md#extrareducers) (optimistic recolour on `pending`; on `rejected`, surface the error — no auto-revert).
 - [ ] `ControlBoard.tsx`'s **Disable** and **Enable** sub-panel buttons both [dispatch](GLOSSARY.md#dispatch) `updateSpaces` on click, instead of the old, deleted `enableSelectedSpaces`/`disableSelectedSpaces`.
 - [ ] Disabling a space, then **refreshing the page**, still shows it grey.
@@ -99,7 +99,7 @@ git checkout -b cr/u4-save-status
 
 ### Step 1 — Add the `updateSpaces` thunk (~25 min)
 
-Open `src/store/parkingSlice.ts` (the one you rewrote in U3). Add this thunk next to `fetchSpaces`:
+Open `frontend/src/store/parkingSlice.ts` (the one you rewrote in U3). Add this thunk next to `fetchSpaces`:
 
 ```ts
 // PATCH /api/spaces  body { ids:number[], status:"available"|"disabled" }
@@ -210,7 +210,7 @@ The instant you click **Disable** in the sub-panel, the two selected (gold) spac
    - If you stop the backend and try again, a red error appears; the optimistic grey stays on screen (it isn't auto-reverted) until the next load re-fetches the real state.
    - A space that's already `assigned` can't be disabled — the server returns 409 and you see the error (don't select assigned/blue spaces).
 
-**☁️ Cloud check (optional):** needs backend **B5** deployed. `./release.sh frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
+**☁️ Cloud check (optional):** needs backend **B5** deployed. `scripts/deploy.sh app frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
 
 ---
 

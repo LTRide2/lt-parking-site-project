@@ -112,7 +112,7 @@ The terminal program you use to talk to a PostgreSQL database: `psql mydb -f fil
 The language you write to talk to the database — `CREATE TABLE`, `INSERT`, `SELECT`, `UPDATE`, `DELETE`. This project writes SQL **by hand** (no ORM), which is why you read real SQL in every data lesson. → [PostgreSQL: SQL](https://www.postgresql.org/docs/current/sql.html).
 
 ### Migration
-A numbered `.sql` file that builds or changes the database's tables. Running it sets the database up; this project keeps them in `webapp/sql/migrations/`. → [Schema migration](https://en.wikipedia.org/wiki/Schema_migration).
+A numbered `.sql` file that builds or changes the database's tables. Running it sets the database up; this project keeps them in `backend/webapp/sql/migrations/`. → [Schema migration](https://en.wikipedia.org/wiki/Schema_migration).
 
 ### Schema
 The overall shape of the database: which tables exist, what columns each has, and how they relate. → [MDN: schema](https://developer.mozilla.org/en-US/docs/Glossary/Schema).
@@ -149,7 +149,7 @@ Proving *who* you are — logging in with a password and getting a token back. (
 Also just called a **token**. A signed slip of text the server hands you at login that proves "yes, this is user #12, an admin." The client re-sends it on every later request so you don't retype your password. → [jwt.io: Introduction](https://jwt.io/introduction).
 
 ### Password hash
-A password is never stored as-is. It's run through a one-way scrambler (**bcrypt** here) into a "hash"; at login the server hashes what you typed and compares — so even a stolen database never reveals real passwords. → [OWASP: Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+A password is never stored as-is. It's run through a one-way scrambler (**Werkzeug's scrypt** here) into a "hash"; at login the server hashes what you typed and compares — so even a stolen database never reveals real passwords. → [OWASP: Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
 
 ### Role
 A label on a user — `student` or `admin` — that decides which endpoints they may call. The `@require_role("admin")` guard rejects anyone without it. → [MDN: Authorization](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authorization).

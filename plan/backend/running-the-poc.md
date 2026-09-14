@@ -147,7 +147,7 @@ Create `backend/.env` with the two required keys:
 SECRET_KEY=change-me-to-a-long-random-string
 
 # Local dev database.
-DATABASE_URL=postgresql://localhost/ltride_dev
+DATABASE_URL=postgresql://localhost/ltride
 ```
 
 Two more settings are optional — add them only to override their defaults:
@@ -161,7 +161,7 @@ Two more settings are optional — add them only to override their defaults:
 ### 2c. Create the database
 
 ```bash
-createdb ltride_dev
+createdb ltride
 ```
 
 ### 2d. Create the tables and load seed data
@@ -169,15 +169,15 @@ createdb ltride_dev
 **macOS / Linux**
 
 ```bash
-psql -d ltride_dev -f backend/webapp/sql/migrations/001_init.sql   # schema (drops + recreates)
-psql -d ltride_dev -f backend/webapp/sql/seed.sql                  # demo lots, spaces, students
+psql -d ltride -f backend/webapp/sql/migrations/001_init.sql   # schema (drops + recreates)
+psql -d ltride -f backend/webapp/sql/seed.sql                  # demo lots, spaces, students
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-psql -d ltride_dev -f backend\webapp\sql\migrations\001_init.sql    # schema (drops + recreates)
-psql -d ltride_dev -f backend\webapp\sql\seed.sql                   # demo lots, spaces, students
+psql -d ltride -f backend\webapp\sql\migrations\001_init.sql    # schema (drops + recreates)
+psql -d ltride -f backend\webapp\sql\seed.sql                   # demo lots, spaces, students
 ```
 
 The seed includes a **dev-only** admin (`admin` / `admin123`) and four student
@@ -316,8 +316,8 @@ backend/.venv/bin/python backend/webapp/tests/smoke_api.py http://127.0.0.1:8000
 # ... == 67 passed, 0 failed ==
 
 # restore a clean database
-psql -d ltride_dev -f backend/webapp/sql/migrations/001_init.sql
-psql -d ltride_dev -f backend/webapp/sql/seed.sql
+psql -d ltride -f backend/webapp/sql/migrations/001_init.sql
+psql -d ltride -f backend/webapp/sql/seed.sql
 ```
 
 ---

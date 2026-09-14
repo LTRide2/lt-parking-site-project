@@ -102,7 +102,7 @@ The fix is a **database transaction**: you group every related write into one al
 
 **Time budget for the hour:** setup & branch (5 min) → build `assignments.py` and understand the transaction (35) → register the blueprint (5) → local testing (15) → commit & push (5).
 
-**You need, from earlier lessons:** the server running locally (B1), the database seeded (B2), login working (B3), and — specifically for testing this CR — a student who has already registered interest in a lot, so there's a `pending` row to fulfill (B6). The seed data (`webapp/sql/seed.sql`) already gives you one: Bob (`STU002`, user id 3) has a `pending` request on Lot 4.
+**You need, from earlier lessons:** the server running locally (B1), the database seeded (B2), login working (B3), and — specifically for testing this CR — a student who has already registered interest in a lot, so there's a `pending` row to fulfill (B6). The seed data (`backend/webapp/sql/seed.sql`) already gives you one: Bob (`STU002`, user id 3) has a `pending` request on Lot 4.
 
 **Branch off B6** (this CR stacks directly on top of it, not `main`):
 
@@ -117,12 +117,12 @@ git checkout -b cr/b7-assignments
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Create `webapp/App/views/assignments.py` (~35 min)
+### Step 1 — Create `backend/webapp/App/views/assignments.py` (~35 min)
 
 Create the file with this exact content:
 
 ```python
-# webapp/App/views/assignments.py
+# backend/webapp/App/views/assignments.py
 import psycopg
 from flask import Blueprint, request, jsonify, g
 
@@ -303,7 +303,7 @@ def _label(cursor, space_id):                 # small helper: avoids an inline c
     return row["label"] if row else ""
 ```
 
-→ This is the real shipped file, `webapp/App/views/assignments.py` (clone A ground truth), not a simplified version.
+→ This is the real shipped file, `backend/webapp/App/views/assignments.py` (clone A ground truth), not a simplified version.
 
 **Why it works & further reading:**
 - **Validate before opening the transaction.** All four checks (`spaceId`/`userId` types, space exists, user exists, space is `available`) run as plain `SELECT`s first, so the transaction below only ever contains writes already known to make sense. → [12-Factor: fail fast](https://12factor.net/config)
@@ -317,7 +317,7 @@ def _label(cursor, space_id):                 # small helper: avoids an inline c
 
 ### Step 2 — Register the blueprint (~5 min)
 
-Open `webapp/App/__init__.py` and add, alongside the other blueprint registrations:
+Open `backend/webapp/App/__init__.py` and add, alongside the other blueprint registrations:
 
 ```python
     from .views import assignments
@@ -441,7 +441,7 @@ Invoke-RestMethod "http://localhost:8000/api/interest?status=pending" -Headers @
 - Step 4 → `200`; Alice's space is freed; her request re-enters the queue `pending` **in the target lot**, waiting for an admin to assign her an actual spot there.
 - (As with every earlier CR) a student token on any of these routes, or an admin token where a student route is expected, → `403`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, run the same assign → read → fulfilled → delete → move sequence against `http://<ElasticIp>`. With B7 deployed, the **whole backend is live in the cloud** — this is a good moment to run the full two-window browser story from the backend guide's Part 1E against the deployed site (`./release.sh all`) as your real end-to-end cloud test.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, run the same assign → read → fulfilled → delete → move sequence against `http://<ElasticIp>`. With B7 deployed, the **whole backend is live in the cloud** — this is a good moment to run the full two-window browser story from the backend guide's Part 1E against the deployed site (`scripts/deploy.sh app all`) as your real end-to-end cloud test.
 
 ---
 

@@ -30,7 +30,7 @@ Right now the **Update School Map** button just sits there — clicking it does 
 
 Concretely, you will have:
 
-- An `uploadFile` helper in `src/api/client.ts` that sends a file as [`FormData`](GLOSSARY.md#formdata) instead of JSON.
+- An `uploadFile` helper in `frontend/src/api/client.ts` that sends a file as [`FormData`](GLOSSARY.md#formdata) instead of JSON.
 - An `uploadLotMap` [thunk](GLOSSARY.md#thunk) that [`POST`](GLOSSARY.md#http-methods)s the file to `/api/lots/:id/map` and then refreshes the lots so the new image shows up.
 - A hidden `<input type="file">` wired to the **Update School Map** button, so a click opens the OS picker instead of doing nothing.
 - A shared `mapImg()` helper so the map image renders in **every** lot view — not only the one with spots already arranged on it.
@@ -105,12 +105,12 @@ git checkout -b cr/u7-map-upload
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Add an upload helper to `src/api/client.ts` (~10 min)
+### Step 1 — Add an upload helper to `frontend/src/api/client.ts` (~10 min)
 
 Your existing `api` helper always JSON-encodes. This upload needs a different body shape, so add a **separate** function next to it that reuses the same auth token:
 
 ```ts
-// add to src/api/client.ts
+// add to frontend/src/api/client.ts
 export async function uploadFile(path: string, file: File) {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;   // NOTE: no Content-Type — the browser sets it
@@ -139,7 +139,7 @@ export async function uploadFile(path: string, file: File) {
 - **[Mock backend](GLOSSARY.md#mock-backend) branch** — same mock/real split every other `api` call takes; `mockUpload` stores the file in memory with no network, which is why the whole frontend (uploads included) runs standalone. → [Lesson U0](U0-project-hygiene.md).
 - **[`FormData`](GLOSSARY.md#formdata) builds the multipart body** — `formData.append("file", file)` puts the raw `File` in one part named `"file"`. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
 - **Why no `Content-Type`** — when `fetch`'s body is a `FormData` object, the browser writes `Content-Type: multipart/form-data; boundary=...` itself; it's the only one that knows the boundary string. Setting it yourself breaks the upload.
-- `token`, `BASE`, `USE_MOCK` are existing module-level values from `client.ts`; `mockUpload` comes from `src/api/mock/backend.ts` — no new imports needed beyond that.
+- `token`, `BASE`, `USE_MOCK` are existing module-level values from `client.ts`; `mockUpload` comes from `frontend/src/api/mock/backend.ts` — no new imports needed beyond that.
 
 ### Step 2 — Add an upload thunk to `parkingSlice.ts` (~10 min)
 
@@ -241,7 +241,7 @@ Update the **Update School Map** button's `onClick` to open the picker, and add 
    - A non-image or too-large file → the server rejects it (400/413) and you see a **red error**, no crash.
    - Re-selecting the exact same file a second time uploads again (Step 3's `e.target.value = ""` reset working).
 
-**☁️ Cloud check (optional):** needs the backend map-upload endpoint deployed. `./release.sh all`, then upload an image on the live site. **Heads-up:** large uploads can hit nginx's `client_max_body_size` limit (default 1 MB → `413`). If real photos are rejected in the cloud but work locally, raise that limit in the nginx config (**Part 3 / nginx config** in the backend guide).
+**☁️ Cloud check (optional):** needs the backend map-upload endpoint deployed. `scripts/deploy.sh app all`, then upload an image on the live site. **Heads-up:** large uploads can hit nginx's `client_max_body_size` limit (default 1 MB → `413`). If real photos are rejected in the cloud but work locally, raise that limit in the nginx config (**Part 3 / nginx config** in the backend guide).
 
 ---
 

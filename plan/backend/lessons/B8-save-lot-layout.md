@@ -67,7 +67,7 @@ In the UI prototype, where each space sits on the map comes from three developer
 
 Two design choices are worth slowing down on:
 
-**Normalized coordinates *and* size.** We store `x`/`y` (position) **and `w`/`h` (size)** as **fractions between 0 and 1** (e.g. `x: 0.42, w: 0.05`), not pixels. A pixel position or width (`537px`, `40px`) only means something at one exact image size; the moment the map is zoomed, resized, or viewed on a phone, it's wrong. A fraction is "42% across, 5% wide, regardless of how big the image is drawn" — the front end multiplies both by the rendered size at paint time. Same reason a responsive layout uses `%` instead of hard pixel offsets. If a caller omits `w`/`h` (or sends one out of `0..1`), the server fills in a sane default rather than rejecting the save — see the `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` constants at `webapp/App/views/lots.py:14-15`.
+**Normalized coordinates *and* size.** We store `x`/`y` (position) **and `w`/`h` (size)** as **fractions between 0 and 1** (e.g. `x: 0.42, w: 0.05`), not pixels. A pixel position or width (`537px`, `40px`) only means something at one exact image size; the moment the map is zoomed, resized, or viewed on a phone, it's wrong. A fraction is "42% across, 5% wide, regardless of how big the image is drawn" — the front end multiplies both by the rendered size at paint time. Same reason a responsive layout uses `%` instead of hard pixel offsets. If a caller omits `w`/`h` (or sends one out of `0..1`), the server fills in a sane default rather than rejecting the save — see the `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` constants at `backend/webapp/App/views/lots.py:14-15`.
 
 **Full-replace instead of many small calls.** The admin edits the whole lot at once and saves once. So the client sends the *entire desired set* of spaces and the server figures out the difference — what to add, move, and remove. This is **[idempotent](GLOSSARY.md#idempotent)**: sending the same layout twice leaves the database in the same place, no duplicates. It also keeps the browser simple — it doesn't have to remember "I created these two, moved that one, deleted this one" and fire three kinds of [request](GLOSSARY.md#request); it just describes the end state.
 
@@ -108,12 +108,12 @@ git checkout -b cr/b8-layout
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Add the endpoint to `webapp/App/views/lots.py` (~30 min)
+### Step 1 — Add the endpoint to `backend/webapp/App/views/lots.py` (~30 min)
 
 This goes in the **same** blueprint file you built in B4 — reuse its `bp`, its `_err` helper, and its imports. Add two small module-level pieces (the size defaults and a fraction check), a shared read helper, and the `PUT` handler:
 
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 from ..db import query, query_one, get_db   # extend the existing import
 from ..auth import require_role
 from .. import serialize                     # B4's shared row -> JSON shapes
@@ -257,7 +257,7 @@ Invoke-RestMethod -Method Put http://localhost:8000/api/lots/1/layout -SkipHttpE
 - To test the guard: assign one of the spaces to a student (B7), then `PUT` a layout that omits it → `409`, and the space is still there.
 - Student token → `403`; `x`/`y` outside `0..1` → `400`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, save a layout for a lot on the live server, then re-read it — positions persist in RDS. Best run end-to-end once the U8 editor exists (`./release.sh all`): drag spots, Save Layout, refresh, confirm they stay put.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, save a layout for a lot on the live server, then re-read it — positions persist in RDS. Best run end-to-end once the U8 editor exists (`scripts/deploy.sh app all`): drag spots, Save Layout, refresh, confirm they stay put.
 
 ---
 

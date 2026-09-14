@@ -30,9 +30,9 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 
 Right now anyone can hit your API, but nothing checks *who* they are. By the end of this hour, your backend will be able to answer "who is asking?" for every request. Concretely you will have:
 
-- `webapp/App/db.py` — the **one** place that opens a connection to PostgreSQL; every other file borrows it from here.
-- `webapp/App/auth.py` — a service that **issues** a signed login token ([JWT](GLOSSARY.md#jwt)) and **checks** one on every protected [request](GLOSSARY.md#request), plus a `@require_role` guard for admin-only routes.
-- `webapp/App/views/auth.py` — four real [endpoints](GLOSSARY.md#endpoint): `POST /api/auth/student`, `POST /api/auth/admin`, `POST /api/auth/logout`, and `GET /api/auth/me`.
+- `backend/webapp/App/db.py` — the **one** place that opens a connection to PostgreSQL; every other file borrows it from here.
+- `backend/webapp/App/auth.py` — a service that **issues** a signed login token ([JWT](GLOSSARY.md#jwt)) and **checks** one on every protected [request](GLOSSARY.md#request), plus a `@require_role` guard for admin-only routes.
+- `backend/webapp/App/views/auth.py` — four real [endpoints](GLOSSARY.md#endpoint): `POST /api/auth/student`, `POST /api/auth/admin`, `POST /api/auth/logout`, and `GET /api/auth/me`.
 
 **🖼 Before → after — what the API does:**
 
@@ -58,9 +58,9 @@ AFTER   — login issues a signed JWT; protected routes check it
 ```
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `webapp/App/db.py` exists with `get_db`, `close_db`, `query`, `query_one`, and `execute`; `close_db` is wired into `app.teardown_appcontext(...)` in `__init__.py`.
-- [ ] `webapp/App/auth.py` exists with `issue_token`, `require_auth`, and `require_role`.
-- [ ] `webapp/App/views/auth.py` exists with all three routes, and its blueprint is registered in `webapp/App/__init__.py`.
+- [ ] `backend/webapp/App/db.py` exists with `get_db`, `close_db`, `query`, `query_one`, and `execute`; `close_db` is wired into `app.teardown_appcontext(...)` in `__init__.py`.
+- [ ] `backend/webapp/App/auth.py` exists with `issue_token`, `require_auth`, and `require_role`.
+- [ ] `backend/webapp/App/views/auth.py` exists with all three routes, and its blueprint is registered in `backend/webapp/App/__init__.py`.
 - [ ] `curl` with the seeded student code `STU001` returns `200` with a `token` and a `user`; an unknown code returns `401`.
 - [ ] `curl /api/auth/me` **with** that token returns `200` with your user; **without** a token returns `401`.
 - [ ] `curl -X POST /api/auth/logout` returns `204` with an empty body.
@@ -110,10 +110,10 @@ git checkout -b cr/b3-auth
 
 ### Step 1 — The database helper (~10 min)
 
-Every route that needs the database will go through one shared helper instead of opening its own connection. Create `webapp/App/db.py`:
+Every route that needs the database will go through one shared helper instead of opening its own connection. Create `backend/webapp/App/db.py`:
 
 ```python
-# webapp/App/db.py
+# backend/webapp/App/db.py
 """Database access: one connection per request, rows returned as dicts."""
 import psycopg
 from psycopg.rows import dict_row
@@ -167,7 +167,7 @@ def execute(sql, params=()):
 - **`close_db()`** runs automatically at the end of every request once wired into `teardown_appcontext` below, so connections never leak.
 - **`query`/`query_one`/`execute`** — psycopg fills the `%s` placeholders in from `params`, which is how you avoid SQL-injection bugs; `execute` commits and returns a row only when the SQL ends in `RETURNING ...`.
 
-Now wire `close_db` into the app so it actually runs after every request. In `webapp/App/__init__.py`, inside `create_app()`, add this right after the `CORS(...)` line:
+Now wire `close_db` into the app so it actually runs after every request. In `backend/webapp/App/__init__.py`, inside `create_app()`, add this right after the `CORS(...)` line:
 
 ```python
     from . import db
@@ -179,10 +179,10 @@ Now wire `close_db` into the app so it actually runs after every request. In `we
 
 ### Step 2 — The auth service: tokens + password checking (~15 min)
 
-This is the file that knows how to **prove** someone is logged in. Create `webapp/App/auth.py`:
+This is the file that knows how to **prove** someone is logged in. Create `backend/webapp/App/auth.py`:
 
 ```python
-# webapp/App/auth.py
+# backend/webapp/App/auth.py
 """Token creation/verification and the route guards."""
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -262,10 +262,10 @@ def require_role(role):
 
 ### Step 3 — The login & `/me` routes (~15 min)
 
-Now the actual endpoints people call. Create `webapp/App/views/auth.py`:
+Now the actual endpoints people call. Create `backend/webapp/App/views/auth.py`:
 
 ```python
-# webapp/App/views/auth.py
+# backend/webapp/App/views/auth.py
 from flask import Blueprint, request, jsonify, g
 from werkzeug.security import check_password_hash
 
@@ -323,7 +323,7 @@ def me():
     return jsonify({"data": _public_user(g.user)})
 ```
 
-> **Looking ahead:** B4 pulls `_public_user` (and the lot/space serializers it introduces) into a shared `webapp/App/serialize.py`, so `student_login`, `admin_login`, and `me` all end up calling `serialize.public_user(user)` instead of a local helper. The shape — `{id, role, name, email}` — doesn't change.
+> **Looking ahead:** B4 pulls `_public_user` (and the lot/space serializers it introduces) into a shared `backend/webapp/App/serialize.py`, so `student_login`, `admin_login`, and `me` all end up calling `serialize.public_user(user)` instead of a local helper. The shape — `{id, role, name, email}` — doesn't change.
 
 **Why it works & further reading:**
 - **`Blueprint("auth", __name__)`** groups these routes as one unit, the same pattern the health check used in B1. → [Flask: Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
@@ -335,7 +335,7 @@ def me():
 
 ### Step 4 — Register the blueprint (~5 min)
 
-In `webapp/App/__init__.py`, next to where you registered `health` in B1, add:
+In `backend/webapp/App/__init__.py`, next to where you registered `health` in B1, add:
 
 ```python
     from .views import auth
@@ -404,7 +404,7 @@ Invoke-RestMethod -Method Post http://localhost:8000/api/auth/logout   # statele
 - `/me` with token → `200` `{"data":{"id":2,"role":"student","name":"Alice","email":"alice@lt.edu"}}`; `/me` without token → `401`.
 - `logout` → `204` with an empty body. Tokens are stateless, so there's nothing to invalidate server-side — the client just discards the token; the endpoint always succeeds.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
 
 **macOS / Linux**
 
@@ -439,7 +439,7 @@ Then open a Pull Request on GitHub with **base = `cr/b2-schema`** (not `main` �
 ## 🧯 If something breaks
 
 - **`401` on a code/password you're sure is right** — double-check it's *exactly* the seeded value (`STU001`, `admin`/`admin123`, case-sensitive), and that B2's migration + seed actually ran against the database `DATABASE_URL` points at.
-- **`ModuleNotFoundError: No module named 'jwt'` (or `'psycopg'`, `'werkzeug'`)** — your venv isn't active, or B0's `pip install -r webapp/requirements.txt` didn't pick these up. Confirm `(.venv)` is in your prompt and re-run it.
+- **`ModuleNotFoundError: No module named 'jwt'` (or `'psycopg'`, `'werkzeug'`)** — your venv isn't active, or B0's `pip install -r backend/webapp/requirements.txt` didn't pick these up. Confirm `(.venv)` is in your prompt and re-run it.
 - **`/me` returns `401` even with a token pasted in** — the header must be exactly `Authorization: Bearer <token>` with one space after `Bearer` and no quotes around the token itself.
 - **`500 Internal Server Error` on any auth route** — usually a missing `SECRET_KEY`/`DATABASE_URL` (check `.env` from B0) or PostgreSQL not running (see B2's "installing and starting PostgreSQL" box).
 - **`connection refused` from psycopg** — PostgreSQL isn't started, or `DATABASE_URL` in `.env` points at the wrong database name/port.
@@ -453,7 +453,7 @@ Then open a Pull Request on GitHub with **base = `cr/b2-schema`** (not `main` �
 - You learned the **stateless auth pattern**: the token itself carries proof of identity, checked by signature, not by looking anything up in a session store.
 - You learned why passwords are never stored in plain text, and how `check_password_hash` verifies one without ever un-hashing it.
 - You added the first two authorization primitives (`require_auth`, `require_role`) that every remaining lesson (B4–B7) will reuse to protect its own routes.
-- You shaped every auth response through one `_public_user` helper (`{id, role, name, email}`) instead of hand-building each dict — the seed of the pattern B4 promotes into `webapp/App/serialize.py`.
+- You shaped every auth response through one `_public_user` helper (`{id, role, name, email}`) instead of hand-building each dict — the seed of the pattern B4 promotes into `backend/webapp/App/serialize.py`.
 
 ---
 

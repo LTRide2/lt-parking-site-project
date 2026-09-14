@@ -5,8 +5,8 @@
 > **🧩 Prerequisites:** you've finished [Lesson D3 — Release the application code](D3-release-application-code.md) — the app is live and reachable at `http://<ElasticIp>`.
 > **🌿 CR branch:** `cr/d4-dns-tls` (off `cr/d3-release`) · **📄 Source CR:** [deployment guide → CR D4](../deployment-guide.md#cr-d4--buy-a-domain-wire-it-to-route-53-and-turn-on-https) · **🗺 Big picture:** [plan.md §10](../../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 
-> **Windows note:** `deploy.sh` and `release.sh` are `#!/usr/bin/env bash` scripts and
-> do not run in PowerShell or `cmd`. On Windows, run them from **Git Bash** (bundled
+> **Windows note:** `deploy.sh` is a `#!/usr/bin/env bash` script and
+> does not run in PowerShell or `cmd`. On Windows, run it from **Git Bash** (bundled
 > with [Git for Windows](https://git-scm.com/download/win)) or **WSL** — the bash
 > snippets that call them work unchanged there. The AWS CLI, `ssh`, and the DNS/HTTP
 > checks in this lesson have native PowerShell equivalents shown alongside each step.
@@ -77,7 +77,7 @@ You'll need: a working site at `http://<ElasticIp>` (D3 done), a credit card if 
 **macOS / Linux**
 
 ```bash
-cd ~/workspace/LTR-Backend
+cd ~/workspace/lt-parking-site-project
 git checkout cr/d3-release
 git pull
 git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
@@ -86,7 +86,7 @@ git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
 **Windows (PowerShell)**
 
 ```powershell
-cd $HOME\workspace\LTR-Backend
+cd $HOME\workspace\lt-parking-site-project
 git checkout cr/d3-release
 git pull
 git checkout -b cr/d4-dns-tls   # create + switch to this lesson's branch
@@ -134,7 +134,7 @@ aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServe
 
 **What this does:** `create-hosted-zone` makes the empty phone book; `get-hosted-zone` reads back the 4 nameservers AWS assigned it. → Reference: [Route 53: create a hosted zone](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html).
 
-Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `release.sh` can find it:
+Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `scripts/deploy.sh` can find it:
 ```json
 [
   "DomainName=ltride.example.com",
@@ -171,10 +171,10 @@ Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `rele
 Now create the A record: the phone-book entry mapping your domain to your server's Elastic IP. The `04-dns.yaml` stack (from D1) does this from `params/prod.json`:
 
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh up            # picks up 04-dns.yaml using DomainName + HostedZoneId
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh infra up            # picks up 04-dns.yaml using DomainName + HostedZoneId
 ```
-**What this does:** `deploy.sh up` re-runs CloudFormation for all four stacks; `04-dns.yaml`'s `HasHostedZone` condition is now true (you filled in a real `HostedZoneId`), so it creates an `AWS::Route53::RecordSet` — an **A record** — mapping `ltride.example.com → <ElasticIp>`. → Reference: [Route 53: A records](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#AFormat).
+**What this does:** `scripts/deploy.sh infra up` re-runs CloudFormation for all four stacks; `04-dns.yaml`'s `HasHostedZone` condition is now true (you filled in a real `HostedZoneId`), so it creates an `AWS::Route53::RecordSet` — an **A record** — mapping `ltride.example.com → <ElasticIp>`. → Reference: [Route 53: A records](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#AFormat).
 
 Verify:
 
@@ -206,14 +206,14 @@ Resolve-DnsName ltride.example.com                                     # should 
 
    Once you're in, the rest is the same Linux shell regardless of your laptop's OS:
    ```bash
-   sudo nano /home/ltride/app/.env    # set CORS_ORIGINS=https://ltride.example.com
+   sudo nano /home/ltride/app/backend/.env    # set CORS_ORIGINS=https://ltride.example.com
    sudo systemctl restart ltride
    ```
    **Why:** `CORS_ORIGINS` is the allow-list Flask checks before letting a browser page call the API (you set this up in backend lesson B0/B1). Without the `https://` domain added here, the browser will block API calls with a CORS error even though the page itself loads. → Reference: [MDN: CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS).
-2. **Rebuild the frontend** so it calls the domain instead of the raw IP. `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` once `DomainName` is set in `params/prod.json`:
+2. **Rebuild the frontend** so it calls the domain instead of the raw IP. `scripts/deploy.sh app frontend` already builds the UI with `VITE_API_URL=https://<DomainName>` once `DomainName` is set in `params/prod.json`:
    ```bash
-   cd ~/workspace/LTR-Backend/deploy
-   ./release.sh frontend
+   cd ~/workspace/lt-parking-site-project
+   scripts/deploy.sh app frontend
    ```
 
 ### Step 5 — Get a free TLS certificate with certbot (~15 min)

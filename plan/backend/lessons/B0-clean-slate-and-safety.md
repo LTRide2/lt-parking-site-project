@@ -31,7 +31,7 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 A project that is **safe to share on GitHub** and **reads its secrets from outside the code**. Concretely, by the end of this hour you will have:
 
 - A `.gitignore` that stops secrets and junk files from ever being committed.
-- A [`webapp/requirements.txt`](GLOSSARY.md#requirementstxt) listing every Python library the next 7 lessons need.
+- A [`backend/webapp/requirements.txt`](GLOSSARY.md#requirementstxt) listing every Python library the next 7 lessons need.
 - A `config.py` that reads its [secret key](GLOSSARY.md#secret_key) and database address from the **[environment](GLOSSARY.md#environment-variable)**, not from a string typed into the code.
 - A local `.env` (your private secrets, never committed) and a committed `.env.example` (the blank template for the next person).
 
@@ -42,19 +42,19 @@ BEFORE — secrets and junk can be committed; the app trusts a literal string
   $ git status
   ...  .venv/, __pycache__/, .env, *.pem   ← all untracked, all one `git add -A` away from GitHub
   # config.py:  SECRET_KEY = "some-literal-string"          (hard-coded, visible to anyone who reads it)
-  # webapp/requirements.txt: ~30 stale course-template pins, some too old to install
+  # backend/webapp/requirements.txt: ~30 stale course-template pins, some too old to install
 
 AFTER  — secrets never touch Git; the app refuses to start without them
   $ git status
   ...  (none of .venv/, __pycache__/, .env, *.pem ever show up — .gitignore blocks them)
-  $ python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"
+  $ cd backend && python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"
   SECRET loaded: True                                        (read from .env, not hard-coded)
-  # webapp/requirements.txt: exactly 7 pinned-minimum libraries this backend actually uses
+  # backend/webapp/requirements.txt: exactly 7 pinned-minimum libraries this backend actually uses
 ```
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `git status` does **not** list `.venv/`, `__pycache__/`, `.env`, or any `*.pem` file.
-- [ ] `python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"` prints `SECRET loaded: True`.
+- [ ] `cd backend && python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"` prints `SECRET loaded: True`.
 - [ ] Temporarily renaming `.env` makes that same command **crash loudly** with `KeyError: 'SECRET_KEY'`.
 - [ ] Your work is committed on branch `cr/b0-hygiene` and pushed, PR base = `main`.
 
@@ -94,7 +94,7 @@ Getting this right now means every later lesson (login, database, deploy) is saf
 **macOS / Linux**
 
 ```bash
-source .venv/bin/activate      # your prompt should now start with (.venv)
+source backend/.venv/bin/activate      # your prompt should now start with (.venv)
 git checkout main
 git pull                       # make sure you start from the latest main
 git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
@@ -103,7 +103,7 @@ git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
 **Windows (PowerShell)**
 
 ```powershell
-.venv\Scripts\Activate.ps1     # your prompt should now start with (.venv)
+backend\.venv\Scripts\Activate.ps1     # your prompt should now start with (.venv)
 git checkout main
 git pull                       # make sure you start from the latest main
 git checkout -b cr/b0-hygiene  # create + switch to this lesson's branch
@@ -142,8 +142,8 @@ __pycache__/
 node_modules/
 dist/
 
-# dev server runtime files (PID + logs webapp/bin/server writes; see B1) — never committed
-webapp/var/
+# dev server runtime files (PID + logs backend/webapp/bin/server writes; see B1) — never committed
+backend/webapp/var/
 ```
 
 **Why it works & further reading:**
@@ -154,7 +154,7 @@ webapp/var/
 
 ### Step 2 — List the libraries this project needs (~10 min)
 
-Open `webapp/requirements.txt`. The course template left a long tail of pinned
+Open `backend/webapp/requirements.txt`. The course template left a long tail of pinned
 packages in there (`Flask==2.2.2`, `Werkzeug==2.2.2`, `pylint==2.16.2`, and
 ~30 more, down to `wrapt==1.14.1`) — those exact old versions don't install
 cleanly on a modern Python, and none of them are things this backend actually
@@ -180,28 +180,28 @@ gunicorn>=21.2
 - **[Werkzeug](https://werkzeug.palletsprojects.com/)** `>=2.2` — Flask's engine; also hashes passwords (lesson B3).
 - **[gunicorn](https://gunicorn.org/)** `>=21.2` — the production server that runs Flask on AWS (deploy lesson D3).
 
-> **If you're comparing against the reference repo:** the shipped `webapp/requirements.txt` in the reference implementation still carries the old course-template pins — the clean-up in this step was never committed there. It's harmless (the app only imports the seven libraries above), but that's why the reference file looks longer than the seven lines you just wrote.
+> **If you're comparing against the reference repo:** the shipped `backend/webapp/requirements.txt` in the reference implementation still carries the old course-template pins — the clean-up in this step was never committed there. It's harmless (the app only imports the seven libraries above), but that's why the reference file looks longer than the seven lines you just wrote.
 
 The `>=` means "this version **or newer**." → Reference: [pip version specifiers](https://pip.pypa.io/en/stable/reference/requirement-specifiers/). Now install them (venv active):
 
 **macOS / Linux**
 
 ```bash
-pip install -r webapp/requirements.txt
+pip install -r backend/webapp/requirements.txt
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-pip install -r webapp\requirements.txt
+pip install -r backend\webapp\requirements.txt
 ```
 
 ### Step 3 — Move the secret key out of the code (~15 min)
 
-Open `webapp/App/config.py`. Find the hard-coded line that looks like `SECRET_KEY = "some-literal-string"` and replace the whole file with this environment-driven version:
+Open `backend/webapp/App/config.py`. Find the hard-coded line that looks like `SECRET_KEY = "some-literal-string"` and replace the whole file with this environment-driven version:
 
 ```python
-# webapp/App/config.py
+# backend/webapp/App/config.py
 """All settings come from environment variables (loaded from .env locally)."""
 import os                                    # standard library for reading environment variables
 
@@ -225,16 +225,16 @@ JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))               # env v
 
 > **Why `[...]` for secrets and `.get(...)` for the rest?** Square brackets make the app **crash immediately with a clear error** if a required secret is missing — far better than starting up "half-configured" and failing mysteriously later. This is the "fail loud, fail early" principle. → Reference: [12-Factor: Config](https://12factor.net/config).
 
-> **Looking ahead — the real admin login.** Once the database exists (lesson B2) you'll use `webapp/bin/add-admin` to create the actual admin user (it hashes a password with Werkzeug's scrypt and upserts the `users` row). Nothing to run yet — just know it's there so you don't hand-write SQL for it later.
+> **Looking ahead — the real admin login.** Once the database exists (lesson B2) you'll use `backend/webapp/bin/add-admin` to create the actual admin user (it hashes a password with Werkzeug's scrypt and upserts the `users` row). Nothing to run yet — just know it's there so you don't hand-write SQL for it later.
 
 ### Step 4 — Create your local `.env` (~5 min)
 
-Create a `.env` file at the **repo root**. It's git-ignored (from Step 1), so it stays on your machine only:
+Create a `.env` file inside **`backend/`**. It's git-ignored (from Step 1), so it stays on your machine only:
 
 ```dotenv
 # NAME=value — no quotes, no spaces around "="
 SECRET_KEY=dev-only-change-me-to-anything-long-and-random   # any long random string is fine for local dev
-DATABASE_URL=postgresql://localhost/ltride_dev               # local Postgres db you'll create in lesson B2
+DATABASE_URL=postgresql://localhost/ltride               # local Postgres db you'll create in lesson B2
 CORS_ORIGINS=http://localhost:5173
 JWT_EXP_HOURS=12
 ```
@@ -244,11 +244,11 @@ JWT_EXP_HOURS=12
 
 ### Step 5 — Create the committed template `.env.example` (~5 min)
 
-Create `.env.example` at the repo root — the **same keys but no real secrets.** This one *is* committed, so the next person knows exactly what to fill in:
+Create `.env.example` inside **`backend/`** — the **same keys but no real secrets.** This one *is* committed, so the next person knows exactly what to fill in:
 
 ```dotenv
 SECRET_KEY=
-DATABASE_URL=postgresql://localhost/ltride_dev
+DATABASE_URL=postgresql://localhost/ltride
 CORS_ORIGINS=http://localhost:5173
 JWT_EXP_HOURS=12
 ```
@@ -263,6 +263,7 @@ JWT_EXP_HOURS=12
 
 ```bash
 git status                                  # 1) what would be committed?
+cd backend
 python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"   # 2)
 ```
 
@@ -297,9 +298,9 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 ## 🧯 If something breaks
 
 - **`git status` still shows `.env`** — you probably committed it earlier. `.gitignore` only ignores *untracked* files. Run `git rm --cached .env` to stop tracking it, then commit.
-- **`ModuleNotFoundError: No module named 'dotenv'`** — the install in Step 2 didn't run in the active venv. Confirm `(.venv)` is in your prompt, then re-run `pip install -r webapp/requirements.txt`.
-- **`KeyError: 'SECRET_KEY'` when you *didn't* rename `.env`** — your `.env` is in the wrong folder (must be the repo root, the same folder you run `python` from) or has a typo in the key name.
-- **`pip install` fails partway through, often on an old pin like `Flask==2.2.2` or `wrapt==1.14.1`** — you edited `requirements.txt` instead of replacing it; the leftover course-template pins from Step 2 don't install on modern Python. Delete them so the file has exactly the seven `>=` lines, then re-run `pip install -r webapp/requirements.txt`.
+- **`ModuleNotFoundError: No module named 'dotenv'`** — the install in Step 2 didn't run in the active venv. Confirm `(.venv)` is in your prompt, then re-run `pip install -r backend/webapp/requirements.txt`.
+- **`KeyError: 'SECRET_KEY'` when you *didn't* rename `.env`** — your `.env` is in the wrong folder (must be inside `backend/`, the same folder you run `python` from) or has a typo in the key name.
+- **`pip install` fails partway through, often on an old pin like `Flask==2.2.2` or `wrapt==1.14.1`** — you edited `requirements.txt` instead of replacing it; the leftover course-template pins from Step 2 don't install on modern Python. Delete them so the file has exactly the seven `>=` lines, then re-run `pip install -r backend/webapp/requirements.txt`.
 
 ---
 

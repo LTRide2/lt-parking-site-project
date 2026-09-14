@@ -31,35 +31,35 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 A real **[PostgreSQL](GLOSSARY.md#postgresql) [database](GLOSSARY.md#database)** with the six tables LTRide needs, plus a little [sample data](GLOSSARY.md#seed-data) so later lessons (login, reading lots, assigning spaces) have something to work against. Concretely, by the end of this hour you will have:
 
 - PostgreSQL **installed, running, and on your PATH**.
-- A local database named `ltride_dev`.
-- A migration file (`webapp/sql/migrations/001_init.sql`) that creates six tables: `users`, `students`, `lots`, `spaces`, `interest`, `assignments`.
-- A seed file (`webapp/sql/seed.sql`) that fills those tables with one admin, four student logins, six lots (Lot 1 with a fully laid-out 8-space showcase), a live assignment, a couple of pending requests, and a five-student roster.
+- A local database named `ltride`.
+- A migration file (`backend/webapp/sql/migrations/001_init.sql`) that creates six tables: `users`, `students`, `lots`, `spaces`, `interest`, `assignments`.
+- A seed file (`backend/webapp/sql/seed.sql`) that fills those tables with one admin, four student logins, six lots (Lot 1 with a fully laid-out 8-space showcase), a live assignment, a couple of pending requests, and a five-student roster.
 
 **🖼 Before → after — what changes (the database):**
 
 ```text
 BEFORE  — the database exists, but no tables are in it yet
-  $ psql ltride_dev -c "\dt"
+  $ psql ltride -c "\dt"
   Did not find any relations.
 
-  $ psql ltride_dev -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
+  $ psql ltride -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
   ERROR:  relation "spaces" does not exist
 
 AFTER   — six tables exist, seeded with sample rows
-  $ psql ltride_dev -c "\dt"
+  $ psql ltride -c "\dt"
   assignments, interest, lots, spaces, students, users   (6 tables)
 
-  $ psql ltride_dev -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
+  $ psql ltride -c "SELECT count(*) FROM spaces WHERE lot_id=1;"
    count
   -------
        8
 ```
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `psql ltride_dev -c "\dt"` lists all six tables.
-- [ ] `psql ltride_dev -c "SELECT count(*) FROM spaces WHERE lot_id=1;"` returns `8`.
-- [ ] `psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"` shows `STU001 Alice`, `STU002 Bob`, `STU003 Andrew`, `STU004 Olivia`.
-- [ ] `psql ltride_dev -c "SELECT student_id, parking_status FROM students WHERE last='Smith';"` shows `S123213 | suspended`.
+- [ ] `psql ltride -c "\dt"` lists all six tables.
+- [ ] `psql ltride -c "SELECT count(*) FROM spaces WHERE lot_id=1;"` returns `8`.
+- [ ] `psql ltride -c "SELECT code, name FROM users WHERE role='student';"` shows `STU001 Alice`, `STU002 Bob`, `STU003 Andrew`, `STU004 Olivia`.
+- [ ] `psql ltride -c "SELECT student_id, parking_status FROM students WHERE last='Smith';"` shows `S123213 | suspended`.
 - [ ] Your work is committed on branch `cr/b2-schema` and pushed, PR base = `cr/b1-health`.
 
 ---
@@ -105,7 +105,7 @@ Get the [schema](GLOSSARY.md#schema) right now, and every later lesson (B3 login
 **macOS / Linux**
 
 ```bash
-source .venv/bin/activate         # your prompt should now start with (.venv)
+source backend/.venv/bin/activate # your prompt should now start with (.venv)
 git checkout cr/b1-health
 git checkout -b cr/b2-schema      # create + switch to this lesson's branch
 ```
@@ -113,7 +113,7 @@ git checkout -b cr/b2-schema      # create + switch to this lesson's branch
 **Windows (PowerShell)**
 
 ```powershell
-.venv\Scripts\Activate.ps1        # your prompt should now start with (.venv)
+backend\.venv\Scripts\Activate.ps1  # your prompt should now start with (.venv)
                                    # blocked by execution policy? run once: Set-ExecutionPolicy -Scope Process RemoteSigned
 git checkout cr/b1-health
 git checkout -b cr/b2-schema      # create + switch to this lesson's branch
@@ -201,23 +201,23 @@ If you already ran `brew install postgresql@16` back in [Part 0 setup](../backen
 
 **What this does & why:** `brew services start` (macOS/Linux) — or the `winget` installer on Windows — runs Postgres as a background service instead of you having to launch it by hand every time. The PATH lines tell your shell where to find `psql`/`createdb`, since Homebrew deliberately doesn't put this version on the PATH automatically (so it doesn't clash with a system Postgres); the Windows installer normally does this for you. → Reference: [PostgreSQL documentation](https://www.postgresql.org/docs/current/).
 
-> **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride_dev` opens a session connected to the `ltride_dev` database; `psql ltride_dev -f file.sql` runs a file against it; `psql ltride_dev -c "SQL..."` runs one command. Type `\q` to quit an interactive session. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
+> **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride` opens a session connected to the `ltride` database; `psql ltride -f file.sql` runs a file against it; `psql ltride -c "SQL..."` runs one command. Type `\q` to quit an interactive session. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
 
 ### Step 1 — Create the database (~5 min)
 
 **macOS / Linux**
 
 ```bash
-createdb ltride_dev
+createdb ltride
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-createdb ltride_dev
+createdb ltride
 ```
 
-**What this does & why:** `createdb` is a thin wrapper that creates a new, empty database — here named `ltride_dev` ("LTRide, development"). Nothing exists inside it yet; that's what the migration in Step 2 is for. If it says "command not found," go back and finish Step 0. → Reference: [createdb reference](https://www.postgresql.org/docs/current/app-createdb.html).
+**What this does & why:** `createdb` is a thin wrapper that creates a new, empty database — here named `ltride` ("LTRide, development"). Nothing exists inside it yet; that's what the migration in Step 2 is for. If it says "command not found," go back and finish Step 0. → Reference: [createdb reference](https://www.postgresql.org/docs/current/app-createdb.html).
 
 ### Step 2 — Look at what you're building (the ER diagram)
 
@@ -302,12 +302,12 @@ erDiagram
 
 ### Step 3 — Write the migration file (~15 min)
 
-Create the folder and file `webapp/sql/migrations/001_init.sql` with **exactly** this content:
+Create the folder and file `backend/webapp/sql/migrations/001_init.sql` with **exactly** this content:
 
-> **Heads up — stray template files in `webapp/sql/`.** The course template left two unrelated files in this folder: `schema.sql` and `data.sql` (an old SQLite `developer` table). Nothing in this project reads them — they're dead scaffolding. Ignore them, or delete them, so the only SQL that matters is `migrations/001_init.sql` (this step) and `seed.sql` (Step 5).
+> **Heads up — stray template files in `backend/webapp/sql/`.** The course template left two unrelated files in this folder: `schema.sql` and `data.sql` (an old SQLite `developer` table). Nothing in this project reads them — they're dead scaffolding. Ignore them, or delete them, so the only SQL that matters is `migrations/001_init.sql` (this step) and `seed.sql` (Step 5).
 
 ```sql
--- webapp/sql/migrations/001_init.sql
+-- backend/webapp/sql/migrations/001_init.sql
 -- Initial schema for LTRide. Safe to re-run: it drops then recreates everything.
 
 BEGIN;                              -- one transaction: every table below, or none of them
@@ -417,7 +417,7 @@ CREATE UNIQUE INDEX one_active_assignment_per_space
 COMMIT;                             -- everything above takes effect together
 ```
 
-This is the exact file the shipped app runs — `webapp/sql/migrations/001_init.sql:1`. All six tables, both extra roster fields, and both partial indexes are built here in **one pass**; there's no later migration that adds them.
+This is the exact file the shipped app runs — `backend/webapp/sql/migrations/001_init.sql:1`. All six tables, both extra roster fields, and both partial indexes are built here in **one pass**; there's no later migration that adds them.
 
 **Why it works & further reading:**
 - `BEGIN;` / `COMMIT;` wrap the whole file in one **[transaction](GLOSSARY.md#transaction)** — either every table is created, or (on any error) none is, so a failed run never leaves a half-built schema behind. → [PostgreSQL: Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html).
@@ -448,16 +448,16 @@ python -c "from werkzeug.security import generate_password_hash; print(generate_
 
 **What this does & why:** `generate_password_hash` runs the password through a slow, salted hashing algorithm (scrypt or pbkdf2) — the result is a long string starting with `scrypt:` or `pbkdf2:` that can be checked against a guess later, but can't be reversed back into the original password. → Reference: [Werkzeug: `generate_password_hash`](https://werkzeug.palletsprojects.com/en/stable/utils/#werkzeug.security.generate_password_hash).
 
-**Heads up:** every hash this command prints is different — it's salted with fresh random bytes each run — so your string won't byte-match the one below, and that's fine; any valid hash of `admin123` works identically. Step 5's seed file already has one baked in (`webapp/sql/seed.sql:11`); you can paste it as-is, or swap in the one you just generated.
+**Heads up:** every hash this command prints is different — it's salted with fresh random bytes each run — so your string won't byte-match the one below, and that's fine; any valid hash of `admin123` works identically. Step 5's seed file already has one baked in (`backend/webapp/sql/seed.sql:11`); you can paste it as-is, or swap in the one you just generated.
 
-> Once your server exists (from B1), there's also a **scripted** way to create or reset an admin login without hand-editing SQL at all: `webapp/bin/add-admin --username admin --force`. It prompts for the password (never on the command line), hashes it the same way, and writes the row straight into `users`. That's what you'd reach for later; the seed file below is only for this from-scratch bootstrap, before there's even a running server to talk to the database for you. (This is a `#!/bin/bash` script — on Windows, run it from **Git Bash** or **WSL**, not PowerShell.)
+> Once your server exists (from B1), there's also a **scripted** way to create or reset an admin login without hand-editing SQL at all: `backend/webapp/bin/add-admin --username admin --force`. It prompts for the password (never on the command line), hashes it the same way, and writes the row straight into `users`. That's what you'd reach for later; the seed file below is only for this from-scratch bootstrap, before there's even a running server to talk to the database for you. (This is a `#!/bin/bash` script — on Windows, run it from **Git Bash** or **WSL**, not PowerShell.)
 
 ### Step 5 — Write the seed file (~5 min)
 
-Create `webapp/sql/seed.sql` with **exactly** this content (`webapp\sql\seed.sql` on Windows):
+Create `backend/webapp/sql/seed.sql` with **exactly** this content (`backend\webapp\sql\seed.sql` on Windows):
 
 ```sql
--- webapp/sql/seed.sql
+-- backend/webapp/sql/seed.sql
 -- Sample data for local development. Re-runnable (clears the tables first).
 -- Mirrors the frontend mock seed (src/api/mock/backend.ts) so the two POCs match.
 
@@ -537,7 +537,7 @@ INSERT INTO students (first, last, student_id, email, grade, assigned_slot, park
 COMMIT;
 ```
 
-Replace `<paste your hash from Step 4 here>` with the string you just copied (or with the exact committed hash `scrypt:32768:8:1$Vaf2FTiYuB3xMYWB$119092e01ad2ef9f9d3b50fe30a1909f6ae178e01c719c15888e0f2f9af41583e1600ed6ea5e8d944054f4f0c3fd4871713ef7e93038ae6f9c9507869e48571c` from the shipped `webapp/sql/seed.sql:11` — either works). This is otherwise the exact file the app ships with.
+Replace `<paste your hash from Step 4 here>` with the string you just copied (or with the exact committed hash `scrypt:32768:8:1$Vaf2FTiYuB3xMYWB$119092e01ad2ef9f9d3b50fe30a1909f6ae178e01c719c15888e0f2f9af41583e1600ed6ea5e8d944054f4f0c3fd4871713ef7e93038ae6f9c9507869e48571c` from the shipped `backend/webapp/sql/seed.sql:11` — either works). This is otherwise the exact file the app ships with.
 
 **Why it works & further reading:**
 - `TRUNCATE ... RESTART IDENTITY CASCADE` resets the ids back to 1 on every rerun, so this file always seeds the exact same rows — handy for the `curl` tests in later lessons. → [PostgreSQL: `TRUNCATE`](https://www.postgresql.org/docs/current/sql-truncate.html).
@@ -554,18 +554,18 @@ Replace `<paste your hash from Step 4 here>` with the string you just copied (or
 **macOS / Linux**
 
 ```bash
-psql ltride_dev -f webapp/sql/migrations/001_init.sql
-psql ltride_dev -f webapp/sql/seed.sql
+psql ltride -f backend/webapp/sql/migrations/001_init.sql
+psql ltride -f backend/webapp/sql/seed.sql
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-psql ltride_dev -f webapp\sql\migrations\001_init.sql
-psql ltride_dev -f webapp\sql\seed.sql
+psql ltride -f backend\webapp\sql\migrations\001_init.sql
+psql ltride -f backend\webapp\sql\seed.sql
 ```
 
-**What this does & why:** `psql <database> -f <file>` opens a connection to `ltride_dev` and runs every statement in the file in order, printing each result (`DROP TABLE`, `CREATE TABLE`, `INSERT 0 1`, …) as it goes. Run the migration first (it builds the empty tables), then the seed (it fills them in). Each should print a list of results with **no `ERROR`** — if you see one, re-check the file against Steps 3/5 before moving on. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
+**What this does & why:** `psql <database> -f <file>` opens a connection to `ltride` and runs every statement in the file in order, printing each result (`DROP TABLE`, `CREATE TABLE`, `INSERT 0 1`, …) as it goes. Run the migration first (it builds the empty tables), then the seed (it fills them in). Each should print a list of results with **no `ERROR`** — if you see one, re-check the file against Steps 3/5 before moving on. → Reference: [psql reference](https://www.postgresql.org/docs/current/app-psql.html).
 
 ---
 
@@ -578,21 +578,21 @@ psql ltride_dev -f webapp\sql\seed.sql
 **macOS / Linux**
 
 ```bash
-psql ltride_dev -c "\dt"                                          # list tables
-psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
-psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"
-psql ltride_dev -c "SELECT first, last, student_id, parking_status FROM students ORDER BY last;"
-psql ltride_dev -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
+psql ltride -c "\dt"                                          # list tables
+psql ltride -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
+psql ltride -c "SELECT code, name FROM users WHERE role='student';"
+psql ltride -c "SELECT first, last, student_id, parking_status FROM students ORDER BY last;"
+psql ltride -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-psql ltride_dev -c "\dt"                                          # list tables
-psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
-psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"
-psql ltride_dev -c "SELECT first, last, student_id, parking_status FROM students ORDER BY last;"
-psql ltride_dev -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
+psql ltride -c "\dt"                                          # list tables
+psql ltride -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY label;"
+psql ltride -c "SELECT code, name FROM users WHERE role='student';"
+psql ltride -c "SELECT first, last, student_id, parking_status FROM students ORDER BY last;"
+psql ltride -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
 ```
 
 **Expected:**
@@ -604,17 +604,17 @@ psql ltride_dev -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
 
 ### ☁️ Cloud check (optional)
 
-The schema/seed you just ran only touched **your laptop's** database. `release.sh` (the deploy script from the [Deployment Guide](../../deploy/deployment-guide.md)) automatically applies `sql/migrations/*.sql` to the server's real database (RDS) on every deploy — but the **seed data** is manual on purpose (you don't want fake dev data on a real site). To verify the schema on the server:
+The schema/seed you just ran only touched **your laptop's** database. Migrations are their own deploy concern (see the [Deployment Guide](../../deploy/deployment-guide.md)): `scripts/deploy.sh db migrate` applies `sql/migrations/*.sql` to the server's real database (RDS) — shipping app code with `scripts/deploy.sh app` does **not** run migrations. The **seed data** is manual on purpose (you don't want fake dev data on a real site). To verify the schema on the server:
 
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./release.sh backend                       # applies 001_init.sql on RDS
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh db migrate               # applies 001_init.sql on RDS
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
-sudo -u ltride bash -c 'set -a; . /home/ltride/app/.env; set +a; psql "$DATABASE_URL" -c "\dt"'
+sudo -u ltride bash -c 'set -a; . /home/ltride/app/backend/.env; set +a; psql "$DATABASE_URL" -c "\dt"'
 # expect the six tables. To seed dev data on the server too (optional):
-#   psql "$DATABASE_URL" -f /home/ltride/app/sql/seed.sql
+#   psql "$DATABASE_URL" -f /home/ltride/app/backend/webapp/sql/seed.sql
 # or create the real admin login without seed data at all:
-#   /home/ltride/app/webapp/bin/add-admin --username admin
+#   /home/ltride/app/backend/webapp/bin/add-admin --username admin
 exit
 ```
 
@@ -625,7 +625,7 @@ Expect `\dt` to list the same six tables on RDS. (This step needs the AWS server
 ## 🚀 Save your work (commit & open the CR)
 
 ```bash
-git add webapp/sql/
+git add backend/webapp/sql/
 git commit -m "B2: add schema migration + dev seed data"
 git push -u origin cr/b2-schema
 ```
@@ -641,8 +641,8 @@ Then open a Pull Request on GitHub with **base = `cr/b1-health`** (this CR stack
 - **`createdb: command not found` or `psql: command not found`** — Postgres isn't on your PATH yet. macOS/Linux: redo Step 0's PATH lines, then open a new terminal (or `source ~/.zshrc`). Windows: add `C:\Program Files\PostgreSQL\16\bin` to your `PATH`, then open a new PowerShell window.
 - **`psql: error: connection to server ... failed`** — the Postgres service isn't running. macOS/Linux: run `brew services start postgresql@16`. Windows: run `net start postgresql-x64-16`. Then try again.
 - **`FATAL: role "yourname" does not exist`** — macOS/Linux: run `createuser -s "$(whoami)"` once (Step 0.5). Windows: run `createuser -s $env:USERNAME`. Then retry.
-- **`ERROR: relation "lots" does not exist` when running `seed.sql`** — you skipped or mis-ran the migration. Re-run `psql ltride_dev -f webapp/sql/migrations/001_init.sql` (Windows: `psql ltride_dev -f webapp\sql\migrations\001_init.sql`) first.
-- **Seed file errors on the hash placeholder** — you forgot to swap in the real hash from Step 4 (or the committed one from `webapp/sql/seed.sql:11`). Paste the whole `scrypt:...` or `pbkdf2:...` string in place of the placeholder.
+- **`ERROR: relation "lots" does not exist` when running `seed.sql`** — you skipped or mis-ran the migration. Re-run `psql ltride -f backend/webapp/sql/migrations/001_init.sql` (Windows: `psql ltride -f backend\webapp\sql\migrations\001_init.sql`) first.
+- **Seed file errors on the hash placeholder** — you forgot to swap in the real hash from Step 4 (or the committed one from `backend/webapp/sql/seed.sql:11`). Paste the whole `scrypt:...` or `pbkdf2:...` string in place of the placeholder.
 
 ---
 

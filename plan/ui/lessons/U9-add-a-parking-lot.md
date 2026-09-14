@@ -340,7 +340,7 @@ Add this to the admin control panel, near **➕ Add Lot** (both are admin-only m
    - Selecting the new lot, you can **Update School Map** (U7) and **Arrange Spots** (U8) on it end-to-end.
    - A **student** never sees the ➕ Add Lot or 🗑 Remove Lot controls.
 
-**☁️ Cloud check (optional):** needs backend **B9** deployed. `./release.sh all`, create a lot on the live site, **refresh** — it persists in RDS; a second browser sees it too. Remove an empty lot and confirm it's gone after refresh. Bonus full loop: create a lot → upload its map (U7) → arrange its spots (U8) → log in as a student and confirm the new lot shows in availability.
+**☁️ Cloud check (optional):** needs backend **B9** deployed. `scripts/deploy.sh app all`, create a lot on the live site, **refresh** — it persists in RDS; a second browser sees it too. Remove an empty lot and confirm it's gone after refresh. Bonus full loop: create a lot → upload its map (U7) → arrange its spots (U8) → log in as a student and confirm the new lot shows in availability.
 
 ---
 

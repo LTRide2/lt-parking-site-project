@@ -2,7 +2,7 @@
 
 > **Track:** Deploy · **Lesson 3 of 6**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (three new file formats — nginx, systemd, bash — but each one is short and explained line by line).
-> **🧩 Prerequisites:** you've done [Lesson D1 — Write the CloudFormation templates](D1-cloudformation-templates.md) (the four `deploy/cfn/*.yaml` files all pass `./deploy.sh validate`).
+> **🧩 Prerequisites:** you've done [Lesson D1 — Write the CloudFormation templates](D1-cloudformation-templates.md) (the four `deploy/cfn/*.yaml` files all pass `scripts/deploy.sh infra validate`).
 > **🌿 CR branch:** `cr/d1b-server-config` (off `cr/d1-cfn-templates`) · **📄 Source CR:** [deployment guide → CR D1b](../deployment-guide.md#cr-d1b--server-configuration-files-nginx-gunicornsystemd-provisioning) · **🗺 Big picture:** [plan.md §10](../../plan.md#10-aws-deployment--ec2--rds-via-cloudformation)
 
 ---
@@ -106,7 +106,7 @@ server {
 
     client_max_body_size 10M;      # allow map-image uploads (nginx default is 1M → 413 errors)
 
-    root /var/www/ltride;          # where release.sh puts the built React files
+    root /var/www/ltride;          # where `scripts/deploy.sh app frontend` puts the built React files
     index index.html;
 
     location / {
@@ -149,9 +149,9 @@ After=network.target
 [Service]
 User=ltride
 Group=ltride
-WorkingDirectory=/home/ltride/app
-EnvironmentFile=/home/ltride/app/.env
-ExecStart=/home/ltride/app/.venv/bin/gunicorn \
+WorkingDirectory=/home/ltride/app/backend
+EnvironmentFile=/home/ltride/app/backend/.env
+ExecStart=/home/ltride/app/backend/.venv/bin/gunicorn \
     --workers 3 \
     --bind 127.0.0.1:8000 \
     --access-logfile - \
@@ -167,7 +167,7 @@ WantedBy=multi-user.target
 **What each line buys you:**
 - **`After=network.target`** — don't start before networking is up (we connect to RDS over the network).
 - **`User=ltride` / `Group=ltride`** — run as an unprivileged service account, **never root**. If the app is compromised, the damage is limited to this one account.
-- **`EnvironmentFile=…/.env`** — the production secrets (`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`). This is the server's equivalent of your local `.env` from [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md) — it lives only on the box, readable only by `ltride`, never committed.
+- **`EnvironmentFile=…/.env`** — the production secrets (`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`). This is the server's equivalent of your local `.env` from [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md) — it lives only on the box (at `/home/ltride/app/backend/.env`), readable only by `ltride`, never committed.
 - **`ExecStart=…/gunicorn …`** — the actual command. Uses the **venv's** gunicorn (not system Python). `--workers 3` runs 3 processes for concurrency (rule of thumb: `2 × CPU + 1`). `--bind 127.0.0.1:8000` = listen on localhost only (nginx is the public door). `webapp.App:app` = import module `webapp.App`, use the object `app` — this is **WSGI**, the standard hookup between gunicorn and Flask. → Reference: [WSGI (PEP 3333)](https://peps.python.org/pep-3333/), [gunicorn docs](https://docs.gunicorn.org/en/stable/). The `-` logfiles send logs to the journal so `journalctl` can show them.
 - **`Restart=always` / `RestartSec=3`** — if gunicorn dies, systemd restarts it after 3s. Survives crashes and reboots. → Reference: [systemd.service man page](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
 - **`WantedBy=multi-user.target`** — lets `systemctl enable ltride` make it start automatically on every boot.
@@ -265,4 +265,4 @@ Then open a Pull Request on GitHub with **base = `cr/d1-cfn-templates`** (this C
 
 ## ➡️ Next lesson
 
-**[Lesson D2 — Stand up the infrastructure](D2-stand-up-infrastructure.md).** You'll actually run `./deploy.sh up` and watch CloudFormation create the network, database, and server in AWS for real. → [source CR](../deployment-guide.md#cr-d2--stand-up-the-infrastructure).
+**[Lesson D2 — Stand up the infrastructure](D2-stand-up-infrastructure.md).** You'll actually run `scripts/deploy.sh infra up` and watch CloudFormation create the network, database, and server in AWS for real. → [source CR](../deployment-guide.md#cr-d2--stand-up-the-infrastructure).

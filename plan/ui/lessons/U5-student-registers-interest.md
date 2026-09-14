@@ -31,9 +31,9 @@ A **real** student dashboard that mirrors the admin's map — campus map → cli
 Once they submit, the request **locks**: the map and Submit/Clear go read-only and a side panel shows "Your request — *pending approval*". To change their mind, the student uses **Withdraw request** (offered only while `pending`), which rescinds it and re-opens the map to pick again. After an admin assigns them (U6), the request reads **Approved — spot assigned** and is fully locked (they'd contact the admin to change it).
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `src/store/interestSlice.ts` exists with a `mine` field, plus `fetchMyInterest`, `registerInterest`, and `withdrawInterest` thunks.
-- [ ] The `interest` reducer is registered in `src/store/index.ts`.
-- [ ] `src/StudentDashboard.tsx` shows the **campus map → lot → spots** view (reusing U3's pan/zoom), **without** the admin sidebar.
+- [ ] `frontend/src/store/interestSlice.ts` exists with a `mine` field, plus `fetchMyInterest`, `registerInterest`, and `withdrawInterest` thunks.
+- [ ] The `interest` reducer is registered in `frontend/src/store/index.ts`.
+- [ ] `frontend/src/StudentDashboard.tsx` shows the **campus map → lot → spots** view (reusing U3's pan/zoom), **without** the admin sidebar.
 - [ ] A student can **click an available spot to pick it** (green), click again to clear, and picking another **replaces** the first — never more than one.
 - [ ] A **"Your selection"** panel names the picked spot with **Submit** and **Clear**; a top **banner** shows the current request (`lot · spot — status`).
 - [ ] Opening the lot of an existing request **pre-loads** its picked spot.
@@ -110,10 +110,10 @@ git checkout -b cr/u5-student-interest
 
 ### Step 1 — Create the interest slice (~15 min)
 
-Create `src/store/interestSlice.ts`. Note `space_ids`/`space_labels` on the type, and the new `withdrawInterest` [thunk](GLOSSARY.md#thunk):
+Create `frontend/src/store/interestSlice.ts`. Note `space_ids`/`space_labels` on the type, and the new `withdrawInterest` [thunk](GLOSSARY.md#thunk):
 
 ```ts
-// src/store/interestSlice.ts
+// frontend/src/store/interestSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api } from "../api/client";
 
@@ -195,7 +195,7 @@ export default interestSlice.reducer;    // this reducer gets plugged into the s
 
 ### Step 2 — Register the slice (~5 min)
 
-In `src/store/index.ts`:
+In `frontend/src/store/index.ts`:
 
 ```ts
 import interestReducer from "./interestSlice";   // Step 1's default export
@@ -219,7 +219,7 @@ export const store = configureStore({
 The student dashboard now reuses the **campus map → lot → spots** view you built for admin in U3, **minus the sidebar**, plus spot-picking. Rather than repeat the whole pan/zoom map here, lift the map-rendering pieces you already have (campus image with lot markers, per-lot spaces render, the shared `translate`-offset pan + cursor-anchored wheel zoom from U3/U8) into a [component](GLOSSARY.md#component) the student screen can render read-only. The **new** behaviour is spot-picking and the lock/withdraw states:
 
 ```tsx
-// src/StudentDashboard.tsx  (key logic — map/pan/zoom reused from U3)
+// frontend/src/StudentDashboard.tsx  (key logic — map/pan/zoom reused from U3)
 const { mine, status, error } = useAppSelector((s) => s.interest);   // this student's one active request
 const [pickedSpaceId, setPickedSpaceId] = useState<number | null>(null);   // local: highlighted spot pre-Submit
 

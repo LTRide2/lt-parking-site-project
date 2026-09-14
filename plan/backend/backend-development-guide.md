@@ -34,41 +34,43 @@ Before you touch anything, here's the map. **The left side is what's in the repo
 ### What exists today (a course-template scaffold)
 
 ```
-LTR-Backend/                 # the repo root (you run most commands here)
-├── webapp/                  # the real app lives here
-│   ├── App/
-│   │   ├── __init__.py      # Flask app factory (create_app)
-│   │   ├── config.py        # settings (currently a hard-coded secret — B0 fixes this)
-│   │   ├── model.py         # DB connection (currently SQLite)
-│   │   └── views/           # the route handlers (endpoints)
-│   │       ├── index.py     # placeholder routes from the template
-│   │       ├── root.py
-│   │       └── images.py
-│   ├── sql/                 # database SQL files
-│   └── requirements.txt     # the Python libraries to install (§0.5)
-├── BK/                      # an OLDER duplicate of the app — ignore it
-├── deploy/                  # AWS deployment artifacts (docs: ../deploy/deployment-guide.md)
-│   ├── deploy.sh            # creates the AWS infrastructure
-│   ├── release.sh           # ships your code to the server
+lt-parking-site-project/     # the repo root (you run most commands here)
+├── backend/
+│   ├── webapp/               # the real app lives here
+│   │   ├── App/
+│   │   │   ├── __init__.py   # Flask app factory (create_app)
+│   │   │   ├── config.py     # settings (currently a hard-coded secret — B0 fixes this)
+│   │   │   ├── model.py      # DB connection (currently SQLite)
+│   │   │   └── views/        # the route handlers (endpoints)
+│   │   │       ├── index.py  # placeholder routes from the template
+│   │   │       ├── root.py
+│   │   │       └── images.py
+│   │   ├── sql/               # database SQL files
+│   │   └── requirements.txt   # the Python libraries to install (§0.5)
+│   └── .venv/                 # your Python virtual environment (created in §0.4)
+├── frontend/                 # the React UI — its own guide: ../ui/ui-development-guide.md
+├── deploy/                   # AWS deployment artifacts (docs: ../deploy/deployment-guide.md)
 │   ├── params/prod.json     # your AWS settings
 │   ├── server/              # nginx + systemd + provision.sh (CR D1b)
 │   └── cfn/                 # 01-network / 02-database / 03-compute / 04-dns (CR D1)
+├── scripts/                  # deploy orchestration — one entrypoint, four concerns
+│   └── deploy.sh            # scripts/deploy.sh <secrets|infra|db|app> (creates infra + ships code)
 ├── plan/                    # the design docs (master + one per component)
 │   ├── plan.md              #   the master/orchestrator design doc
 │   ├── backend/backend-development-guide.md   # this guide
 │   ├── ui/ui-development-guide.md              # the frontend guide
 │   └── deploy/deployment-guide.md             # the deployment guide (D0–D4 + reference)
-└── webapp/var/ , *.pem      # local data & a key file — leave the .pem alone
+└── backend/webapp/var/ , *.pem   # local data & a key file — leave the .pem alone
 ```
 
-> **Why two app copies (`webapp/` and `BK/`)?** The project was started from a course template that got duplicated. We build inside **`webapp/`** and ignore `BK/`. (A later cleanup can delete `BK/`, but that's not your job right now.)
+> **One app, one place.** Everything backend lives under **`backend/webapp/`** in this single repo — there's no separate app copy to ignore and no separate backend repo to clone; `deploy/` and `plan/` are siblings of `backend/` at the repo root.
 
 ### What it becomes as you finish the CRs (the target)
 
-This is the same `webapp/App/` folder, filled in. Each file maps to a CR so you always know *where* new code goes:
+This is the same `backend/webapp/App/` folder, filled in. Each file maps to a CR so you always know *where* new code goes:
 
 ```
-webapp/
+backend/webapp/
 ├── App/
 │   ├── __init__.py          # registers all the blueprints below + CORS + error handling
 │   ├── config.py            # reads SECRET_KEY, DATABASE_URL, CORS_ORIGINS from .env   (B0)
@@ -142,51 +144,51 @@ git config --global user.email "you@example.com"
 **macOS / Linux**
 ```bash
 cd ~/workspace
-cd LTR-Backend
+cd lt-parking-site-project
 ls
 ```
 **Windows (PowerShell)**
 ```powershell
 cd $HOME\workspace
-cd LTR-Backend
+cd lt-parking-site-project
 ls
 ```
-You should see folders like `webapp/`, `plan/`, `deploy/`.
+You should see folders like `backend/`, `frontend/`, `plan/`, `deploy/`. This is a single monorepo — the backend lives in `backend/`, alongside the frontend, the deploy scripts, and these plan docs.
 
 ### 0.4 Make a "virtual environment" (Python's private toolbox)
 
-A **virtual environment** (venv) is a private folder of Python libraries just for this project, so it never clashes with the rest of your computer.
+A **virtual environment** (venv) is a private folder of Python libraries just for this project, so it never clashes with the rest of your computer. It lives at `backend/.venv` (all backend commands below assume you're at the repo root and reference paths inside `backend/` explicitly).
 
 **macOS / Linux**
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv backend/.venv
+source backend/.venv/bin/activate
 ```
 **Windows (PowerShell)**
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+python -m venv backend\.venv
+backend\.venv\Scripts\Activate.ps1
 ```
 > If activation fails with a script-execution error, run `Set-ExecutionPolicy -Scope Process RemoteSigned` first, then retry.
 
-After the second line your prompt shows `(.venv)` at the start. That means it's active. **You must activate the venv every time you open a new terminal** to work on the backend (`source .venv/bin/activate` on macOS/Linux, `.venv\Scripts\Activate.ps1` on Windows).
+After the second line your prompt shows `(.venv)` at the start. That means it's active. **You must activate the venv every time you open a new terminal** to work on the backend, from the repo root (`source backend/.venv/bin/activate` on macOS/Linux, `backend\.venv\Scripts\Activate.ps1` on Windows).
 
 To turn it off later: type `deactivate`.
 
 ### 0.5 Install the backend's libraries
 
-The list of libraries lives in **`webapp/requirements.txt`** (not the repo root — there's also an older copy in `BK/`, ignore that one). From the repo root (`~/workspace/LTR-Backend`), with the venv active, run:
+The list of libraries lives in **`backend/webapp/requirements.txt`**. From the repo root (`~/workspace/lt-parking-site-project`), with the venv active, run:
 
 **macOS / Linux**
 ```bash
-pip install -r webapp/requirements.txt
+pip install -r backend/webapp/requirements.txt
 ```
 **Windows (PowerShell)**
 ```powershell
-pip install -r webapp\requirements.txt
+pip install -r backend\webapp\requirements.txt
 ```
 
-> **Tip:** if you'd rather not type the `webapp/` path each time, you can `cd webapp` first and then run `pip install -r requirements.txt`. Just remember which folder you're in — `pwd` tells you (both platforms — PowerShell has a `pwd` alias too).
+> **Tip:** if you'd rather not type the `backend/webapp/` path each time, you can `cd backend/webapp` first and then run `pip install -r requirements.txt`. Just remember which folder you're in — `pwd` tells you (both platforms — PowerShell has a `pwd` alias too).
 
 ---
 
@@ -212,27 +214,30 @@ Each CR below ends with two test passes:
 - **Local testing guide** — test on your laptop (always do this first; it's fast and free).
 - **☁️ Cloud check** — *optionally* push the same CR to the real AWS server and confirm it works there too. This catches "works on my machine" problems (missing env var, migration not applied, CORS) early instead of all at once at the end.
 
-**One-time prerequisite (do this once, before your first cloud check).** The AWS server has to exist before you can deploy to it. That setup lives in **Part 2** — jump ahead and do **D0** (AWS account + CLI), **D1** (templates), and **D2** (`./deploy.sh up`) one time. It takes ~15 min and ~a few dollars/month while it's running (or `./deploy.sh down` between sessions). Come back here once `./deploy.sh outputs` prints a public IP.
+**One-time prerequisite (do this once, before your first cloud check).** The AWS server has to exist before you can deploy to it. That setup lives in **Part 2** — jump ahead and do **D0** (AWS account + CLI), **D1** (templates), and **D2** (`scripts/deploy.sh infra up`) one time. It takes ~15 min and ~a few dollars/month while it's running (or `scripts/deploy.sh infra down` between sessions). Come back here once `scripts/deploy.sh infra outputs` prints a public IP.
 
 **The repeatable recipe — run this after committing any CR you want to verify in the cloud:**
 
-> **Windows note:** `release.sh` and `deploy.sh` are `#!/bin/bash` scripts — run them from **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**, not PowerShell/`cmd`. This applies everywhere this recipe is referenced below.
+> **Windows note:** `scripts/deploy.sh` is a `#!/bin/bash` script — run it from **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**, not PowerShell/`cmd`. This applies everywhere this recipe is referenced below.
 
 **macOS / Linux (and Git Bash / WSL on Windows)**
 ```bash
-# 1) make sure your CR is committed and pushed (release.sh pulls from git on the server)
+# 1) make sure your CR is committed and pushed (the app concern deploys the commit on the box's branch)
 git push
 
-# 2) ship it to the server (builds nothing for backend-only; migrates DB; restarts gunicorn)
-cd ~/workspace/LTR-Backend/deploy
-./release.sh backend          # use ./release.sh all once the frontend is also ready
+# 2) if this CR added a migration, apply it FIRST — a separate concern; `app` does NOT migrate
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh db migrate       # only when sql/migrations/ changed
 
-# 3) find your server address
-./deploy.sh outputs           # note the ElasticIp / PublicIp
+# 3) ship the code to the server (backend-only builds nothing; restarts gunicorn)
+scripts/deploy.sh app backend      # use `scripts/deploy.sh app all` once the frontend is also ready
+
+# 4) find your server address
+scripts/deploy.sh infra outputs    # note the ElasticIp / PublicIp
 ```
 **Windows (PowerShell), if you'd rather set up the path before dropping into Git Bash**
 ```powershell
-cd $HOME\workspace\LTR-Backend\deploy
+cd $HOME\workspace\lt-parking-site-project
 # then run steps 1-3 above from Git Bash or WSL
 ```
 Then run that CR's **☁️ Cloud check** line below, swapping `http://localhost:8000` for `http://<ElasticIp>`. That's the only difference from local testing — same endpoints, real server. On Windows, prefer `Invoke-RestMethod http://<ElasticIp>/api/...` over `curl` for a plain GET (see the note in each CR's cloud check).
@@ -276,7 +281,7 @@ git checkout -b cr/b0-hygiene
    dist/
    ```
 
-2. **Replace `webapp/requirements.txt` entirely.** It still carries stale course-template pins (`Flask==2.2.2`, `Werkzeug==2.2.2`, `pytest==7.2.1`, …) left over from the scaffold — old enough that they fail to install on a modern Python. Delete everything in the file and replace it with **exactly** these seven lines:
+2. **Replace `backend/webapp/requirements.txt` entirely.** It still carries stale course-template pins (`Flask==2.2.2`, `Werkzeug==2.2.2`, `pytest==7.2.1`, …) left over from the scaffold — old enough that they fail to install on a modern Python. Delete everything in the file and replace it with **exactly** these seven lines:
    ```text
    Flask>=2.2
    flask-cors>=4.0
@@ -290,17 +295,17 @@ git checkout -b cr/b0-hygiene
 
    **macOS / Linux**
    ```bash
-   pip install -r webapp/requirements.txt
+   pip install -r backend/webapp/requirements.txt
    ```
    **Windows (PowerShell)**
    ```powershell
-   pip install -r webapp\requirements.txt
+   pip install -r backend\webapp\requirements.txt
    ```
    > **Troubleshooting — install errors on a modern Python.** If `pip install` fails with build errors or "no matching distribution," you likely still have old pinned lines (`Flask==2.2.2`, `Werkzeug==2.2.2`, …) mixed in below the new ones — those exact old versions don't install on current Python. Re-open the file and confirm it holds **only** the seven `>=` lines above, nothing else.
 
-3. **Move the secret key out of the code.** Open `webapp/App/config.py`. Find the hard-coded line that looks like `SECRET_KEY = "some-literal-string"` and replace the whole file's settings with this env-driven version:
+3. **Move the secret key out of the code.** Open `backend/webapp/App/config.py`. Find the hard-coded line that looks like `SECRET_KEY = "some-literal-string"` and replace the whole file's settings with this env-driven version:
    ```python
-   # webapp/App/config.py
+   # backend/webapp/App/config.py
    """All settings come from environment variables (loaded from .env locally)."""
    import os
 
@@ -319,27 +324,28 @@ git checkout -b cr/b0-hygiene
    ```
    > **Why `os.environ[...]` (square brackets) and not `.get(...)`?** Square brackets make the app crash immediately with a clear error if a required secret is missing — far better than starting up "half-configured" and failing mysteriously later.
 
-4. **Create a `.env` file** at the repo root (it's git-ignored, so it stays on your machine only). This holds your *local* secrets:
+4. **Create a `.env` file** inside `backend/` (it's git-ignored, so it stays on your machine only). This holds your *local* secrets:
    ```dotenv
    SECRET_KEY=dev-only-change-me-to-anything-long-and-random
-   DATABASE_URL=postgresql://localhost/ltride_dev
+   DATABASE_URL=postgresql://localhost/ltride
    CORS_ORIGINS=http://localhost:5173
    JWT_EXP_HOURS=12
    ```
 
-5. **Create `.env.example`** at the repo root — same keys, but **no real secrets**. This one *is* committed so the next person knows what to fill in:
+5. **Create `.env.example`** inside `backend/` — same keys, but **no real secrets**. This one *is* committed so the next person knows what to fill in:
    ```dotenv
    SECRET_KEY=
-   DATABASE_URL=postgresql://localhost/ltride_dev
+   DATABASE_URL=postgresql://localhost/ltride
    CORS_ORIGINS=http://localhost:5173
    JWT_EXP_HOURS=12
    ```
 
 **Local testing guide:**
-1. Setup: `source .venv/bin/activate`; create the `.env` file from step 4.
+1. Setup: `source backend/.venv/bin/activate`; create the `.env` file from step 4.
 2. Steps:
    ```bash
    git status                                  # what would be committed?
+   cd backend
    python -c "import webapp.App.config as c; print('SECRET loaded:', bool(c.SECRET_KEY))"
    ```
 3. Expected:
@@ -371,29 +377,29 @@ git checkout -b cr/b1-health
 
 **Steps:**
 
-1. **Clear the old template routes.** `webapp/App/` still has dead weight from the course-template scaffold that would otherwise conflict with the factory you're about to write. Delete it now:
+1. **Clear the old template routes.** `backend/webapp/App/` still has dead weight from the course-template scaffold that would otherwise conflict with the factory you're about to write. Delete it now:
 
    **macOS / Linux**
    ```bash
-   rm webapp/App/model.py webapp/App/index.py
-   rm webapp/App/views/index.py webapp/App/views/root.py webapp/App/views/images.py
+   rm backend/webapp/App/model.py backend/webapp/App/index.py
+   rm backend/webapp/App/views/index.py backend/webapp/App/views/root.py backend/webapp/App/views/images.py
    ```
    **Windows (PowerShell)**
    ```powershell
-   Remove-Item webapp\App\model.py, webapp\App\index.py
-   Remove-Item webapp\App\views\index.py, webapp\App\views\root.py, webapp\App\views\images.py
+   Remove-Item backend\webapp\App\model.py, backend\webapp\App\index.py
+   Remove-Item backend\webapp\App\views\index.py, backend\webapp\App\views\root.py, backend\webapp\App\views\images.py
    ```
    > `Remove-Item` needs a comma-separated list for multiple paths (unlike bash `rm`'s space-separated args), and forward slashes become backslashes.
 
-   Then replace `webapp/App/views/__init__.py` with a one-line docstring (it just marks the folder as a package — each view module below registers its own routes):
+   Then replace `backend/webapp/App/views/__init__.py` with a one-line docstring (it just marks the folder as a package — each view module below registers its own routes):
    ```python
-   # webapp/App/views/__init__.py
+   # backend/webapp/App/views/__init__.py
    """Route blueprints, one module per feature area (health, auth, lots, ...)."""
    ```
 
-2. **Create the health route.** In `webapp/App/views/`, create a new file `health.py`:
+2. **Create the health route.** In `backend/webapp/App/views/`, create a new file `health.py`:
    ```python
-   # webapp/App/views/health.py
+   # backend/webapp/App/views/health.py
    from datetime import datetime, timezone
    from flask import Blueprint, jsonify
 
@@ -406,9 +412,9 @@ git checkout -b cr/b1-health
        return jsonify({"data": {"status": "ok", "time": now}})
    ```
 
-3. **Write the app factory.** Open `webapp/App/__init__.py` and replace its contents with this. `create_app()` is the standard Flask pattern: one function that builds and returns the app.
+3. **Write the app factory.** Open `backend/webapp/App/__init__.py` and replace its contents with this. `create_app()` is the standard Flask pattern: one function that builds and returns the app.
    ```python
-   # webapp/App/__init__.py
+   # backend/webapp/App/__init__.py
    from flask import Flask, jsonify
    from flask_cors import CORS
 
@@ -443,21 +449,23 @@ git checkout -b cr/b1-health
    app = create_app()
    ```
 
-**Run the server (do this in its own terminal, venv active, from the repo root):**
+**Run the server.** `FLASK_APP=webapp.App` is a Python **module path**, not a filesystem path — it only resolves with your current directory set to `backend/` (that's where the `webapp` package lives). `cd` there first, venv still active, in its own terminal:
 
 **macOS / Linux**
 ```bash
+cd backend
 export FLASK_APP=webapp.App
 flask run --port 8000
 ```
 **Windows (PowerShell)**
 ```powershell
+cd backend
 $env:FLASK_APP = "webapp.App"
 flask run --port 8000
 ```
-> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where the `webapp/` folder is visible with `ls`). **Windows:** `cd $HOME\workspace\LTR-Backend`.
+> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/lt-parking-site-project/backend` (where the `webapp/` folder is visible with `ls`). **Windows:** `cd $HOME\workspace\lt-parking-site-project\backend`.
 >
-> **Troubleshooting — `ImportError: cannot import name 'index' from 'App.views'` (or similar for `root`/`images`).** Something still references a template route you deleted in step 1 — usually a stray `.pyc` in `__pycache__` or `views/__init__.py` not yet reduced to the one-line docstring. Delete `webapp/App/**/__pycache__` and confirm `views/__init__.py` holds only the docstring, then retry.
+> **Troubleshooting — `ImportError: cannot import name 'index' from 'App.views'` (or similar for `root`/`images`).** Something still references a template route you deleted in step 1 — usually a stray `.pyc` in `__pycache__` or `views/__init__.py` not yet reduced to the one-line docstring. Delete `backend/webapp/App/**/__pycache__` and confirm `views/__init__.py` holds only the docstring, then retry.
 
 **Local testing guide:**
 1. Setup: venv active; `.env` exists (from B0); `flask run --port 8000` in one terminal.
@@ -478,7 +486,7 @@ flask run --port 8000
    - The first returns `200` and `{"data":{"status":"ok","time":"...."}}`.
    - The second returns `404` and `{"error":{"code":"not_found","message":"Not found"}}` — proving the error envelope works.
 
-**☁️ Cloud check (optional):** run the recipe (`git push` → `./release.sh backend` → `./deploy.sh outputs`), then:
+**☁️ Cloud check (optional):** run the recipe (`git push` → `scripts/deploy.sh app backend` → `scripts/deploy.sh infra outputs`), then:
 
 **macOS / Linux**
 ```bash
@@ -586,22 +594,22 @@ erDiagram
 
 **macOS / Linux**
 ```bash
-createdb ltride_dev
+createdb ltride
 ```
 **Windows (PowerShell)**
 ```powershell
-createdb ltride_dev
+createdb ltride
 ```
 > If `createdb` says "command not found", Postgres isn't on your PATH yet — see the **"Installing and starting PostgreSQL"** box at the end of this CR, do that, then come back. (Windows: add `C:\Program Files\PostgreSQL\16\bin` to your `PATH`.)
 
 #### Step 2 — Write the schema file
 
-Create the folder and file `webapp/sql/migrations/001_init.sql` with **exactly** this content (verified against the shipped file, `webapp/sql/migrations/001_init.sql:1`). Read the comments — they explain each choice.
+Create the folder and file `backend/webapp/sql/migrations/001_init.sql` with **exactly** this content (verified against the shipped file, `backend/webapp/sql/migrations/001_init.sql:1`). Read the comments — they explain each choice.
 
-> **Ignore the stray `webapp/sql/schema.sql` and `webapp/sql/data.sql`.** Like the `BK/` duplicate noted earlier, these are leftover course-template scaffolding (an old SQLite `developer` table), not part of LTRide. Nothing reads them; the only SQL this project runs is `migrations/001_init.sql` and `seed.sql`.
+> **Ignore the stray `backend/webapp/sql/schema.sql` and `backend/webapp/sql/data.sql`.** These are leftover course-template scaffolding (an old SQLite `developer` table), not part of LTRide. Nothing reads them; the only SQL this project runs is `migrations/001_init.sql` and `seed.sql`.
 
 ```sql
--- webapp/sql/migrations/001_init.sql
+-- backend/webapp/sql/migrations/001_init.sql
 -- Initial schema for LTRide. Safe to re-run: it drops then recreates everything.
 
 BEGIN;
@@ -729,14 +737,14 @@ python -c "from werkzeug.security import generate_password_hash; print(generate_
 ```
 This prints a long string starting with `scrypt:` or `pbkdf2:`. **Copy that whole string** — you'll paste it into the seed file in the next step.
 
-> **Alternative — `webapp/bin/add-admin`.** Once the schema exists you can skip hand-editing a hash into the seed file and instead run `./webapp/bin/add-admin --username admin --name "Admin" --email admin@lt.edu` (it prompts for the password twice, hashes it the same way, and upserts the `users` row directly). See [`running-the-poc.md` §3](running-the-poc.md) for the full flag reference. The seed file below still hand-embeds a hash so you see how the hash gets there the first time.
+> **Alternative — `backend/webapp/bin/add-admin`.** Once the schema exists you can skip hand-editing a hash into the seed file and instead run `./backend/webapp/bin/add-admin --username admin --name "Admin" --email admin@lt.edu` (it prompts for the password twice, hashes it the same way, and upserts the `users` row directly). See [`running-the-poc.md` §3](running-the-poc.md) for the full flag reference. The seed file below still hand-embeds a hash so you see how the hash gets there the first time.
 
 #### Step 4 — Write the seed file
 
-Create `webapp/sql/seed.sql`. Replace `PASTE_HASH_HERE` with the string you just copied. This mirrors the shipped `webapp/sql/seed.sql:1` — same lots, layout, roster, and interest rows.
+Create `backend/webapp/sql/seed.sql`. Replace `PASTE_HASH_HERE` with the string you just copied. This mirrors the shipped `backend/webapp/sql/seed.sql:1` — same lots, layout, roster, and interest rows.
 
 ```sql
--- webapp/sql/seed.sql
+-- backend/webapp/sql/seed.sql
 -- Sample data for local development. Re-runnable (clears the tables first).
 
 BEGIN;
@@ -820,13 +828,13 @@ COMMIT;
 
 **macOS / Linux**
 ```bash
-psql ltride_dev -f webapp/sql/migrations/001_init.sql
-psql ltride_dev -f webapp/sql/seed.sql
+psql ltride -f backend/webapp/sql/migrations/001_init.sql
+psql ltride -f backend/webapp/sql/seed.sql
 ```
 **Windows (PowerShell)**
 ```powershell
-psql ltride_dev -f webapp\sql\migrations\001_init.sql
-psql ltride_dev -f webapp\sql\seed.sql
+psql ltride -f backend\webapp\sql\migrations\001_init.sql
+psql ltride -f backend\webapp\sql\seed.sql
 ```
 Each should print a list of `CREATE TABLE` / `INSERT` lines and no `ERROR`.
 
@@ -834,11 +842,11 @@ Each should print a list of `CREATE TABLE` / `INSERT` lines and no `ERROR`.
 1. Setup: Postgres running (**macOS/Linux:** `brew services start postgresql@16`; **Windows:** `net start postgresql-x64-16`); both files run with no error.
 2. Steps: (identical on both OSes — `psql` takes the same arguments)
    ```bash
-   psql ltride_dev -c "\dt"                                          # list tables
-   psql ltride_dev -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY id;"
-   psql ltride_dev -c "SELECT code, name FROM users WHERE role='student';"
-   psql ltride_dev -c "SELECT student_id, assigned_slot, parking_status FROM students;"
-   psql ltride_dev -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
+   psql ltride -c "\dt"                                          # list tables
+   psql ltride -c "SELECT label, status, rotation FROM spaces WHERE lot_id=1 ORDER BY id;"
+   psql ltride -c "SELECT code, name FROM users WHERE role='student';"
+   psql ltride -c "SELECT student_id, assigned_slot, parking_status FROM students;"
+   psql ltride -c "SELECT count(*) AS lot1_spaces FROM spaces WHERE lot_id=1;"
    ```
 3. Expected:
    - `\dt` lists all six tables: `assignments, interest, lots, spaces, students, users`.
@@ -847,20 +855,20 @@ Each should print a list of `CREATE TABLE` / `INSERT` lines and no `ERROR`.
    - The students query shows five rows incl. `S123213` (Sarah, `suspended`) and `STU001` (`Lot 1 · A8`, `valid`).
    - `lot1_spaces` = `8`.
 
-**☁️ Cloud check (optional):** the schema/seed run against the **server's** database (RDS), not your laptop's. `release.sh` auto-applies `sql/migrations/*.sql` on deploy, but the **seed** is manual (you don't want dev data on a real site). To verify on the server:
+**☁️ Cloud check (optional):** the schema/seed run against the **server's** database (RDS), not your laptop's. Migrations are their own concern — `scripts/deploy.sh db migrate` applies `sql/migrations/*.sql` on RDS (shipping code with `app` does **not** migrate); the **seed** is manual (you don't want dev data on a real site). To verify on the server:
 ```bash
-./release.sh backend                       # applies 001_init.sql on RDS
+scripts/deploy.sh db migrate               # applies 001_init.sql on RDS
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
-sudo -u ltride bash -c 'set -a; . /home/ltride/app/.env; set +a; psql "$DATABASE_URL" -c "\dt"'
+sudo -u ltride bash -c 'set -a; . /home/ltride/app/backend/.env; set +a; psql "$DATABASE_URL" -c "\dt"'
 # expect the six tables. To seed dev data on the server too (optional):
-#   psql "$DATABASE_URL" -f /home/ltride/app/sql/seed.sql
+#   psql "$DATABASE_URL" -f /home/ltride/app/backend/webapp/sql/seed.sql
 exit
 ```
 Expect `\dt` to list the same six tables on RDS.
 
 **Commit & push:**
 ```bash
-git add webapp/sql/
+git add backend/webapp/sql/
 git commit -m "B2: add schema migration + dev seed data"
 git push -u origin cr/b2-schema
 ```
@@ -908,7 +916,7 @@ git push -u origin cr/b2-schema
 >    createuser -s "$env:USERNAME"
 >    ```
 >
-> **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride_dev` opens a session connected to the `ltride_dev` database; `psql ltride_dev -f file.sql` runs a file against it; `psql ltride_dev -c "SQL..."` runs one command. Type `\q` to quit an interactive session.
+> **What is `psql`?** It's the interactive PostgreSQL client — a terminal program for talking to the database. `psql ltride` opens a session connected to the `ltride` database; `psql ltride -f file.sql` runs a file against it; `psql ltride -c "SQL..."` runs one command. Type `\q` to quit an interactive session.
 
 ---
 
@@ -927,11 +935,11 @@ git checkout cr/b2-schema
 git checkout -b cr/b3-auth
 ```
 
-#### Step 1 — Database helper (`webapp/App/db.py`)
+#### Step 1 — Database helper (`backend/webapp/App/db.py`)
 
-This is the **one place** that opens a connection to PostgreSQL. Everything else asks it for a connection. Create `webapp/App/db.py`:
+This is the **one place** that opens a connection to PostgreSQL. Everything else asks it for a connection. Create `backend/webapp/App/db.py`:
 ```python
-# webapp/App/db.py
+# backend/webapp/App/db.py
 """Database access: one connection per request, rows returned as dicts."""
 import psycopg
 from psycopg.rows import dict_row
@@ -978,17 +986,17 @@ def execute(sql, params=()):
     db.commit()
     return row
 ```
-Then wire `close_db` into the app factory. In `webapp/App/__init__.py`, inside `create_app()`, add after `CORS(...)`:
+Then wire `close_db` into the app factory. In `backend/webapp/App/__init__.py`, inside `create_app()`, add after `CORS(...)`:
 ```python
     from . import db
     app.teardown_appcontext(db.close_db)
 ```
 
-#### Step 2 — Auth service (`webapp/App/auth.py`)
+#### Step 2 — Auth service (`backend/webapp/App/auth.py`)
 
-This creates and checks **tokens** (a JWT is a signed string that proves who you are) and provides the `@require_role` guard. Create `webapp/App/auth.py`:
+This creates and checks **tokens** (a JWT is a signed string that proves who you are) and provides the `@require_role` guard. Create `backend/webapp/App/auth.py`:
 ```python
-# webapp/App/auth.py
+# backend/webapp/App/auth.py
 """Token creation/verification and the route guards."""
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -1056,11 +1064,11 @@ def require_role(role):
     return decorator
 ```
 
-#### Step 3 — Auth routes (`webapp/App/views/auth.py`)
+#### Step 3 — Auth routes (`backend/webapp/App/views/auth.py`)
 
-Create `webapp/App/views/auth.py`:
+Create `backend/webapp/App/views/auth.py`:
 ```python
-# webapp/App/views/auth.py
+# backend/webapp/App/views/auth.py
 from flask import Blueprint, request, jsonify, g
 from werkzeug.security import check_password_hash
 
@@ -1119,7 +1127,7 @@ def me():
 
 #### Step 4 — Register the blueprint
 
-In `webapp/App/__init__.py`, next to where you registered `health`, add:
+In `backend/webapp/App/__init__.py`, next to where you registered `health`, add:
 ```python
     from .views import auth
     app.register_blueprint(auth.bp)
@@ -1167,7 +1175,7 @@ In `webapp/App/__init__.py`, next to where you registered `health`, add:
    - Wrong code / wrong password → `401` `{"error":{"code":"unauthorized",...}}`.
    - `/me` with token → `200` and your user; `/me` without token → `401`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, repeat the login against the server (the seed must have been run on RDS — see B2's cloud check):
 
 **macOS / Linux**
 ```bash
@@ -1204,10 +1212,10 @@ git checkout cr/b3-auth
 git checkout -b cr/b4-lots
 ```
 
-**Step 1 — Create the shared serializer module, `webapp/App/serialize.py`.** Every view module from here on needs to turn the same DB rows (a space, an interest row, a student) into the same JSON shape. Instead of re-writing that mapping in each view file — and risking two files drifting to different field names — this one module owns it. `SPACE_SELECT`/`INTEREST_SELECT` are shared SELECTs any view can extend with its own `WHERE`/`ORDER BY`; `lot()`/`space()`/`interest()`/`student()`/`public_user()` turn a fetched row into the exact response dict.
+**Step 1 — Create the shared serializer module, `backend/webapp/App/serialize.py`.** Every view module from here on needs to turn the same DB rows (a space, an interest row, a student) into the same JSON shape. Instead of re-writing that mapping in each view file — and risking two files drifting to different field names — this one module owns it. `SPACE_SELECT`/`INTEREST_SELECT` are shared SELECTs any view can extend with its own `WHERE`/`ORDER BY`; `lot()`/`space()`/`interest()`/`student()`/`public_user()` turn a fetched row into the exact response dict.
 
 ```python
-# webapp/App/serialize.py
+# backend/webapp/App/serialize.py
 """Turn database rows into the exact JSON shapes the frontend slices consume.
 
 The frontend contract is snake_case for response fields (see the store slices in
@@ -1282,11 +1290,11 @@ def student(row):
         "assigned_slot": row["assigned_slot"], "parking_status": row["parking_status"],
     }
 ```
-> `interest()` and `student()` aren't consumed until [B6](#cr-b6--student-registers-interest) and the students CRs — they live here from the start because they're part of the same one shared module (`webapp/App/serialize.py:1`), not because they're used yet.
+> `interest()` and `student()` aren't consumed until [B6](#cr-b6--student-registers-interest) and the students CRs — they live here from the start because they're part of the same one shared module (`backend/webapp/App/serialize.py:1`), not because they're used yet.
 
-**Step 2 — Create `webapp/App/views/lots.py`**, importing `serialize` instead of hand-building dicts:
+**Step 2 — Create `backend/webapp/App/views/lots.py`**, importing `serialize` instead of hand-building dicts:
 ```python
-# webapp/App/views/lots.py
+# backend/webapp/App/views/lots.py
 from flask import Blueprint, jsonify
 
 from ..db import query, query_one
@@ -1328,9 +1336,9 @@ def lot_spaces(lot_id):
         return _err("not_found", "Lot not found", 404)
     return jsonify({"data": _lot_spaces(lot_id)})
 ```
-> **`GET /api/lots/:id/spaces` returns a bare array under `data`** — `{"data": [...]}`, *not* `{"data": {"lotId": ..., "spaces": [...]}}`. The lot id is already in the URL, so wrapping it again in the body would be redundant (`webapp/App/views/lots.py:49`).
+> **`GET /api/lots/:id/spaces` returns a bare array under `data`** — `{"data": [...]}`, *not* `{"data": {"lotId": ..., "spaces": [...]}}`. The lot id is already in the URL, so wrapping it again in the body would be redundant (`backend/webapp/App/views/lots.py:49`).
 
-**Step 3 — Register it** in `webapp/App/__init__.py`:
+**Step 3 — Register it** in `backend/webapp/App/__init__.py`:
 ```python
     from .views import lots
     app.register_blueprint(lots.bp)
@@ -1359,7 +1367,7 @@ def lot_spaces(lot_id):
    - `/api/lots/1/spaces` → `200` with a bare array of 8 spaces; A8 shows `"status":"assigned","rotation":90,"assigned_user_id":2,"assigned_user_name":"Alice","assigned_student_id":"STU001"`; the rest are `null` for those fields.
    - Lot `999` → `404`; no token → `401`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, with a token from the server's `/api/auth/student`:
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, with a token from the server's `/api/auth/student`:
 
 **macOS / Linux**
 ```bash
@@ -1394,9 +1402,9 @@ git checkout cr/b4-lots
 git checkout -b cr/b5-spaces
 ```
 
-**Step 1 — Create `webapp/App/views/spaces.py`**, reusing `serialize` from B4:
+**Step 1 — Create `backend/webapp/App/views/spaces.py`**, reusing `serialize` from B4:
 ```python
-# webapp/App/views/spaces.py
+# backend/webapp/App/views/spaces.py
 from flask import Blueprint, request, jsonify
 
 from ..db import query, query_one, get_db
@@ -1457,9 +1465,9 @@ def bulk_update_spaces():
     rows = query(serialize.SPACE_SELECT + " WHERE s.id = ANY(%s) ORDER BY s.id", (ids,))
     return jsonify({"data": [serialize.space(row) for row in rows]})
 ```
-> **The bulk endpoint returns the updated spaces, not an `updated`/`skipped` split.** Checking *every* target's status before writing anything (`targets`/`any(...)`) means the call either fully succeeds or fully fails — never half-applies (`webapp/App/views/spaces.py:42`).
+> **The bulk endpoint returns the updated spaces, not an `updated`/`skipped` split.** Checking *every* target's status before writing anything (`targets`/`any(...)`) means the call either fully succeeds or fully fails — never half-applies (`backend/webapp/App/views/spaces.py:42`).
 
-**Step 2 — Register it** in `webapp/App/__init__.py`:
+**Step 2 — Register it** in `backend/webapp/App/__init__.py`:
 ```python
     from .views import spaces
     app.register_blueprint(spaces.bp)
@@ -1508,7 +1516,7 @@ def bulk_update_spaces():
    - Bulk `[2,8]` (8 is `assigned`) → `409`; re-reading shows space `2` untouched (still `disabled`, not further changed).
    - Student token → `403` `{"error":{"code":"forbidden",...}}`; invalid status (e.g. `{"status":"banana"}`) → `400`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, repeat the bulk-disable against `http://<ElasticIp>` with a server admin token, then re-read the lot to confirm it persisted in RDS.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, repeat the bulk-disable against `http://<ElasticIp>` with a server admin token, then re-read the lot to confirm it persisted in RDS.
 
 **Commit & push:**
 ```bash
@@ -1533,9 +1541,9 @@ git checkout cr/b5-spaces
 git checkout -b cr/b6-interest
 ```
 
-**Step 1 — Create `webapp/App/views/interest.py`**, reusing `serialize` from B4:
+**Step 1 — Create `backend/webapp/App/views/interest.py`**, reusing `serialize` from B4:
 ```python
-# webapp/App/views/interest.py
+# backend/webapp/App/views/interest.py
 from flask import Blueprint, request, jsonify, g
 
 from ..db import query, query_one, get_db
@@ -1652,9 +1660,9 @@ def list_interest():
     rows = query(sql, params)
     return jsonify({"data": [serialize.interest(row) for row in rows]})
 ```
-> **Why upsert instead of reject-duplicate.** A student changing their mind about which spot they want shouldn't have to withdraw first — `create_interest` reuses their existing `pending` row (`200`) instead of erroring, and only ever leaves at most one `pending` row per user, same as the DB index from B2 (`webapp/App/views/interest.py:59`).
+> **Why upsert instead of reject-duplicate.** A student changing their mind about which spot they want shouldn't have to withdraw first — `create_interest` reuses their existing `pending` row (`200`) instead of erroring, and only ever leaves at most one `pending` row per user, same as the DB index from B2 (`backend/webapp/App/views/interest.py:59`).
 
-**Step 2 — Register it** in `webapp/App/__init__.py`:
+**Step 2 — Register it** in `backend/webapp/App/__init__.py`:
 ```python
     from .views import interest
     app.register_blueprint(interest.bp)
@@ -1697,7 +1705,7 @@ def list_interest():
    - `DELETE /interest/me` → `204`; a follow-up `GET /interest/me` → `{"data":null}`.
    - An admin hitting `POST /api/interest` → `403`; a student hitting `GET /api/interest` → `403`; requesting an already-`assigned` spot (e.g. `8`) → `409`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, POST an interest to `http://<ElasticIp>/api/interest` with a server student token, then read it back with `/api/interest/me`. (This is the backend half of the full E2E flow in **Part 1E** — running it in the cloud means UI CR **U5** can be tested against the live server too.)
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, POST an interest to `http://<ElasticIp>/api/interest` with a server student token, then read it back with `/api/interest/me`. (This is the backend half of the full E2E flow in **Part 1E** — running it in the cloud means UI CR **U5** can be tested against the live server too.)
 
 **Commit & push:**
 ```bash
@@ -1727,9 +1735,9 @@ git checkout cr/b6-interest
 git checkout -b cr/b7-assignments
 ```
 
-**Step 1 — Create `webapp/App/views/assignments.py`:**
+**Step 1 — Create `backend/webapp/App/views/assignments.py`:**
 ```python
-# webapp/App/views/assignments.py
+# backend/webapp/App/views/assignments.py
 import psycopg
 from flask import Blueprint, request, jsonify, g
 
@@ -1909,9 +1917,9 @@ def _label(cursor, space_id):
     row = cursor.fetchone()
     return row["label"] if row else ""
 ```
-> **The DELETE path param is a space id, not an assignment id.** There's no assignment-id-facing API at all — every caller (admin UI, this guide) always has the space in hand, so keying the undo off the space it frees is simpler than tracking a separate assignment id (`webapp/App/views/assignments.py:141`).
+> **The DELETE path param is a space id, not an assignment id.** There's no assignment-id-facing API at all — every caller (admin UI, this guide) always has the space in hand, so keying the undo off the space it frees is simpler than tracking a separate assignment id (`backend/webapp/App/views/assignments.py:141`).
 
-**Step 2 — Register it** in `webapp/App/__init__.py`:
+**Step 2 — Register it** in `backend/webapp/App/__init__.py`:
 ```python
     from .views import assignments
     app.register_blueprint(assignments.bp)
@@ -1963,7 +1971,7 @@ def _label(cursor, space_id):
    - Move → `200` `{"from_space_id":10,"to_lot_id":3}`; space 10 back to `available`; Andrew's interest now `pending` in Lot 5 (not auto-assigned to any space there).
    - DELETE `/api/assignments/8` → `204`; re-reading Lot 1 shows space 8 (A8) back to `available`, Alice's fulfilled interest re-queued to `pending`, her roster slot cleared.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, run the assign → read → fulfilled sequence against `http://<ElasticIp>`. With B7 deployed, the **whole backend is live in the cloud** — now run the full two-window browser story from **Part 1E** against the deployed site (`./release.sh all`) as your real end-to-end cloud test.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, run the assign → read → fulfilled sequence against `http://<ElasticIp>`. With B7 deployed, the **whole backend is live in the cloud** — now run the full two-window browser story from **Part 1E** against the deployed site (`scripts/deploy.sh app all`) as your real end-to-end cloud test.
 
 **Commit & push:**
 ```bash
@@ -1989,9 +1997,9 @@ git checkout cr/b7-assignments
 git checkout -b cr/b8-layout
 ```
 
-**Step 1 — Add the endpoint to `webapp/App/views/lots.py`** (the blueprint you created in B4 — reuse its `bp`, `_err`, `serialize`, and imports; add two size defaults):
+**Step 1 — Add the endpoint to `backend/webapp/App/views/lots.py`** (the blueprint you created in B4 — reuse its `bp`, `_err`, `serialize`, and imports; add two size defaults):
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 from ..db import query, query_one, get_db   # extend the existing import
 from ..auth import require_role
 
@@ -2077,7 +2085,7 @@ def _is_frac(value):
 
 **Explanation, piece by piece:**
 - **Validate before the transaction.** Every label/coordinate check runs on plain reads first, so the transaction only ever contains writes already known to be valid — the same fail-fast shape as B7. The `CHECK (pos_x/pos_y in 0..1)` constraint on the `spaces` table (from B2) is the database-level backstop if a bad value ever slips past the Python check.
-- **`w`/`h` default when absent or out of range.** Most spots are drawn the same size, so the client only sends `w`/`h` when a spot is deliberately larger/smaller; `_is_frac` rejects anything outside `0..1` and falls back to `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` (`webapp/App/views/lots.py:14`).
+- **`w`/`h` default when absent or out of range.** Most spots are drawn the same size, so the client only sends `w`/`h` when a spot is deliberately larger/smaller; `_is_frac` rejects anything outside `0..1` and falls back to `DEFAULT_SPOT_W`/`DEFAULT_SPOT_H` (`backend/webapp/App/views/lots.py:14`).
 - **Full-replace by reconciliation.** `keep_ids` are the spaces the client still wants; anything in the lot *not* in that set is `to_delete`. Payload entries **with** an `id` are `UPDATE`d (a move/relabel), entries **without** one are `INSERT`ed (a newly placed spot). → [PostgreSQL: UPDATE](https://www.postgresql.org/docs/current/sql-update.html) · [INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
 - **The 409 guard is the safety rule.** Before deleting anything, we check whether any to-be-deleted space is `assigned`; if so we bail with `409` and write nothing (this is [R8](../plan.md#12-risks--mitigations) in the plan). An admin can't accidentally delete a space a student is parked in — they'd have to unassign it first (B7's `DELETE`).
 - **One transaction.** All the upserts and the delete run inside a single `with connection.cursor()` block and one `commit()`, so a mid-save failure rolls the whole layout back — you never get half a saved map. Same transactional pattern as B7.
@@ -2121,7 +2129,7 @@ def _is_frac(value):
    - Omitting a previously-saved space's id deletes it — **unless** it's `assigned`, which returns `409` and changes nothing.
    - Student token → `403`; `x`/`y` outside `0..1` → `400`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, save a layout for a lot on the live server, then re-read it — positions persist in RDS. Best done end-to-end with the U8 editor once it's built (`./release.sh all`).
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, save a layout for a lot on the live server, then re-read it — positions persist in RDS. Best done end-to-end with the U8 editor once it's built (`scripts/deploy.sh app all`).
 
 **Commit & push:**
 ```bash
@@ -2137,7 +2145,7 @@ git add -A && git commit -m "B8: save lot layout (positions/sizes) + spaces.pos_
 **Goal:**
 - `POST /api/lots` — admin-only. Body `{ "name", "number"?, "capacity"?, "display_order"? }`. Inserts the lot and, if `capacity` is given, that many positionless `available` spaces labeled `<number>-<index>` (the admin places them later with B8's layout editor). Rejects a blank name (`400`), a duplicate name, or a duplicate `number` (`409`).
 - `DELETE /api/lots/:id` — admin-only. Rejects (`409`) if the lot has any `assigned` space; otherwise deletes the lot's interest rows, then the lot (its spaces and their assignments cascade).
-- `POST /api/lots/:id/map` — admin-only, `multipart/form-data` field `file`. Only PNG/JPG images are accepted; the file is saved under `webapp/App/static/uploads/` and `map_image_url` is set to an **absolute** URL (so the cross-origin SPA can load it directly).
+- `POST /api/lots/:id/map` — admin-only, `multipart/form-data` field `file`. Only PNG/JPG images are accepted; the file is saved under `backend/webapp/App/static/uploads/` and `map_image_url` is set to an **absolute** URL (so the cross-origin SPA can load it directly).
 
 This is the first endpoint that **creates a brand-new top-level resource** from the UI — it's what frees the app from the hard-coded "17 lots" seed loop and lets the school add lot 18 without a code change.
 
@@ -2147,9 +2155,9 @@ git checkout cr/b8-layout
 git checkout -b cr/b9-create-lot
 ```
 
-**Step 1 — Add the endpoints to `webapp/App/views/lots.py`** (extend the `import os` and `secure_filename` imports alongside the existing ones):
+**Step 1 — Add the endpoints to `backend/webapp/App/views/lots.py`** (extend the `import os` and `secure_filename` imports alongside the existing ones):
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 import os
 from werkzeug.utils import secure_filename
 from flask import current_app
@@ -2326,7 +2334,7 @@ def upload_map(lot_id):
    - Map upload → `200` with `map_image_url` now an absolute `http://.../static/uploads/lot_7.jpg` URL.
    - Delete with no assigned spaces → `204`; deleting Lot 1 (has A8 assigned) → `409` listing `A8`.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, create a lot on the live server, upload its map, and re-list — it all persists in RDS. Full loop with the UI: create a lot (U9) → upload its map (U7) → arrange its spots (U8).
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, create a lot on the live server, upload its map, and re-list — it all persists in RDS. Full loop with the UI: create a lot (U9) → upload its map (U7) → arrange its spots (U8).
 
 **Commit & push:**
 ```bash
@@ -2364,7 +2372,7 @@ Each CR above had a "Local testing guide" that poked **one endpoint** with `curl
 
 **macOS / Linux**
 ```bash
-cd ~/workspace/LTR-Backend
+cd ~/workspace/lt-parking-site-project/backend
 brew services start postgresql@16          # the version you installed in B2
 
 source .venv/bin/activate                  # virtualenv from Part 0
@@ -2378,7 +2386,7 @@ flask run --port 8000
 
 **Windows (PowerShell)**
 ```powershell
-cd $HOME\workspace\LTR-Backend
+cd $HOME\workspace\lt-parking-site-project\backend
 net start postgresql-x64-16                # the service from B2 (usually already running)
 
 .venv\Scripts\Activate.ps1                 # virtualenv from Part 0
@@ -2447,15 +2455,15 @@ Expect: step 2 returns the new interest with `"status":"pending"`; step 4 lists 
 
 **macOS / Linux**
 ```bash
-cd ~/workspace/lt-parking-site-project
-# .env must contain: VITE_API_URL=http://localhost:8000
+cd ~/workspace/lt-parking-site-project/frontend
+# frontend/.env must contain: VITE_API_URL=http://localhost:8000
 npm run dev
 ```
 
 **Windows (PowerShell)**
 ```powershell
-cd $HOME\workspace\lt-parking-site-project
-# .env must contain: VITE_API_URL=http://localhost:8000
+cd $HOME\workspace\lt-parking-site-project\frontend
+# frontend\.env must contain: VITE_API_URL=http://localhost:8000
 npm run dev
 ```
 Open `http://localhost:5173`.
@@ -2516,15 +2524,15 @@ Deployment now lives in its own sibling document: **[`../deploy/deployment-guide
 
 ## Part 4 — Daily backend checklist
 
-1. `cd ~/workspace/LTR-Backend`  *(Windows: `cd $HOME\workspace\LTR-Backend`)*
+1. `cd ~/workspace/lt-parking-site-project/backend`  *(Windows: `cd $HOME\workspace\lt-parking-site-project\backend`)*
 2. `source .venv/bin/activate` (prompt shows `(.venv)`)  *(Windows: `.venv\Scripts\Activate.ps1`)*
 3. `git status` (right branch? clean?)
 4. `flask run --port 8000` in one terminal; test with `curl` in another *(Windows: `Invoke-RestMethod`)*.
 5. Commit often: `git add -A && git commit -m "..."`.
 6. `git push` when the CR is ready → open the PR against the parent branch.
-7. To deploy: `cd deploy && ./release.sh all`.
+7. To deploy: `cd ~/workspace/lt-parking-site-project && scripts/deploy.sh app all`.
 
-**Already have a server built and just need to run it?** All of B0–B9 plus the student-roster/interest/assignment extensions above were also proven out in a single PoC pass (67/67 checks in `webapp/tests/smoke_api.py`) — the fastest way to stand that up locally is the runbook **[`running-the-poc.md`](running-the-poc.md)**, which covers `webapp/bin/server` (start/stop/status) and `webapp/bin/add-admin` (create/reset the admin login without hand-editing seed data).
+**Already have a server built and just need to run it?** All of B0–B9 plus the student-roster/interest/assignment extensions above were also proven out in a single PoC pass (67/67 checks in `backend/webapp/tests/smoke_api.py`) — the fastest way to stand that up locally is the runbook **[`running-the-poc.md`](running-the-poc.md)**, which covers `backend/webapp/bin/server` (start/stop/status) and `backend/webapp/bin/add-admin` (create/reset the admin login without hand-editing seed data).
 
 ---
 
@@ -2534,9 +2542,9 @@ Deployment now lives in its own sibling document: **[`../deploy/deployment-guide
 
 ### A.1 Target application structure
 
-The clean target the CRs converge on — matches `webapp/App/` as actually shipped.
+The clean target the CRs converge on — matches `backend/webapp/App/` as actually shipped. `deploy/` and `plan/` are siblings of `backend/` at the repo root (`lt-parking-site-project/`), not shown below.
 ```
-LTR-Backend/
+backend/
   webapp/
     App/
       __init__.py        # create_app(), CORS, blueprint + error registration
@@ -2656,7 +2664,7 @@ All requests/responses are `application/json`. Authenticated calls send `Authori
 
 #### `POST /api/lots/:id/map` *(admin)*
 - **Request:** `multipart/form-data` with field `file` — **PNG or JPG only** (checked by mimetype, `image/png`/`image/jpeg`). No size limit is enforced in code.
-- **200:** `{ "data": { "id": 1, "name": "Lot 1", "number": 1, "display_order": 1, "map_image_url": "http://<host>/static/uploads/lot_1.jpg", "capacity": 8, "available_count": 6 } }` — `map_image_url` is an **absolute** URL (built from `request.host_url`) so the cross-origin SPA can load it; the file is saved to `webapp/App/static/uploads/lot_<id>.<ext>`, overwriting any previous upload for that lot.
+- **200:** `{ "data": { "id": 1, "name": "Lot 1", "number": 1, "display_order": 1, "map_image_url": "http://<host>/static/uploads/lot_1.jpg", "capacity": 8, "available_count": 6 } }` — `map_image_url` is an **absolute** URL (built from `request.host_url`) so the cross-origin SPA can load it; the file is saved to `backend/webapp/App/static/uploads/lot_<id>.<ext>`, overwriting any previous upload for that lot.
 - **400** missing file or unsupported mimetype · **403** not admin · **404** lot not found.
 
 #### `PUT /api/lots/:id/layout` *(admin)*
