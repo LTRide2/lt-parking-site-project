@@ -30,7 +30,10 @@ __pycache__/
 .venv/
 venv/
 env/
-webapp/var/
+backend/webapp/var/
+
+# Local dev runtime (scripts/local.sh pid + log files)
+.local/
 
 # Environment files (secrets live only on the box / locally, never committed)
 .env
