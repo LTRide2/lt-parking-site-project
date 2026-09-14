@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Today the lot list is frozen: the bottom nav is a hard-coded loop of `Home + Lot 1..17`, and there is no way to add lot 18 without editing code. By the end of this hour an **admin** can click **➕ Add Lot**, type a name, an optional **lot number**, and an optional capacity, and a real new lot is created on the server and appears in the nav immediately — ready for the admin to upload its map ([U7](U7-update-school-map.md)) and arrange its spots ([U8](U8-place-and-arrange-spots.md)). They can also **🗑 Remove Lot** — but only when none of its spaces are assigned, so you never orphan a student's spot.

@@ -8,6 +8,18 @@ This folder turns the [Deployment Guide](../deployment-guide.md) into **6 self-c
 >
 > **Do the backend (and ideally the frontend) first** — you're deploying the app you built in the [Backend](../../backend/lessons/README.md) and [UI](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/README.md) tracks.
 
+## Verify locally before you deploy
+
+Confirm the app works end-to-end on your machine before shipping it to AWS:
+
+```bash
+scripts/local.sh up      # Postgres + Flask API + React UI
+scripts/local.sh down    # stop everything
+```
+
+Local run details: [`running-the-poc.md`](../../backend/running-the-poc.md). Deploying to
+AWS uses `scripts/deploy.sh` (covered in the steps below).
+
 ## Do them in order
 
 | # | Lesson | What you'll have done | Source CR |

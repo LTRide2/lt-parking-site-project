@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Today, a spot only sits somewhere on the map if the server already gave it `x`/`y` coordinates (from U3). Any space *without* coordinates just drops into a plain flex-wrap grid of coloured boxes below the map photo — no one can place it on the image, let alone move it. By the end of this hour an **admin** can, in the browser, **press ➕ Add Spot, drag it to the right place, resize it to match the painted space, rotate it, rename it, delete it, and press Save Layout** — and the layout is stored on the server so it survives a refresh and shows for everyone.

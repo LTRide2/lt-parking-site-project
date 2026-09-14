@@ -23,17 +23,19 @@ This is the **master/orchestrator design doc**. It captures **what exists today*
 There are **four documents**: this orchestrator plus one guide per component (frontend, backend, deployment), each in its own folder under `plan/`. They reference each other and work together. The runnable deployment artifacts the deployment guide describes live in the repo-root [`deploy/`](../deploy/README.md) home folder:
 
 ```
-LTR-Backend/
+lt-parking-site-project/                 ← monorepo root
 ├── plan/
 │   ├── plan.md                          ← master / orchestrator (this file)
 │   ├── ui/
 │   │   └── ui-development-guide.md       ← frontend design + implementation (+ frontend deploy)
 │   ├── backend/
-│   │   └── backend-development-guide.md  ← backend design + implementation
+│   │   ├── backend-development-guide.md  ← backend design + implementation
+│   │   └── running-the-poc.md            ← run the whole app locally (scripts/local.sh)
 │   └── deploy/
 │       └── deployment-guide.md           ← deployment: AWS deploy (D0–D4) + ops + IaC/cost reference
-└── deploy/                              ← runnable artifacts: CloudFormation, scripts, server config
-    └── README.md                         ← indexes the artifacts; points to the deployment guide
+├── deploy/                              ← runnable artifacts: CloudFormation, scripts, server config
+│   └── README.md                         ← indexes the artifacts; points to the deployment guide
+└── scripts/                            ← local.sh (run locally) + deploy.sh (ship to AWS)
 ```
 
 | Document | What it is | Read it when |
@@ -64,6 +66,8 @@ flowchart TB
 ```
 
 **If you are brand new and just want to start building:** open [`ui/ui-development-guide.md`](ui/ui-development-guide.md) or [`backend/backend-development-guide.md`](backend/backend-development-guide.md) and follow it top to bottom; when the backend runs locally, use [`deploy/deployment-guide.md`](deploy/deployment-guide.md) to go live. Come back to *this* file whenever a guide says "see plan.md §X" for the big picture, the CR ordering, or a shared contract.
+
+**To run the whole app locally while you build:** `scripts/local.sh up` starts Postgres, the Flask API, and the React UI together (`restart` to pick up changes, `down` to stop). See [`backend/running-the-poc.md`](backend/running-the-poc.md).
 
 **The golden rules (both guides follow them):**
 1. **One CR = one small, complete change**, on its own branch named `cr/<id>-<slug>`.

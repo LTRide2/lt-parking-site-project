@@ -15,6 +15,18 @@ This guide has three parts:
 
 ---
 
+## Verify locally before you deploy
+
+Confirm the app works end-to-end on your machine before shipping it to AWS:
+
+```bash
+scripts/local.sh up      # Postgres + Flask API + React UI
+scripts/local.sh down    # stop everything
+```
+
+Local run details: [`running-the-poc.md`](../backend/running-the-poc.md). Deploying to
+AWS uses `scripts/deploy.sh` (covered in the steps below).
+
 ## Part 1 — Deploy to AWS, step by step (CRs D0–D4)
 
 > **Big picture:** we rent one small Linux computer from Amazon (**EC2**) to run the Flask backend, and one managed database (**RDS PostgreSQL**) for the data. We describe all of this in code (**CloudFormation**, called "IaC" = infrastructure as code) so it's repeatable. One entrypoint, `scripts/deploy.sh <concern> <subcommand>`, does the work, split into **four concerns** you run in order:

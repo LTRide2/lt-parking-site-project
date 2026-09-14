@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Right now the admin's **Manual Assign** button is a toy — it pops up a box asking you to *type* a student ID, and the "assignment" only lives in your browser tab; refresh and it's gone. By the end of this hour, Manual Assign — relabelled **"Assign to Spot"** — talks to the **real backend**: the admin picks a **pending interest request by name** — a request that now also shows **which spot the student asked for** (the `space_labels` sent in U5) — scoped to the currently-open lot, and clicks an open space to give it to them — for real, saved on the server. You'll also add the other half of the story: **unassigning** a student, and **moving** their request to a different lot.

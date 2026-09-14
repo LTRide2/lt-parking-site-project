@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Right now the parking grid is **faked**: `renderParkingLot()` just draws 3 rows × 2 columns × 20 boxes with made-up string IDs like `1-0-5`, and "disabled" only ever lived in your browser's memory — reload the page and it's gone. By the end of this hour, every lot and every space comes from the **real backend** (`GET /api/lots` and `GET /api/lots/:id/spaces`), and each space is colored by the server's own `status` field.

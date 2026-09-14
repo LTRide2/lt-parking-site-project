@@ -32,28 +32,27 @@ Brand new? Open a component guide and follow it top to bottom; come back to
 ## Quick start (local development)
 
 > Both `frontend/` and `backend/` are **teaching scaffolds** — you build the app up
-> by following the lessons in `plan/`. The commands below get each half running;
-> the guides add the API layer, database, auth, and everything else, step by step.
+> by following the lessons in `plan/`. As you go, run the whole stack with one
+> command to check your changes end to end.
 
-**Frontend** (Vite dev server):
+**Run everything** (Postgres + Flask API + React UI) with a single command:
+
 ```bash
-cd frontend
-npm install
-npm run dev            # http://localhost:5173
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run after you change code
+scripts/local.sh down      # stop everything
 ```
 
-**Backend** (Flask + PostgreSQL): create the virtualenv and install dependencies,
-then follow the backend guide from **CR B0** onward to add the env config
-(`SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`), the schema, and the run/serve steps:
-```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r webapp/requirements.txt
-```
+Then open **http://localhost:5173** (the API answers at
+**http://localhost:8000/api/health**). This needs [Docker](https://www.docker.com/products/docker-desktop/)
+(for Postgres), [Node 18+](https://nodejs.org/), and Python 3. Full runbook,
+options, and troubleshooting: [`plan/backend/running-the-poc.md`](plan/backend/running-the-poc.md).
 
-The two component guides are the authoritative, step-by-step setup —
+Prefer to run the halves separately (or set them up by hand)? The
 [UI guide](plan/ui/ui-development-guide.md) and
-[backend guide](plan/backend/backend-development-guide.md).
+[backend guide](plan/backend/backend-development-guide.md) are the authoritative,
+step-by-step setup, and [`running-the-poc.md`](plan/backend/running-the-poc.md) §1–§8
+covers the manual, native-Postgres path.
 
 ## Deploying to AWS
 

@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Right now the app decides "which screen to show" with a plain JavaScript `if` — there's no real URL for the student dashboard or the admin board, and the browser's Back button doesn't work the way you'd expect. By the end of this hour, every screen will have its own **real address**: `/login`, `/student`, `/admin`. Visit the wrong one and you'll get bounced somewhere sensible instead of seeing something you shouldn't.

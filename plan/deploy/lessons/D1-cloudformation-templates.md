@@ -7,6 +7,18 @@
 
 ---
 
+## Verify locally before you deploy
+
+Confirm the app works end-to-end on your machine before shipping it to AWS:
+
+```bash
+scripts/local.sh up      # Postgres + Flask API + React UI
+scripts/local.sh down    # stop everything
+```
+
+Local run details: [`running-the-poc.md`](../../backend/running-the-poc.md). Deploying to
+AWS uses `scripts/deploy.sh` (covered in the steps below).
+
 ## 🎯 Goal — what you'll have at the end
 
 The four **CloudFormation templates** that describe LTRide's entire AWS infrastructure as code, understood well enough that you could explain each one to a classmate — plus confirmation that AWS itself agrees they're well-formed. Concretely, by the end of this hour you will have:
