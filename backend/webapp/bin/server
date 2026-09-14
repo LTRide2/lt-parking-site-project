@@ -1,0 +1,88 @@
+#!/bin/bash
+# Start / stop the LTRide Flask dev server (PostgreSQL + repo-root .venv).
+# Usage: ./webapp/bin/server (start|stop|restart|status)
+set -Eeuo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+python_interpreter="$repository_root/.venv/bin/python"
+host="${LTRIDE_HOST:-127.0.0.1}"
+port="${LTRIDE_PORT:-8000}"
+pid_file="$repository_root/webapp/var/dev-server.pid"
+log_file="$repository_root/webapp/var/dev-server.log"
+
+usage() {
+  echo "Usage: $0 (start|stop|restart|status)"
+}
+
+is_running() {
+  [ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null
+}
+
+start() {
+  if is_running; then
+    echo "Already running (pid $(cat "$pid_file")) on http://$host:$port"
+    return 0
+  fi
+  if [ ! -x "$python_interpreter" ]; then
+    echo "Error: $python_interpreter not found. Create the venv and install requirements.txt."
+    exit 1
+  fi
+
+  # config.py reads .env; fall back to dev defaults only when the shell has not
+  # already provided them, so a real .env or exported secrets always win.
+  export SECRET_KEY="${SECRET_KEY:-dev-secret-change-me}"
+  export DATABASE_URL="${DATABASE_URL:-postgresql:///ltride_dev}"
+  export PYTHONPATH="$repository_root${PYTHONPATH:+:$PYTHONPATH}"
+
+  mkdir -p "$repository_root/webapp/var"
+  cd "$repository_root"
+  nohup "$python_interpreter" -m flask --app webapp.App run \
+    --host "$host" --port "$port" >"$log_file" 2>&1 &
+  echo $! >"$pid_file"
+
+  sleep 2
+  if is_running; then
+    echo "Started (pid $(cat "$pid_file")) on http://$host:$port — logs: $log_file"
+  else
+    echo "Failed to start. Last log lines:"
+    tail -n 20 "$log_file" 2>/dev/null || true
+    rm -f "$pid_file"
+    exit 1
+  fi
+}
+
+stop() {
+  if is_running; then
+    local pid
+    pid="$(cat "$pid_file")"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$pid" 2>/dev/null || true
+    echo "Stopped (pid $pid)"
+  else
+    echo "Not running via pid file; killing anything on port $port."
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+  fi
+  rm -f "$pid_file"
+}
+
+status() {
+  if is_running; then
+    echo "Running (pid $(cat "$pid_file")) on http://$host:$port"
+  else
+    echo "Not running"
+  fi
+}
+
+if [ $# -ne 1 ]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; start ;;
+  status)  status ;;
+  *)       usage; exit 1 ;;
+esac

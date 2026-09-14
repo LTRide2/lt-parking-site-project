@@ -1,19 +1,16 @@
-"""App development configuration."""
+# webapp/App/config.py
+"""All settings come from environment variables (loaded from .env locally)."""
+import os
 
-import pathlib
+# Loads variables from a local .env file if present. On the real server the
+# variables are set by systemd, so this is a no-op there.
+from dotenv import load_dotenv
+load_dotenv()
 
-# Root of this application, useful if it doesn't occupy an entire domain
-APPLICATION_ROOT = '/'
+# Required — the app refuses to start if these are missing.
+SECRET_KEY = os.environ["SECRET_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 
-# Secret key for encrypting cookies
-SECRET_KEY = b'Kv\x01l\xee)\x03@Q\xddn\t\xe0\x8c\x8ajP\xc0\xbfy\xdeu\x86J'
-SESSION_COOKIE_NAME = 'login'
-
-# File Upload to var/uploads/
-APP_ROOT = pathlib.Path(__file__).resolve().parent.parent
-UPLOAD_FOLDER = APP_ROOT/'var'/'uploads'
-ALLOWED_EXTENSIONS = set(['png', 'jpg', 'jpeg', 'gif'])
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024
-
-# Database file is var/App.sqlite3
-DATABASE_FILENAME = APP_ROOT/'var'/'App.sqlite3'
+# Optional — sensible defaults for local development.
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", "12"))
