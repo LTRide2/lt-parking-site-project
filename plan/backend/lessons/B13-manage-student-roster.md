@@ -9,6 +9,23 @@
 
 > **New words ahead?** Terms like [JWT](GLOSSARY.md#jwt), [CSV](GLOSSARY.md#csv), and [Upsert](GLOSSARY.md#upsert) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Every lesson so far manages *parking* data — lots, spaces, interest, assignments. This lesson adds a second kind of data the school office already owns: a **student roster** — every student's name, grade, contact email, and current parking status — kept as its own admin-managed table, separate from the login `users` table.

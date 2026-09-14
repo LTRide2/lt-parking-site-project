@@ -9,6 +9,23 @@
 
 > **New words ahead?** Terms like [transaction](GLOSSARY.md#transaction), [endpoint](GLOSSARY.md#endpoint), and [response](GLOSSARY.md#response) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per word. Click through whenever a word is new; you never have to memorize one before the lesson needs it.
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 Three admin-only [endpoints](GLOSSARY.md#endpoint) that turn a student's *interest* into a real assignment — move it, or undo it:

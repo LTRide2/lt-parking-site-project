@@ -7,6 +7,18 @@
 
 ---
 
+## Verify locally before you deploy
+
+Confirm the app works end-to-end on your machine before shipping it to AWS:
+
+```bash
+scripts/local.sh up      # Postgres + Flask API + React UI
+scripts/local.sh down    # stop everything
+```
+
+Local run details: [`running-the-poc.md`](../../backend/running-the-poc.md). Deploying to
+AWS uses `scripts/deploy.sh` (covered in the steps below).
+
 ## 🎯 Goal — what you'll have at the end
 
 The three files that turn a bare Ubuntu box into a working LTRide server, all living in `deploy/server/`. The CloudFormation compute stack (D1's `03-compute.yaml`) runs their logic automatically on first boot via **UserData** — but you also need them as real files so you (or a script) can re-provision or fix a server by hand.

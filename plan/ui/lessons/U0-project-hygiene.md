@@ -7,6 +7,23 @@
 
 ---
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## 🎯 Goal — what you'll have at the end
 
 The plumbing every later frontend lesson needs, **without changing what the user sees yet.** Concretely, by the end of this hour you will have:

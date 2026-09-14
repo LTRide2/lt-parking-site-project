@@ -4,6 +4,23 @@ This folder turns the [Backend Development Guide](../backend-development-guide.m
 
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../backend-development-guide.md) is the source of truth.
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
+
 ## Do them in order
 
 Each lesson **builds on the one before it** (stacked CRs — every branch starts from the previous CR's branch). Start at B0 and go down.

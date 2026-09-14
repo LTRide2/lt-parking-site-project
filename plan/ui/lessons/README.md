@@ -8,6 +8,23 @@ This folder turns the [UI Development Guide](../ui-development-guide.md) into **
 >
 > **No backend build required:** the frontend ships an in-memory mock backend that's **on by default** (`USE_MOCK` in `src/api/client.ts`, served by `src/api/mock/backend.ts`, persisted to localStorage under `"ltride.mockdb.v6"`), so every lesson below runs end-to-end against the mock — no live Flask backend needed to follow along. The "Backend contract" column still names the matching backend CR (per [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)) for when the real backend is built.
 
+## Run it & check your changes
+
+One script brings up the whole stack — Postgres, the Flask API, and the React UI —
+so you can see your changes running end-to-end:
+
+```bash
+scripts/local.sh up        # first run also sets up the database + dependencies
+scripts/local.sh restart   # re-run this after you change code
+scripts/local.sh down      # stop everything
+```
+
+- **UI:** http://localhost:5173
+- **API health:** http://localhost:8000/api/health
+- **Seeded logins (local dev only):** `admin` / `admin123`, or student codes `STU001`–`STU004`
+
+Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-the-poc.md).
+
 ## Do them in order
 
 Each lesson **builds on the one before it**, following the stacked-CR structure from [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs) (`cr/u0-hygiene` → `cr/u1-real-auth` → … → `cr/u9-add-lot`). That's the intended per-CR branch scheme; the actual PoC implementation landed as a handful of squashed commits on branch `poc` rather than one branch per lesson. Treat the order below as the logical progression to follow regardless of how you branch your own work. Start at U0 and go down.
