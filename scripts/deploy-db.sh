@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Concern 4 of 4: DATABASE. Applies SQL migrations against the private RDS
+# Concern 3 of 4: DATABASE. Applies SQL migrations against the private RDS
 # instance. RDS is not reachable from your laptop (it only accepts connections
 # from the web security group), so migrations run ON the box over SSH: pull the
 # latest code, then apply backend/webapp/sql/migrations/*.sql with psql using
@@ -30,7 +30,7 @@ REMOTE
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/deploy-db.sh <command>   (concern 4 of 4: database)
+Usage: scripts/deploy-db.sh <command>   (concern 3 of 4: database)
 
   migrate   Pull latest code on the box, then apply
             backend/webapp/sql/migrations/*.sql against RDS (psql, stop-on-error)

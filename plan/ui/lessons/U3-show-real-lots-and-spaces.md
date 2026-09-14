@@ -99,12 +99,12 @@ git checkout -b cr/u3-real-lots
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Rewrite `src/store/parkingSlice.ts` to be data-driven (~15 min)
+### Step 1 — Rewrite `frontend/src/store/parkingSlice.ts` to be data-driven (~15 min)
 
 Replace the whole file with this version:
 
 ```ts
-// src/store/parkingSlice.ts
+// frontend/src/store/parkingSlice.ts
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { api } from "../api/client";
 
@@ -440,7 +440,7 @@ The campus "Home" view already pans and zooms; the selected-lot view was fixed-s
 - The lot map pans by dragging and zooms to the cursor with the −/%/＋ toolbar; the left menu keeps its width.
 - With the backend off, you see a **red error message**, not a blank or crashed page.
 
-**☁️ Cloud check (optional):** needs backend B4 deployed and RDS seeded. Run `./release.sh frontend`, open the live site as admin, and click through the lots — they should draw the server's real spaces, same as local.
+**☁️ Cloud check (optional):** needs backend B4 deployed and RDS seeded. Run `scripts/deploy.sh app frontend`, open the live site as admin, and click through the lots — they should draw the server's real spaces, same as local.
 
 ---
 

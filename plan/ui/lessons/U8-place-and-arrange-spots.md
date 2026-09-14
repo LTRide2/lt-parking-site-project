@@ -524,7 +524,7 @@ if (hasSavedLayout) {
    - Deleting an **assigned** spot is blocked client-side (the button is disabled with a note); if a spot gets assigned by another admin action *while* you're arranging, Save Layout surfaces the server's `409` instead of silently orphaning it.
    - A lot you never arranged still draws via the flex-wrap grid of coloured boxes (no regression).
 
-**☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS. Then open the same lot in a second browser/incognito window: the arrangement shows there too (it's server data now, not your browser's).
+**☁️ Cloud check (optional):** needs backend **B8** deployed. `scripts/deploy.sh app all`, arrange a lot on the live site, **refresh** — the layout persists in RDS. Then open the same lot in a second browser/incognito window: the arrangement shows there too (it's server data now, not your browser's).
 
 ---
 

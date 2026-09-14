@@ -2,7 +2,7 @@
 
 > **Track:** Backend · **Lesson 2 of 10** (B0 → B9)
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** gentle (one small file, one endpoint — but it's the pattern you'll repeat in every backend lesson from here on)
-> **🧩 Prerequisites:** you've finished [Lesson B0 — Clean slate & safety](B0-clean-slate-and-safety.md) (`.gitignore` in place, `webapp/requirements.txt` installed, `config.py` reading `SECRET_KEY`/`DATABASE_URL` from `.env`).
+> **🧩 Prerequisites:** you've finished [Lesson B0 — Clean slate & safety](B0-clean-slate-and-safety.md) (`.gitignore` in place, `backend/webapp/requirements.txt` installed, `config.py` reading `SECRET_KEY`/`DATABASE_URL` from `.env`).
 > **🌿 CR branch:** `cr/b1-health` (off `cr/b0-hygiene`) · **📄 Source CR:** [backend guide → CR B1](../backend-development-guide.md#cr-b1--health-check-prove-the-server-runs) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
@@ -30,8 +30,8 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 
 A **[Flask](GLOSSARY.md#flask) server you started yourself**, answering a real request over HTTP for the first time. Concretely, by the end of this hour you will have:
 
-- A new file `webapp/App/views/health.py` — a **[Blueprint](GLOSSARY.md#blueprint)** with one [route](GLOSSARY.md#route), `GET /api/health`, that returns `{"data":{"status":"ok","time":"..."}}`.
-- A rewritten `webapp/App/__init__.py` — the **[app factory](GLOSSARY.md#app-factory)** (`create_app()`) that builds the Flask app, turns on [CORS](GLOSSARY.md#cors), registers the health blueprint, and defines a consistent JSON shape for 404 and 500 errors.
+- A new file `backend/webapp/App/views/health.py` — a **[Blueprint](GLOSSARY.md#blueprint)** with one [route](GLOSSARY.md#route), `GET /api/health`, that returns `{"data":{"status":"ok","time":"..."}}`.
+- A rewritten `backend/webapp/App/__init__.py` — the **[app factory](GLOSSARY.md#app-factory)** (`create_app()`) that builds the Flask app, turns on [CORS](GLOSSARY.md#cors), registers the health blueprint, and defines a consistent JSON shape for 404 and 500 errors.
 - A server running locally at `http://localhost:8000` that you talk to with [`curl`](GLOSSARY.md#curl).
 
 **🖼 Before → after — what the API does (this is what you're changing):**
@@ -117,18 +117,18 @@ Delete it now, before you write anything new:
 **macOS / Linux**
 
 ```bash
-rm webapp/App/model.py webapp/App/index.py
-rm webapp/App/views/index.py webapp/App/views/root.py webapp/App/views/images.py
+rm backend/webapp/App/model.py backend/webapp/App/index.py
+rm backend/webapp/App/views/index.py backend/webapp/App/views/root.py backend/webapp/App/views/images.py
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-Remove-Item webapp\App\model.py, webapp\App\index.py
-Remove-Item webapp\App\views\index.py, webapp\App\views\root.py, webapp\App\views\images.py
+Remove-Item backend\webapp\App\model.py, backend\webapp\App\index.py
+Remove-Item backend\webapp\App\views\index.py, backend\webapp\App\views\root.py, backend\webapp\App\views\images.py
 ```
 
-Then open `webapp/App/views/__init__.py` and replace its contents with just a
+Then open `backend/webapp/App/views/__init__.py` and replace its contents with just a
 docstring — this package should do nothing but mark `views/` as a Python
 package until each lesson adds its own module:
 
@@ -144,10 +144,10 @@ remove it now than debug a mysterious import crash in Step 4.
 
 ### Step 2 — Create the health route (~15 min)
 
-In `webapp/App/views/`, create a new file `health.py`:
+In `backend/webapp/App/views/`, create a new file `health.py`:
 
 ```python
-# webapp/App/views/health.py
+# backend/webapp/App/views/health.py
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify
 
@@ -168,10 +168,10 @@ def health():
 
 ### Step 3 — Write the app factory (~15 min)
 
-Open `webapp/App/__init__.py` and replace its contents with this:
+Open `backend/webapp/App/__init__.py` and replace its contents with this:
 
 ```python
-# webapp/App/__init__.py
+# backend/webapp/App/__init__.py
 from flask import Flask, jsonify
 from flask_cors import CORS
 
@@ -216,11 +216,12 @@ app = create_app()
 
 ### Step 4 — Run the server (~10 min)
 
-In this same terminal (venv active, repo root), start the dev server:
+The `FLASK_APP` value below (`webapp.App`) is a Python **module path**, not a filesystem path — it only resolves with your current directory set to `backend/` (that's where the `webapp` package lives). `cd` there first, venv still active:
 
 **macOS / Linux**
 
 ```bash
+cd backend
 export FLASK_APP=webapp.App
 flask run --port 8000
 ```
@@ -228,15 +229,16 @@ flask run --port 8000
 **Windows (PowerShell)**
 
 ```powershell
+cd backend
 $env:FLASK_APP = "webapp.App"
 flask run --port 8000
 ```
 
-**What this does & why:** `FLASK_APP=webapp.App` tells the `flask` command-line tool *which module* has your app object (`webapp/App/__init__.py`, imported as `webapp.App`). `flask run --port 8000` starts Flask's built-in development server listening on port `8000`. Leave this terminal running — it prints a log line for every request it receives — and do the next section in a **second** terminal. → Reference: [Flask CLI: `flask run`](https://flask.palletsprojects.com/en/stable/cli/#run-the-development-server)
+**What this does & why:** `FLASK_APP=webapp.App` tells the `flask` command-line tool *which module* has your app object (`backend/webapp/App/__init__.py`, imported as `webapp.App` once your current directory is `backend/`). `flask run --port 8000` starts Flask's built-in development server listening on port `8000`. Leave this terminal running — it prints a log line for every request it receives — and do the next section in a **second** terminal. → Reference: [Flask CLI: `flask run`](https://flask.palletsprojects.com/en/stable/cli/#run-the-development-server)
 
-> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/LTR-Backend` (where `ls` shows the `webapp/` folder). **Windows:** `cd $HOME\workspace\LTR-Backend`.
+> If you get `ModuleNotFoundError: webapp`, you're in the wrong folder — run it from `~/workspace/lt-parking-site-project/backend` (where `ls` shows the `webapp/` folder). **Windows:** `cd $HOME\workspace\lt-parking-site-project\backend`.
 
-> **The reference repo's convenience wrapper — `webapp/bin/server`.** Typing `export FLASK_APP=…` and `flask run` every time gets tedious, so the shipped implementation includes a small script, `webapp/bin/server`, with `start` / `stop` / `restart` / `status` subcommands. It backgrounds the server, writes its process id and logs under `webapp/var/` (the folder you git-ignored in B0), and honors `LTRIDE_HOST` / `LTRIDE_PORT` overrides. You don't need it to finish this lesson — plain `flask run` is enough — but it's the script the day-to-day PoC workflow uses; full usage is in [running the PoC](../running-the-poc.md). **Windows note:** this is a `#!/bin/bash` script — run it from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`.
+> **The reference repo's convenience wrapper — `webapp/bin/server`.** Typing `export FLASK_APP=…` and `flask run` every time gets tedious, so the shipped implementation includes a small script, `backend/webapp/bin/server`, with `start` / `stop` / `restart` / `status` subcommands. It backgrounds the server, writes its process id and logs under `backend/webapp/var/` (the folder you git-ignored in B0), and honors `LTRIDE_HOST` / `LTRIDE_PORT` overrides. You don't need it to finish this lesson — plain `flask run` is enough — but it's the script the day-to-day PoC workflow uses; full usage is in [running the PoC](../running-the-poc.md). **Windows note:** this is a `#!/bin/bash` script — run it from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`.
 
 ---
 
@@ -272,9 +274,9 @@ curl.exe -i http://localhost:8000/api/does-not-exist
 
 ```bash
 git push
-cd ~/workspace/LTR-Backend/deploy
-./release.sh backend
-./deploy.sh outputs        # note the ElasticIp
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh app backend
+scripts/deploy.sh infra outputs        # note the ElasticIp
 
 curl -i http://<ElasticIp>/api/health     # expect 200 {"data":{"status":"ok",...}}
 ```
@@ -283,14 +285,14 @@ curl -i http://<ElasticIp>/api/health     # expect 200 {"data":{"status":"ok",..
 
 ```powershell
 git push
-cd $HOME\workspace\LTR-Backend\deploy
+cd $HOME\workspace\lt-parking-site-project
 ```
 
-`deploy.sh`/`release.sh` are `#!/bin/bash` scripts — run these two from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`:
+`scripts/deploy.sh` is a `#!/bin/bash` script — run these two from **Git Bash** (Git for Windows) or **WSL**, not PowerShell/`cmd`:
 
 ```bash
-./release.sh backend
-./deploy.sh outputs        # note the ElasticIp
+scripts/deploy.sh app backend
+scripts/deploy.sh infra outputs        # note the ElasticIp
 ```
 
 Back in PowerShell (or Git Bash — either works for a plain GET):
@@ -317,9 +319,9 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 
 ## 🧯 If something breaks
 
-- **`ImportError` mentioning `App.views.index` or `App.app`** — you skipped [Step 1](#step-1--clear-the-old-template-routes-5-min); one of the old template files is still importing the global `app` object that no longer exists once you're on the factory pattern. Delete the files listed in Step 1 and make sure `webapp/App/views/__init__.py` is just the one-line docstring.
-- **`ModuleNotFoundError: webapp` when running `flask run`** — you're in the wrong folder. Run it from `~/workspace/LTR-Backend`, where `ls` shows the `webapp/` folder.
-- **`KeyError: 'SECRET_KEY'` on startup** — your `.env` from [Lesson B0](B0-clean-slate-and-safety.md) is missing or in the wrong folder (must be the repo root). Re-check that lesson's Step 4.
+- **`ImportError` mentioning `App.views.index` or `App.app`** — you skipped [Step 1](#step-1--clear-the-old-template-routes-5-min); one of the old template files is still importing the global `app` object that no longer exists once you're on the factory pattern. Delete the files listed in Step 1 and make sure `backend/webapp/App/views/__init__.py` is just the one-line docstring.
+- **`ModuleNotFoundError: webapp` when running `flask run`** — you're in the wrong folder. Run it from `~/workspace/lt-parking-site-project/backend`, where `ls` shows the `webapp/` folder.
+- **`KeyError: 'SECRET_KEY'` on startup** — your `.env` from [Lesson B0](B0-clean-slate-and-safety.md) is missing or in the wrong folder (must be inside `backend/`). Re-check that lesson's Step 4.
 - **`curl: (7) Failed to connect... Connection refused`** — the server isn't actually running. Check the first terminal for errors, or that you didn't close it.
 - **`Address already in use` when starting `flask run`** — something else (maybe an old `flask run`) is already on port 8000. Find and stop it, or run on a different port, e.g. `flask run --port 8001`, and adjust your `curl` commands to match.
 - **`curl` to `/api/health` returns `404`** — check that `app.register_blueprint(health.bp)` in `__init__.py` actually runs, and that the route in `health.py` is spelled `/api/health` exactly.

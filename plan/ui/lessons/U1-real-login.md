@@ -2,7 +2,7 @@
 
 > **Track:** Frontend · **Lesson 2 of 10**
 > **⏱ Time:** ~60 min · **🎚 Difficulty:** moderate (your first real network call + your first Redux Toolkit thunks)
-> **🧩 Prerequisites:** [Lesson U0 — Project hygiene](U0-project-hygiene.md) done (`src/api/client.ts`, `.env` with `VITE_API_URL` in place); backend **B3 — Authentication & login** running and seeded, so there's a real `POST /api/auth/student` and `POST /api/auth/admin` to call.
+> **🧩 Prerequisites:** [Lesson U0 — Project hygiene](U0-project-hygiene.md) done (`frontend/src/api/client.ts`, `.env` with `VITE_API_URL` in place); backend **B3 — Authentication & login** running and seeded, so there's a real `POST /api/auth/student` and `POST /api/auth/admin` to call.
 > **🌿 CR branch:** `cr/u1-real-auth` (off `cr/u0-hygiene`) · **📄 Source CR:** [CR U1](../ui-development-guide.md#cr-u1--real-login-replaces-the-fake-login) · **🗺 Big picture:** [plan.md §8](../../plan.md#8-implementation-strategy-stacked-crs)
 
 ---
@@ -28,9 +28,9 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../../backend/running-t
 
 A login screen that talks to the **real backend** instead of pretending. Concretely, by the end of this hour you will have:
 
-- `src/store/authSlice.ts` rewritten with real Redux Toolkit thunks that call `POST /api/auth/student`, `POST /api/auth/admin`, and `GET /api/auth/me`.
-- `src/Login.tsx` rewritten so the Student and Admin forms submit to those thunks and show a red error message on failure.
-- `src/App.tsx` updated to ask the backend "who am I?" on page load, so a **refresh doesn't log you out**.
+- `frontend/src/store/authSlice.ts` rewritten with real Redux Toolkit thunks that call `POST /api/auth/student`, `POST /api/auth/admin`, and `GET /api/auth/me`.
+- `frontend/src/Login.tsx` rewritten so the Student and Admin forms submit to those thunks and show a red error message on failure.
+- `frontend/src/App.tsx` updated to ask the backend "who am I?" on page load, so a **refresh doesn't log you out**.
 - A login token stored in `localStorage` and attached to every API call automatically (via the `client.ts` you built in U0).
 
 **✅ Done when (your deliverable checklist):**
@@ -105,12 +105,12 @@ git checkout -b cr/u1-real-auth
 
 ## 🛠 Build it, step by step
 
-### Step 1 — Rewrite `src/store/authSlice.ts` with real thunks (~15 min)
+### Step 1 — Rewrite `frontend/src/store/authSlice.ts` with real thunks (~15 min)
 
 Replace the whole file:
 
 ```ts
-// src/store/authSlice.ts
+// frontend/src/store/authSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api, setToken } from "../api/client";
 
@@ -221,12 +221,12 @@ The inline comments above cover *what* each line does. Here's the *why* — plus
 
 > **What changed vs. the old slice?** The old fake `userType`/`userCode` fields are gone — the real `user` object (with `role`) now comes from the server. Any component still reading `state.auth.userType` needs to switch to `state.auth.user?.role`.
 
-### Step 2 — Rewrite `src/Login.tsx` so the forms call the thunks (~15 min)
+### Step 2 — Rewrite `frontend/src/Login.tsx` so the forms call the thunks (~15 min)
 
 Replace the whole file:
 
 ```tsx
-// src/Login.tsx
+// frontend/src/Login.tsx
 import { useState, type FormEvent } from "react";
 import { useAppDispatch, useAppSelector } from "./store";
 import { loginStudent, loginAdmin, logout } from "./store/authSlice";
@@ -325,10 +325,10 @@ The inline comments cover the mechanics; here are the ideas worth remembering:
 - **No `.then()` needed after [`dispatch`](GLOSSARY.md#dispatch)** — the slice's [`extraReducers`](GLOSSARY.md#extrareducers) already update `isLoggedIn` / `error`, and the [component](GLOSSARY.md#component) re-draws automatically when that [store](GLOSSARY.md#store) value changes. That's the whole reason login lives in Redux.
 - **The red message is just [state](GLOSSARY.md#state)** — `{error && …}` shows `state.auth.error`, which `loginFail` set back in Step 1; there's no separate error-handling code in the component. `disabled={loading}` works the same way, reading `status === "loading"` so the button can't be double-clicked mid-request.
 
-### Step 3 — Restore the session on refresh, in `src/App.tsx` (~10 min)
+### Step 3 — Restore the session on refresh, in `frontend/src/App.tsx` (~10 min)
 
 ```tsx
-// src/App.tsx
+// frontend/src/App.tsx
 import { useEffect } from "react";
 import "./App.css";
 import Login from "./Login";
@@ -389,7 +389,7 @@ export default App;
    - After refresh → **still logged in** (the token + `/api/auth/me` restore you).
    - Logout → back to the login selection; refresh now stays logged out.
 
-**☁️ Cloud check (optional):** needs backend **B3** deployed. `./release.sh frontend`, open the live site, and log in as `STU001` / `admin`. Logging in on the real domain proves the deployed UI reaches the deployed auth API (and that CORS is configured for your live origin).
+**☁️ Cloud check (optional):** needs backend **B3** deployed. `scripts/deploy.sh app frontend`, open the live site, and log in as `STU001` / `admin`. Logging in on the real domain proves the deployed UI reaches the deployed auth API (and that CORS is configured for your live origin).
 
 ---
 

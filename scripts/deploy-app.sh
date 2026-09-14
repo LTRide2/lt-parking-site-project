@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Concern 3 of 4: APPLICATION. Ships code to the already-provisioned EC2 box:
+# Concern 4 of 4: APPLICATION. Ships code to the already-provisioned EC2 box:
 #   backend   pull latest code + reinstall Python deps + restart gunicorn, then
 #             health-check /api/health
 #   frontend  build frontend/ with the production API URL + rsync dist/ into the
@@ -53,7 +53,7 @@ deploy_frontend() {
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/deploy-app.sh <command>   (concern 3 of 4: application)
+Usage: scripts/deploy-app.sh <command>   (concern 4 of 4: application)
 
   frontend  Build frontend/ (VITE_API_URL from DomainName) + rsync dist/ to nginx
   backend   Pull latest code + reinstall deps + restart gunicorn + health check

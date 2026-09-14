@@ -456,7 +456,7 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
 7. **Expected (move):** the space in the original lot turns **available**; switching to the target lot's "Assign to Spot" panel shows that student's request now under "Requests for this lot", `pending` — assign it there the normal way to finish placing them.
 8. **Nav check:** while a request or an assigned space is picked, click a different lot (or leave and re-enter Assign to Spot) — the pick clears; it doesn't carry over and silently apply to the new lot/mode.
 
-**☁️ Cloud check (optional):** needs backend **B7** deployed. `./release.sh all`, then run the **full two-window E2E story (Part F2)** against the **live site** instead of localhost — student registers, admin assigns, student sees `fulfilled`. This is the real end-to-end production test.
+**☁️ Cloud check (optional):** needs backend **B7** deployed. `scripts/deploy.sh app all`, then run the **full two-window E2E story (Part F2)** against the **live site** instead of localhost — student registers, admin assigns, student sees `fulfilled`. This is the real end-to-end production test.
 
 ---
 

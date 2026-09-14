@@ -30,9 +30,9 @@ Full runbook and troubleshooting: [`running-the-poc.md`](../running-the-poc.md).
 
 Three admin-only [endpoints](GLOSSARY.md#endpoint) that round out lot management — the app stops being frozen at the lots someone typed into the seed file, and a lot can be torn down as cleanly as it was stood up:
 
-- **[`POST`](GLOSSARY.md#http-methods) `/api/lots`** (`webapp/App/views/lots.py:124`) — body `{"name", "number"?, "capacity"?, "display_order"?}`. `name` is required; `display_order` defaults to `MAX(display_order)+1`; `number` defaults to that resolved `display_order` and must be unique. If `capacity` is given, seeds that many positionless `available` spaces labeled `<number>-<index>` (the admin arranges them later with B8's layout editor). Returns [`201`](GLOSSARY.md#status-code) with the new lot.
-- **`DELETE /api/lots/<id>`** (`webapp/App/views/lots.py:174`) — removes a lot, refusing with `409` if any of its spaces is currently `assigned`.
-- **`POST /api/lots/<id>/map`** (`webapp/App/views/lots.py:201`) — uploads a PNG/JPG map image for a lot and stores its URL. Backs the frontend's [U7 — Update the school map image](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md).
+- **[`POST`](GLOSSARY.md#http-methods) `/api/lots`** (`backend/webapp/App/views/lots.py:124`) — body `{"name", "number"?, "capacity"?, "display_order"?}`. `name` is required; `display_order` defaults to `MAX(display_order)+1`; `number` defaults to that resolved `display_order` and must be unique. If `capacity` is given, seeds that many positionless `available` spaces labeled `<number>-<index>` (the admin arranges them later with B8's layout editor). Returns [`201`](GLOSSARY.md#status-code) with the new lot.
+- **`DELETE /api/lots/<id>`** (`backend/webapp/App/views/lots.py:174`) — removes a lot, refusing with `409` if any of its spaces is currently `assigned`.
+- **`POST /api/lots/<id>/map`** (`backend/webapp/App/views/lots.py:201`) — uploads a PNG/JPG map image for a lot and stores its URL. Backs the frontend's [U7 — Update the school map image](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/U7-update-school-map.md).
 
 **🖼 Before → after — what the API does:**
 
@@ -109,7 +109,7 @@ git checkout -b cr/b9-create-lot
 Add the `POST` handler to the same blueprint (the imports, `_err`, and `serialize` module are already there from B4/B8):
 
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 @bp.post("/api/lots")                        # decorator: POST creates a new lot
 @require_role("admin")                       # only an admin token may call this
 def create_lot():
@@ -164,14 +164,14 @@ def create_lot():
 - **`number` defaults to `display_order`, both re-checked for uniqueness inside the same [transaction](GLOSSARY.md#transaction) as the insert** — a duplicate rolls back instead of committing a half-made lot. → [psycopg3: Transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html)
 - **`capacity` seeds positionless spaces** labeled `<number>-<index>`; B8/U8 give them a position later.
 - **One transaction, one `commit()`** — the lot and its spaces are inserted together, so a mid-way failure rolls back the whole create instead of leaving it half-built.
-- **`serialize.lot(...)`** (`webapp/App/serialize.py:40`) matches `GET /api/lots`'s shape, so the create [response](GLOSSARY.md#response) looks identical to a normal list entry.
+- **`serialize.lot(...)`** (`backend/webapp/App/serialize.py:40`) matches `GET /api/lots`'s shape, so the create [response](GLOSSARY.md#response) looks identical to a normal list entry.
 
 > **No blueprint registration needed** — `lots.py` is already registered (B4). Restart the server and the route is live.
 
 ### Step 2 — Delete a lot (~10 min)
 
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 @bp.delete("/api/lots/<int:lot_id>")          # decorator: DELETE removes a lot
 @require_role("admin")                       # admin only
 def delete_lot(lot_id):
@@ -200,13 +200,13 @@ def delete_lot(lot_id):
 **Why it works & further reading:**
 
 - **Guard first, mutate second.** Any `assigned` space blocks the whole delete with `409`, listing labels so the admin knows what to unassign first (B7's `DELETE /api/assignments/<id>`). Nothing is written if this trips.
-- **`interest` is deleted explicitly, `spaces` isn't.** `spaces.lot_id` and `assignments.space_id` are `ON DELETE CASCADE` (`webapp/sql/migrations/001_init.sql:60,95`), so they vanish for free; `interest.lot_id` is `ON DELETE SET NULL` (`:80`), so it's cleaned up in the same transaction to avoid an orphaned [foreign key](GLOSSARY.md#foreign-key). → [PostgreSQL: Foreign Keys](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK)
+- **`interest` is deleted explicitly, `spaces` isn't.** `spaces.lot_id` and `assignments.space_id` are `ON DELETE CASCADE` (`backend/webapp/sql/migrations/001_init.sql:60,95`), so they vanish for free; `interest.lot_id` is `ON DELETE SET NULL` (`:80`), so it's cleaned up in the same transaction to avoid an orphaned [foreign key](GLOSSARY.md#foreign-key). → [PostgreSQL: Foreign Keys](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK)
 - **`204 No Content`** — the right status for a delete with nothing to return. → [MDN: 204](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/204)
 
 ### Step 3 — Upload a lot's map image (~15 min)
 
 ```python
-# add to webapp/App/views/lots.py
+# add to backend/webapp/App/views/lots.py
 @bp.post("/api/lots/<int:lot_id>/map")        # decorator: POST uploads a lot's map image
 @require_role("admin")                       # admin only
 def upload_map(lot_id):
@@ -246,7 +246,7 @@ def upload_map(lot_id):
 - **PNG/JPG only, checked by MIME type** on the [request](GLOSSARY.md#request) — anything else is `400` before a byte hits disk; there's no size cap yet, worth adding before this faces the open internet. → [OWASP: File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
 - **Fixed filename (`secure_filename`)** — a new upload for the same lot overwrites the old image instead of piling up orphans.
 - **Absolute URL, not a relative path** — built from `request.host_url` because the SPA is served from a different origin than the API; a relative path would resolve against the wrong host.
-- **`execute`, not `query_one`.** `webapp/App/db.py:38`'s `execute()` commits itself; `query_one` never does, so it would silently roll the `UPDATE` back. `200`, not `201` — this updates an existing lot, it doesn't create one.
+- **`execute`, not `query_one`.** `backend/webapp/App/db.py:38`'s `execute()` commits itself; `query_one` never does, so it would silently roll the `UPDATE` back. `200`, not `201` — this updates an existing lot, it doesn't create one.
 
 > **No blueprint registration needed** for either of these — same file, same already-registered blueprint.
 
@@ -322,7 +322,7 @@ Invoke-RestMethod -Method Post http://localhost:8000/api/lots/1/map `
 - `DELETE` on Lot 1 (seed's A8 is `assigned` to Alice) → `409` listing `A8`.
 - Map upload → `200` with `map_image_url` like `http://127.0.0.1:8000/static/uploads/lot_1.png` — paste that URL into a browser tab and the image loads.
 
-**☁️ Cloud check (optional):** after `./release.sh backend`, create a lot on the live server and re-list — it persists in RDS. Full loop with the UI (`./release.sh all`): create a lot (U9) → upload its map (U7) → arrange its spots (B8/U8) → log in as a student and confirm the new lot shows up.
+**☁️ Cloud check (optional):** after `scripts/deploy.sh app backend`, create a lot on the live server and re-list — it persists in RDS. Full loop with the UI (`scripts/deploy.sh app all`): create a lot (U9) → upload its map (U7) → arrange its spots (B8/U8) → log in as a student and confirm the new lot shows up.
 
 ---
 
@@ -346,7 +346,7 @@ Open a Pull Request on GitHub with **base = `cr/b8-layout`** (this CR stacks on 
 - **`403`** — you're not logged in as an admin, or the token isn't attached; get a fresh admin token from B3.
 - **`DELETE` keeps returning `409`** — one of the lot's spaces is `assigned`; unassign it first (B7's `DELETE /api/assignments/<spaceId>`) and retry.
 - **Map upload returns `400`** — the file's reported content type isn't `image/png` or `image/jpeg`; a `.jpg` renamed from a `.gif`, or a form field named anything other than `file`, will trip this. Check the request in your network tab.
-- **Uploaded map doesn't load in the browser** — confirm you're opening the *absolute* URL the response returned (`http://<host>:<port>/static/uploads/lot_<id>.<ext>`), not a relative guess; and that `webapp/App/static/uploads/` actually contains the file.
+- **Uploaded map doesn't load in the browser** — confirm you're opening the *absolute* URL the response returned (`http://<host>:<port>/static/uploads/lot_<id>.<ext>`), not a relative guess; and that `backend/webapp/App/static/uploads/` actually contains the file.
 
 ---
 

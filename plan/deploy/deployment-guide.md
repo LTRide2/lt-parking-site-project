@@ -588,7 +588,7 @@ sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
 **Architecture:** Flask served by **gunicorn** behind **nginx** on a single **EC2** instance; **PostgreSQL on RDS**; the React static bundle served from the same nginx (simplest) or from **S3 + CloudFront**. HTTPS via **Let's Encrypt (certbot)** on a domain managed in **Route 53**. **All infrastructure is provisioned and managed with AWS CloudFormation (IaC)** — no manual console clicks for the resources below.
 
 ```
-                 ┌──────── EC2 c6g.4xlarge (Ubuntu 22.04, arm64) ──────┐
+                 ┌──────── EC2 t3.micro (Ubuntu 22.04, amd64) ────────┐
  Internet ──443──┤ nginx (TLS, reverse proxy, serves React build)      │
    (Route 53)    │   │                                                  │
                  │   └─ proxy /api ─▶ gunicorn (systemd) ─▶ Flask app   │
@@ -612,7 +612,7 @@ The CloudFormation templates + on-server config live under `deploy/`; the runnab
 deploy/
   cfn/
     00-secrets.yaml     # Secrets Manager: ltride/db + ltride/app (deploy FIRST)
-    01-network.yaml     # VPC, 2 public + 2 private subnets, IGW, route tables, SGs
+    01-network.yaml     # VPC, 2 public subnets across 2 AZs, IGW, route tables, SGs
     02-database.yaml    # RDS PostgreSQL, DB subnet group (resolves creds from ltride/db)
     03-compute.yaml     # EC2 + Elastic IP + IAM instance role, UserData bootstrap
     04-dns.yaml         # Route 53 A record → Elastic IP
@@ -651,7 +651,7 @@ bash scripts/deploy.sh app all
 Region comes from `AWS_REGION` (default `us-east-1`); `-e/--env <name>` selects `params/<name>.json` (default `prod`). Stack names stay `ltride-<suffix>` (one environment per account/region). Cross-stack wiring uses `Outputs` + `Fn::ImportValue` (e.g. the secrets stack exports `ltride-DbSecretArn`/`ltride-AppSecretArn`, network exports `ltride-VpcId`/`ltride-WebSecurityGroupId`/`ltride-DbSecurityGroupId`, database exports `ltride-DbEndpoint`).
 
 ### B.3 Network stack (`01-network.yaml`)
-Provisions: a VPC (`10.0.0.0/16`), two public subnets + two private subnets across two AZs, an Internet Gateway + public route table, and two security groups:
+Provisions: a VPC (`10.0.0.0/16`), **two public subnets across two AZs** (RDS requires a subnet group spanning ≥ 2 AZs; there are **no** private subnets — the database is isolated by security group, not by subnet placement), an Internet Gateway + public route table, and two security groups:
 - **`WebSecurityGroup`** (EC2): inbound `443` and `80` from `0.0.0.0/0`, `22` from a parameterized `AdminCidr` (your IP).
 - **`DbSecurityGroup`** (RDS): inbound `5432` whose `SourceSecurityGroupId` = `WebSecurityGroup` (not a CIDR). No public ingress.
 
@@ -674,32 +674,26 @@ Provisions a DB subnet group across two subnets and the RDS instance; `MasterUse
 > **The snippet below is illustrative** (shows the resolve-from-secret shape). In the **actual** templates the secret is created by `00-secrets.yaml` (concern 1), *not* here — this stack only consumes `ltride/db` by name. Read the real files: [`deploy/cfn/00-secrets.yaml`](../../deploy/cfn/00-secrets.yaml) and [`deploy/cfn/02-database.yaml`](../../deploy/cfn/02-database.yaml).
 
 ```yaml
-  DbSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: ltride/rds/master
-      GenerateSecretString:
-        SecretStringTemplate: '{"username":"ltride_admin"}'
-        GenerateStringKey: password
-        ExcludePunctuation: true
-        PasswordLength: 32
-
+  # The ltride/db secret is created by 00-secrets.yaml (concern 1) with username
+  # "ltride" + a generated password; this stack only CONSUMES it by name.
   Database:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
     Properties:
       Engine: postgres
+      EngineVersion: "16"
       DBInstanceClass: !Ref DbInstanceClass     # db.t3.micro (free tier)
       AllocatedStorage: "20"
+      StorageType: gp3
       DBName: ltride
-      MasterUsername: ltride_admin
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:password}}'
+      MasterUsername: '{{resolve:secretsmanager:ltride/db:SecretString:username}}'      # "ltride"
+      MasterUserPassword: '{{resolve:secretsmanager:ltride/db:SecretString:password}}'
       DBSubnetGroupName: !Ref DbSubnetGroup
-      VPCSecurityGroups: [ !ImportValue ltride-network-DbSecurityGroupId ]
+      VPCSecurityGroups: [ !ImportValue ltride-DbSecurityGroupId ]
       PubliclyAccessible: false
       BackupRetentionPeriod: 7
       MultiAZ: false
-    # Outputs: DB endpoint address + the secret ARN (consumed by compute UserData)
+    # Outputs: DB endpoint address (ltride-DbEndpoint), consumed by compute UserData
 ```
 
 ### B.5 Compute stack (`03-compute.yaml`) — EC2 + bootstrap
@@ -711,37 +705,39 @@ Provisions an Elastic IP, an IAM instance role (read the two `ltride/*` secrets)
   WebServer:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref UbuntuAmiId          # SSM-resolved Ubuntu 22.04 AMI (arm64 — c6g is Graviton2)
-      InstanceType: !Ref WebInstanceType  # c6g.4xlarge (16 vCPU, 32 GiB, arm64/Graviton2)
+      ImageId: !Ref UbuntuAmi             # SSM-resolved Ubuntu 22.04 AMI (amd64)
+      InstanceType: !Ref WebInstanceType  # default t3.micro (2 vCPU, 1 GiB, amd64; free-tier eligible)
       KeyName: !Ref KeyName
-      IamInstanceProfile: !Ref WebInstanceProfile
-      SubnetId: !ImportValue ltride-network-PublicSubnet1Id
-      SecurityGroupIds: [ !ImportValue ltride-network-WebSecurityGroupId ]
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !ImportValue ltride-PublicSubnet1
+      SecurityGroupIds: [ !ImportValue ltride-WebSecurityGroupId ]
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
-          apt update && apt install -y python3-venv nginx postgresql-client git jq awscli
+          apt update && apt install -y python3-venv nginx postgresql-client git jq
           useradd -m -s /bin/bash ltride
-          sudo -u ltride git clone https://github.com/LTRide2/LTR-Backend.git /home/ltride/app
-          cd /home/ltride/app
-          sudo -u ltride python3 -m venv .venv
-          sudo -u ltride .venv/bin/pip install -r requirements.txt gunicorn psycopg2-binary
-          # Pull DB creds from Secrets Manager and write the env file
-          SECRET=$(aws secretsmanager get-secret-value --secret-id ltride/rds/master --query SecretString --output text --region ${AWS::Region})
-          PW=$(echo "$SECRET" | jq -r .password)
-          cat >/home/ltride/app/.env <<ENV
+          # Clone the whole MONOREPO; the Flask backend is the backend/ subtree.
+          sudo -u ltride git clone https://github.com/LTRide2/lt-parking-site-project.git /home/ltride/app
+          sudo -u ltride python3 -m venv /home/ltride/app/backend/.venv
+          sudo -u ltride /home/ltride/app/backend/.venv/bin/pip install -r /home/ltride/app/backend/webapp/requirements.txt gunicorn psycopg2-binary
+          # Pull DB creds from ltride/db and the Flask key from ltride/app; write backend/.env
+          DB=$(aws secretsmanager get-secret-value --secret-id ltride/db  --query SecretString --output text --region ${AWS::Region})
+          APP=$(aws secretsmanager get-secret-value --secret-id ltride/app --query SecretString --output text --region ${AWS::Region})
+          USER=$(echo "$DB" | jq -r .username); PW=$(echo "$DB" | jq -r .password)
+          KEY=$(echo "$APP" | jq -r .secret_key)
+          cat >/home/ltride/app/backend/.env <<ENV
           FLASK_ENV=production
-          SECRET_KEY=$(openssl rand -hex 32)
-          DATABASE_URL=postgresql://ltride_admin:$PW@${DbEndpoint}:5432/ltride
+          SECRET_KEY=$KEY
+          DATABASE_URL=postgresql://$USER:$PW@${DbEndpoint}:5432/ltride
           CORS_ORIGINS=https://${DomainName}
           ENV
-          chmod 600 /home/ltride/app/.env && chown ltride:ltride /home/ltride/app/.env
-          # Initialize schema + seed, then install services (see B.6–B.9)
-          sudo -u ltride bash -c 'set -a; . .env; psql "$DATABASE_URL" -f sql/schema.sql -f sql/seed.sql'
+          chmod 600 /home/ltride/app/backend/.env && chown ltride:ltride /home/ltride/app/backend/.env
+          # Apply migrations + seed, then install services (see B.6–B.9)
+          sudo -u ltride bash -c 'cd /home/ltride/app/backend; set -a; . .env; for f in webapp/sql/migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done; psql "$DATABASE_URL" -f webapp/sql/seed.sql'
           # ... systemd unit + nginx config installed here (B.6/B.8) ...
 ```
 
-`DbEndpoint` and `DomainName` are passed in as parameters from the database/DNS stack outputs. The instance role grants `secretsmanager:GetSecretValue` on `ltride/rds/master` only.
+`DbEndpoint` and `DomainName` are passed in as parameters from the database/DNS stack outputs. The instance role grants `secretsmanager:GetSecretValue` on exactly the two secrets `ltride/db` and `ltride/app` — nothing else.
 
 ### B.6 gunicorn as a systemd service
 The UserData (B.5) writes this unit. It is shown standalone for clarity / manual ops:
@@ -754,10 +750,10 @@ After=network.target
 [Service]
 User=ltride
 Group=www-data
-WorkingDirectory=/home/ltride/app
-EnvironmentFile=/home/ltride/app/.env
-ExecStart=/home/ltride/app/.venv/bin/gunicorn \
-    --workers 3 --bind 127.0.0.1:8000 "app:create_app()"
+WorkingDirectory=/home/ltride/app/backend
+EnvironmentFile=/home/ltride/app/backend/.env
+ExecStart=/home/ltride/app/backend/.venv/bin/gunicorn \
+    --workers 3 --bind 127.0.0.1:8000 webapp.App:app
 Restart=always
 
 [Install]
@@ -820,7 +816,7 @@ sudo nginx -t && sudo systemctl reload nginx
       Name: !Ref DomainName
       Type: A
       TTL: "300"
-      ResourceRecords: [ !ImportValue ltride-compute-ElasticIp ]
+      ResourceRecords: [ !ImportValue ltride-ElasticIp ]
 ```
 - **TLS** is obtained on the box via certbot (one-time, can run from UserData after DNS resolves):
 ```bash
@@ -876,11 +872,11 @@ sudo systemctl restart ltride
 
 ### B.11 Operations & hardening
 - **Backups:** RDS `BackupRetentionPeriod: 7` is set in the template; `DeletionPolicy: Snapshot` prevents data loss if the DB stack is deleted.
-- **Logs:** `journalctl -u ltride -f` (app), `/var/log/nginx/` (web). The instance IAM role permits shipping to CloudWatch Logs via the agent (installed in UserData).
-- **Monitoring:** add `AWS::CloudWatch::Alarm` resources (EC2 CPU, RDS free storage/connections) to the relevant stacks so alarms are version-controlled too.
+- **Logs:** `journalctl -u ltride -f` (app), `/var/log/nginx/` (web). Logs stay **on the box** — the instance IAM role is scoped to `secretsmanager:GetSecretValue` on the two secrets only, and grants **no** CloudWatch Logs access. Shipping logs to CloudWatch (install the agent + add `logs:*` to the role) is a deferred hardening step, not currently provisioned.
+- **Monitoring:** none is provisioned today. A hardening pass would add `AWS::CloudWatch::Alarm` resources (EC2 CPU, RDS free storage/connections) to the relevant stacks so alarms are version-controlled too.
 - **Security:** SSH (`22`) restricted to `AdminCidr` in the template; secrets live only in Secrets Manager; `.env` is generated on-box (never in git); run `unattended-upgrades`.
 - **Teardown:** `aws cloudformation delete-stack` in reverse order (dns → compute → database → network) cleanly removes everything (DB leaves a final snapshot).
-- **Cost:** the web tier runs on **c6g.4xlarge** (16 vCPU / 32 GiB, Graviton2) — **not** free-tier; see the full monthly estimate in §B.13. RDS stays on `db.t3.micro`. Elastic IP is free while associated with a running instance.
+- **Cost:** the shipped templates default the web tier to **`t3.micro`** (free-tier eligible) and RDS to **`db.t3.micro`**, so a default deploy runs at/near free-tier. §B.13 costs the **scale-up scenarios** (e.g. a `c6g.4xlarge` sized for ~1000 concurrent users) you opt into by raising `WebInstanceType`/`DbInstanceClass` — not the default. Elastic IP is free while associated with a running instance.
 
 ### B.12 Deployment diagram — all AWS services
 
@@ -907,23 +903,23 @@ flowchart TB
 
             subgraph pub["Public subnets (2 AZs)"]
                 eip["Elastic IP"]
-                subgraph ec2box["03-compute stack — EC2 c6g.4xlarge<br/>(Ubuntu 22.04, arm64/Graviton2)"]
+                subgraph ec2box["03-compute stack — EC2 t3.micro<br/>(Ubuntu 22.04, amd64)"]
                     nginx["nginx<br/>(TLS via certbot, reverse proxy,<br/>serves React build)"]
                     gunicorn["gunicorn + Flask API<br/>(systemd service)"]
                 end
-            end
 
-            subgraph priv["Private subnets (2 AZs)"]
-                rds[("02-database stack<br/>RDS PostgreSQL<br/>db.t3.micro")]
+                subgraph dbsub["DB subnet group (2 public AZs)<br/>RDS isolated by security group"]
+                    rds[("02-database stack<br/>RDS PostgreSQL db.t3.micro<br/>(PubliclyAccessible: false)")]
+                end
             end
 
             websg{{"WebSecurityGroup<br/>80/443 from 0.0.0.0/0<br/>22 from AdminCidr"}}
             dbsg{{"DbSecurityGroup<br/>5432 from WebSecurityGroup only"}}
         end
 
-        secrets["Secrets Manager<br/>ltride/rds/master"]
+        secrets["Secrets Manager<br/>ltride/db + ltride/app"]
         iamrole["IAM instance role<br/>+ instance profile"]
-        cwlogs["CloudWatch Logs<br/>(+ optional Alarms)"]
+        cwlogs["CloudWatch Logs + Alarms<br/>(deferred — not provisioned)"]
     end
 
     user -->|HTTPS 443| r53
@@ -939,10 +935,10 @@ flowchart TB
     websg -.->|guards| ec2box
     dbsg -.->|guards| rds
     ec2box -->|assumes| iamrole
-    iamrole -->|GetSecretValue| secrets
+    iamrole -->|GetSecretValue on ltride/db + ltride/app| secrets
     gunicorn -.->|reads DB creds at boot| secrets
-    ec2box -->|ships logs| cwlogs
-    rds -.->|master password| secrets
+    ec2box -.->|logs stay on box; CW shipping deferred| cwlogs
+    rds -.->|master creds| secrets
 
     cfn -.->|provisions| vpc
     cfn -.->|provisions| dnsStack
@@ -956,72 +952,72 @@ flowchart TB
 | Service | Stack | Role in the system |
 |---|---|---|
 | CloudFormation | (all) | IaC engine that provisions/updates every resource below |
-| VPC, subnets, Internet Gateway, route tables | `01-network` | Network isolation: 2 public + 2 private subnets across 2 AZs |
+| VPC, subnets, Internet Gateway, route tables | `01-network` | Network isolation: **2 public subnets across 2 AZs** (no private subnets; RDS isolated by SG) |
 | Security Groups (Web, Db) | `01-network` | Firewall: web tier open on 80/443 (22 from AdminCidr); DB reachable only from the web SG |
-| EC2 (c6g.4xlarge, 16 vCPU/32 GiB, Ubuntu 22.04 arm64) | `03-compute` | Runs nginx + gunicorn/Flask; bootstrapped via UserData |
+| EC2 (`t3.micro` default, Ubuntu 22.04 amd64) | `03-compute` | Runs nginx + gunicorn/Flask; bootstrapped via UserData (`WebInstanceType` is a parameter — size up for load, see §B.13) |
 | Elastic IP | `03-compute` | Stable public address bound to the EC2 instance |
-| IAM role + instance profile | `03-compute` | Grants EC2 `secretsmanager:GetSecretValue` + CloudWatch Logs write |
-| RDS PostgreSQL (db.t3.micro) | `02-database` | Managed database in private subnets; 7-day backups, Snapshot on delete |
-| Secrets Manager | `02-database` | Auto-generated RDS master password; read by EC2 at boot |
+| IAM role + instance profile | `03-compute` | Grants EC2 `secretsmanager:GetSecretValue` on `ltride/db` + `ltride/app` **only** (no CloudWatch Logs) |
+| RDS PostgreSQL (db.t3.micro) | `02-database` | Managed database in the DB subnet group (public AZs), not publicly accessible; 7-day backups, Snapshot on delete |
+| Secrets Manager (`ltride/db`, `ltride/app`) | `00-secrets` | Auto-generated RDS credentials + Flask `SECRET_KEY`; read by EC2 at boot |
 | Route 53 | `04-dns` | Hosted zone + A record → Elastic IP |
-| CloudWatch Logs (+ Alarms) | `03-compute` / ops | App/web log shipping; optional EC2/RDS alarms |
+| CloudWatch Logs (+ Alarms) | *(deferred)* | Not provisioned today; a hardening pass would add log shipping + EC2/RDS alarms |
 | S3 + CloudFront *(optional)* | future stack | Alternative static hosting for the React build instead of nginx |
 
-### B.13 Monthly cost estimate (c6g.4xlarge)
+### B.13 Monthly cost estimate (scaling scenarios)
 
 **Assumptions:** region **us-east-1**, **on-demand** list prices, **730 hrs/month** (24×7), single-AZ RDS. Prices are AWS list rates and exclude taxes; actual bills vary by region, usage, and any Savings Plans/Reserved Instances.
 
-> ⚠️ **This overrides the free-tier cost note in §B.11.** The plan's baseline assumed `t3.micro` (free tier); switching the web tier to **c6g.4xlarge** (16 vCPU / 32 GiB, Graviton2) makes EC2 the dominant cost — this is **not** a free-tier configuration.
+> ⚠️ **The shipped templates default to `t3.micro` + `db.t3.micro` (free-tier eligible)** — a default deploy costs at/near **$0** for the first year and single-digit dollars after. The breakdown below prices a **scale-up scenario** you opt into by raising `WebInstanceType`/`DbInstanceClass` in `params/prod.json`: a **c6g.4xlarge** (16 vCPU / 32 GiB) web tier sized for ~1000 concurrent users, where EC2 becomes the dominant cost. **This is not what deploys by default.**
 
 | Line item | Spec | Unit price | Qty / month | Monthly cost |
 |---|---|---|---|---|
 | EC2 web server | c6g.4xlarge (16 vCPU, 32 GiB) | $0.544 / hr | 730 hrs | **$397.12** |
 | EC2 root volume | EBS gp3, ~30 GB (assumed) | $0.08 / GB-mo | 30 GB | $2.40 |
 | RDS instance | db.t3.micro PostgreSQL, single-AZ | $0.017 / hr | 730 hrs | $12.41 |
-| RDS storage | gp2, 20 GB | $0.115 / GB-mo | 20 GB | $2.30 |
+| RDS storage | gp3, 20 GB | $0.115 / GB-mo | 20 GB | $2.30 |
 | RDS backups | 7-day retention (≤ DB size) | included | — | ~$0.00 |
-| Secrets Manager | 1 secret (`ltride/rds/master`) | $0.40 / secret-mo | 1 | $0.40 |
+| Secrets Manager | 2 secrets (`ltride/db`, `ltride/app`) | $0.40 / secret-mo | 2 | $0.80 |
 | Route 53 | 1 hosted zone | $0.50 / zone-mo | 1 | $0.50 |
 | CloudWatch Logs | low-volume app/web logs (est.) | $0.50 / GB ingest | ~1–2 GB | ~$1.00 |
 | Elastic IP | attached to running instance | free while attached | 1 | $0.00 |
 | Data transfer out | first 100 GB/mo free | $0.09 / GB after | < 100 GB | $0.00 |
 | Domain registration | `.com` via Route 53, ~$13/yr amortized | $13 / yr | 1/12 | $1.08 |
-| **Total** | | | | **≈ $417.21 / month** |
+| **Total** | | | | **≈ $417.61 / month** |
 
-*(The table above is the **mid**-range scenario as specced: c6g.4xlarge on-demand + single-AZ db.t3.micro.)*
+*(The table above is the **scale-up "mid"** scenario — a c6g.4xlarge on-demand web tier + single-AZ db.t3.micro — **not** the default deploy. The templates ship `t3.micro`, which lands at/near the free tier; see the Minimum column below.)*
 
 #### Minimum / mid / maximum monthly scenarios — sized for ~1000 concurrent users
 
 **Load assumption: ~1000 concurrent users.** This is real production traffic, and it changes what each tier means: the total swings mostly with **EC2 size + count**, **RDS tier + HA**, **egress traffic** (1000 users pull real data), and whether a **load balancer** fronts the app. Three planning scenarios (all us-east-1, on-demand unless noted, 730 hrs/mo):
 
-| Cost driver | **Minimum** (demo only) | **Mid** (as specced, sized for load) | **Maximum** (HA production) |
+| Cost driver | **Default / Minimum** (as shipped, demo) | **Mid** (scale-up, sized for load) | **Maximum** (HA production) |
 |---|---|---|---|
-| Load balancer (ALB) | — (none) | — (single instance, specced) | ALB + LCUs — $22.00 |
-| EC2 web tier | t4g.small (2 vCPU/2 GiB) — $12.26 | **c6g.4xlarge (16 vCPU/32 GiB) — $397.12** | 2× c6g.4xlarge — $794.24 |
-| EC2 root volume | gp3 20 GB — $1.60 | gp3 30 GB — $2.40 | 2× gp3 30 GB — $4.80 |
+| Load balancer (ALB) | — (none) | — (single instance) | ALB + LCUs — $22.00 |
+| EC2 web tier | **`t3.micro` (default, 2 vCPU/1 GiB) — $7.59** ($0 under 12-mo free tier) | **c6g.4xlarge (16 vCPU/32 GiB) — $397.12** | 2× c6g.4xlarge — $794.24 |
+| EC2 root volume | AMI-default gp2 ~8 GB — ~$0.80 | gp3 30 GB — $2.40 | 2× gp3 30 GB — $4.80 |
 | RDS instance | db.t3.micro single-AZ — $12.41 | db.t3.medium single-AZ — $49.64 | db.t3.large Multi-AZ — $198.56 |
-| RDS storage | gp2 20 GB — $2.30 | gp2 50 GB — $5.75 | gp2 100 GB — $11.50 |
-| Secrets Manager | $0.40 | $0.40 | $0.40 |
+| RDS storage | gp3 20 GB — $2.30 | gp3 50 GB — $5.75 | gp3 100 GB — $11.50 |
+| Secrets Manager | $0.80 | $0.80 | $0.80 |
 | Route 53 (zone + queries) | $0.50 | $1.00 | $2.00 |
-| CloudWatch Logs (+ Alarms) | $0.50 | $5.00 | $15.00 |
+| CloudWatch Logs (+ Alarms) | $0.00 (not provisioned) | $5.00 | $15.00 |
 | S3 + CloudFront (frontend) | — (nginx-served) | — (nginx-served) | ~$10.00 |
 | Data transfer out | $0.00 (demo, < 100 GB free) | ~$18.00 (≈300 GB) | ~$70.00 (≈900 GB, via CloudFront) |
 | Domain registration (amortized) | $1.08 | $1.08 | $1.08 |
-| **AWS monthly total** | **≈ $31.05** | **≈ $480.39** | **≈ $1,127.58** |
+| **AWS monthly total** | **≈ $25.48** (≈ $2.40 under 12-mo free tier — only Secrets Manager, Route 53 + domain aren't covered) | **≈ $480.79** | **≈ $1,127.98** |
 
 **Why each tier costs what it does:**
 
-- **Minimum — ≈ $31/mo (DEMO ONLY, does *not* serve 1000 concurrent users).** This is the cheapest way to stand the system up: a single small `t4g.small` instance, a free-tier-class `db.t3.micro`, nginx serving the static files, and near-zero traffic (under the 100 GB/mo free egress). It is deliberately under-provisioned — a `t4g.small` and a `db.t3.micro` would saturate CPU and exhaust DB connections well before 1000 concurrent users, and with a single instance any reboot is downtime. **Use this figure only for a demo, dev, or class-presentation environment, not for the stated 1000-user load.** It's included as the floor so you can see how cheaply the stack runs when it isn't carrying real traffic.
+- **Default / Minimum — ≈ $25/mo (≈ $2/mo under the 12-month free tier; DEMO/SMALL-SCALE, does *not* serve 1000 concurrent users).** This is **what the templates deploy out of the box**: the default `t3.micro` web instance, a free-tier-class `db.t3.micro`, nginx serving the static files, and near-zero traffic (under the 100 GB/mo free egress). It is deliberately small — a `t3.micro` and a `db.t3.micro` would saturate CPU and exhaust DB connections well before 1000 concurrent users, and with a single instance any reboot is downtime. **This is the right tier for a demo, dev, class-presentation, or small real deployment — but not for the stated 1000-user load.**
 
-- **Mid — ≈ $480/mo (the specced architecture, sized to actually carry 1000 users).** This is the plan's single `c6g.4xlarge` (16 vCPU / 32 GiB) — its 16 cores run enough gunicorn workers to handle 1000 concurrent users of a lightweight API, and EC2 is by far the dominant line ($397). The DB is bumped from `db.t3.micro` to **`db.t3.medium`** because a micro can't hold the connection pool 1000 users generate. Real egress (~300 GB) now costs ~$18 since the free 100 GB is exceeded, and logging rises with traffic. The trade-off: **one instance = one point of failure** — a crash or reboot is an outage until it restarts.
+- **Mid — ≈ $481/mo (a scale-up sized to actually carry 1000 users; NOT the default).** Raising `WebInstanceType` to a single `c6g.4xlarge` (16 vCPU / 32 GiB) — its 16 cores run enough gunicorn workers to handle 1000 concurrent users of a lightweight API, and EC2 is by far the dominant line ($397). The DB is bumped from `db.t3.micro` to **`db.t3.medium`** because a micro can't hold the connection pool 1000 users generate. Real egress (~300 GB) now costs ~$18 since the free 100 GB is exceeded, and logging rises with traffic. The trade-off: **one instance = one point of failure** — a crash or reboot is an outage until it restarts.
 
 - **Maximum — ≈ $1,128/mo (highly-available production).** This removes the single point of failure and adds headroom: an **ALB** spreads traffic across **two `c6g.4xlarge` instances** (so one can fail or be redeployed with no downtime), and RDS moves to a **Multi-AZ `db.t3.large`** with a hot standby in a second AZ. Static assets move to **S3 + CloudFront** (cheaper, faster egress at scale), egress rises to ~900 GB (~$70), and CloudWatch alarms/logs are fully on. This is what you'd run if the parking system were business-critical during a rush (e.g. start-of-semester).
 
 > **Reserved capacity discount:** committing the `c6g.4xlarge` fleet to a **1-year Compute Savings Plan** (~$0.34/hr vs $0.544 on-demand) cuts each instance ~37% — bringing **mid ≈ $332** and **max ≈ $832**.
 
 **Cost-reduction levers:**
-- **c6g.4xlarge is likely oversized** for this workload (a small Flask API); a `t3.micro`/`t4g.small` would drop the EC2 line to single-digit dollars. Size it to measured load.
-- A **1-year Compute Savings Plan / Reserved Instance** cuts the EC2 rate ~30–60% (≈ $160–280/mo for the c6g.4xlarge line).
+- **Stay on the default `t3.micro`** unless measured load demands more — the c6g.4xlarge in the mid/max scenarios is far larger than a small Flask API needs and only makes sense at real 1000-user load. Size up to measured load, not ahead of it.
+- A **1-year Compute Savings Plan / Reserved Instance** cuts the EC2 rate ~30–60% (≈ $160–280/mo for the c6g.4xlarge line) if you do scale up.
 - Optional **S3 + CloudFront** frontend hosting (§B.7) adds a few dollars/month but offloads static traffic from EC2.
 
 ### B.14 Actual professional costs (contractor build + maintenance)

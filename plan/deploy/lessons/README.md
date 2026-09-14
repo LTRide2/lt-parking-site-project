@@ -4,7 +4,7 @@ This folder turns the [Deployment Guide](../deployment-guide.md) into **6 self-c
 
 > **How the lessons relate to the guide:** the guide is the reference (the "what"); each lesson is the hour-long, hand-held walkthrough (the "how + why"). A lesson never invents steps — it expands the matching CR section of the guide. When in doubt, the [guide](../deployment-guide.md) is the source of truth.
 >
-> **💸 These lessons spend real money.** Standing up AWS resources costs a few dollars while they run. Every lesson tells you how to check cost and how to tear things down (`./deploy.sh down`). See the [cost model in Part 3](../deployment-guide.md#part-3--reference-architecture-iac--cost-model).
+> **💸 These lessons spend real money.** Standing up AWS resources costs a few dollars while they run. Every lesson tells you how to check cost and how to tear things down (`scripts/deploy.sh destroy`). See the [cost model in Part 3](../deployment-guide.md#part-3--reference-architecture-iac--cost-model).
 >
 > **Do the backend (and ideally the frontend) first** — you're deploying the app you built in the [Backend](../../backend/lessons/README.md) and [UI](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/lessons/README.md) tracks.
 

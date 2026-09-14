@@ -25,10 +25,10 @@ The four **CloudFormation templates** that describe LTRide's entire AWS infrastr
 
 - Read and understood `deploy/cfn/01-network.yaml`, `02-database.yaml`, `03-compute.yaml`, and `04-dns.yaml`.
 - Personalized `03-compute.yaml`'s `RepoUrl` so the server clones **your** fork on first boot, not a placeholder.
-- Proven all four templates are valid YAML/CloudFormation using `./deploy.sh validate` — with **zero AWS resources created**.
+- Proven all four templates are valid YAML/CloudFormation using `scripts/deploy.sh infra validate` — with **zero AWS resources created**.
 
 **✅ Done when (your deliverable checklist):**
-- [ ] `cd deploy && ./deploy.sh validate` prints `valid: 01-network.yaml`, `valid: 02-database.yaml`, `valid: 03-compute.yaml`, and `valid: 04-dns.yaml` — no errors, no resources created.
+- [ ] `scripts/deploy.sh infra validate` (run from the repo root) prints `>> validating <file>` for each of the four templates and ends with `all templates valid.` — no errors, no resources created.
 - [ ] You can say, in one sentence each, what `01-network.yaml`, `02-database.yaml`, `03-compute.yaml`, and `04-dns.yaml` create.
 - [ ] `deploy/cfn/03-compute.yaml`'s `RepoUrl` points at your own repo's real clone URL, not a leftover placeholder.
 - [ ] Your work is committed on branch `cr/d1-cfn-templates` and pushed, PR base = `main`.
@@ -39,7 +39,7 @@ The four **CloudFormation templates** that describe LTRide's entire AWS infrastr
 
 Up to now, "the backend" has meant code that runs on your laptop. Deploying means renting real computers from Amazon — and the moment you do that by hand (clicking around the AWS Console), you get a "snowflake" server: nobody, including future-you, can remember exactly what buttons were clicked to build it. If it crashes, or you need a second one for testing, you're clicking again and hoping you remember every step.
 
-**CloudFormation** solves this by describing infrastructure the same way you describe an app: as text files in your repo. A "template" is a YAML file that says "I want a network, a database, a server" — and CloudFormation reads it and builds exactly that, every time, identically. This is the **Infrastructure as Code (IaC)** idea: infrastructure becomes reviewable, versioned, and repeatable, just like the Flask code in the backend lessons. Delete everything with `./deploy.sh down` and recreate it byte-for-byte with `./deploy.sh up` — no memory required.
+**CloudFormation** solves this by describing infrastructure the same way you describe an app: as text files in your repo. A "template" is a YAML file that says "I want a network, a database, a server" — and CloudFormation reads it and builds exactly that, every time, identically. This is the **Infrastructure as Code (IaC)** idea: infrastructure becomes reviewable, versioned, and repeatable, just like the Flask code in the backend lessons. Delete everything with `scripts/deploy.sh infra down` and recreate it byte-for-byte with `scripts/deploy.sh infra up` — no memory required.
 
 This lesson doesn't ask you to write these templates from scratch (they're already committed, heavily commented, in `deploy/cfn/`) — your job is to **read them closely enough to trust them**, make the one edit every new deployer must make, and prove AWS accepts them before you ever spend a dollar standing up real infrastructure in lesson D2.
 
@@ -152,7 +152,7 @@ Open `deploy/cfn/02-database.yaml`. It provisions the RDS PostgreSQL instance an
 - **`DbSecret`** — a [Secrets Manager](https://docs.aws.amazon.com/secretsmanager/latest/userguide/intro.html) resource that asks AWS to invent a random 24-character password and store it, instead of a human choosing and typing one. `ExcludeCharacters` keeps out characters that would break a URL or a shell quote.
 - **`{{resolve:secretsmanager:...}}`** — a special CloudFormation syntax that pulls the username/password straight out of Secrets Manager at deploy time. The **actual password never appears** in this template, in `git`, or in CloudFormation's event log — only this resolver reference does.
 - **`PubliclyAccessible: false`** — the database has no public IP at all; the only path in is through the security group rule from Step 1.
-- **`DeletionPolicy: Snapshot`** — if this stack is ever deleted (`./deploy.sh down`), RDS keeps a final backup instead of destroying your data outright.
+- **`DeletionPolicy: Snapshot`** — if this stack is ever deleted (`scripts/deploy.sh infra down`), RDS keeps a final backup instead of destroying your data outright.
 - `Outputs` exports `ltride-DbEndpoint` (the hostname the app connects to), `ltride-DbPort`, and `ltride-DbSecretArn` — all three imported by the compute stack next.
 
 ### Step 3 — Read the compute stack, and fix `RepoUrl` (~15 min)
@@ -182,7 +182,7 @@ Open `deploy/cfn/03-compute.yaml`. This is the EC2 server itself: an **IAM role*
                 sudo -u "$APP_USER" git clone "$REPO_URL" "$APP_DIR"
                 ...
               - DbEndpoint:  !ImportValue ltride-DbEndpoint
-                RepoUrl: "https://github.com/LTRide2/LTR-Backend.git"
+                RepoUrl: "https://github.com/LTRide2/lt-parking-site-project.git"
 ```
 
 **Explanation:**
@@ -194,7 +194,7 @@ Open `deploy/cfn/03-compute.yaml`. This is the EC2 server itself: an **IAM role*
 **Now make the one required edit.** Find the `RepoUrl:` line near the bottom of the `UserData` block and set it to **your own fork's real clone URL** — the server clones this URL on first boot, so if it's wrong (or still a placeholder), the instance can't fetch any code:
 
 ```yaml
-RepoUrl: "https://github.com/YOUR_ORG/LTR-Backend.git"
+RepoUrl: "https://github.com/YOUR_ORG/lt-parking-site-project.git"
 ```
 
 ### Step 4 — Read the DNS stack (~10 min)
@@ -227,31 +227,26 @@ Resources:
 
 ## 🧪 Prove it works — testing guide
 
-**macOS / Linux**
+**macOS / Linux** (run from the repo root)
 ```bash
-cd deploy
-./deploy.sh validate
+scripts/deploy.sh infra validate
 ```
 
 **Windows (PowerShell)** — `deploy.sh` is a bash script; run it via Git Bash/WSL:
 ```powershell
-cd deploy
-bash ./deploy.sh validate
+bash scripts/deploy.sh infra validate
 ```
 
-**What you should see:** one `valid: <template>.yaml` line per file, in order:
+**What you should see:** a `>> validating <file>` line per template, followed by one final confirmation line:
 ```
-==> validating 01-network.yaml
-  ✓ valid: 01-network.yaml
-==> validating 02-database.yaml
-  ✓ valid: 02-database.yaml
-==> validating 03-compute.yaml
-  ✓ valid: 03-compute.yaml
-==> validating 04-dns.yaml
-  ✓ valid: 04-dns.yaml
+>> validating 01-network.yaml
+>> validating 02-database.yaml
+>> validating 03-compute.yaml
+>> validating 04-dns.yaml
+all templates valid.
 ```
 
-**No AWS resources are created by `validate`** — it's a dry check that calls `aws cloudformation validate-template`, which only asks AWS "is this template's syntax and structure well-formed?" It does **not** check your parameter values, IAM permissions to actually create resources, or your account's service limits — that's what `./deploy.sh up` in lesson D2 is for.
+**No AWS resources are created by `validate`** — it's a dry check that calls `aws cloudformation validate-template`, which only asks AWS "is this template's syntax and structure well-formed?" It does **not** check your parameter values, IAM permissions to actually create resources, or your account's service limits — that's what `scripts/deploy.sh infra up` in lesson D2 is for.
 
 ---
 
@@ -263,7 +258,7 @@ git commit -m "D1: point compute stack's RepoUrl at my fork; confirm all four CF
 git push -u origin cr/d1-cfn-templates
 ```
 
-Then open a Pull Request on GitHub with **base = `main`**. Use the CR description template and paste your `./deploy.sh validate` output as the testing evidence. → Reference: [GitHub: Creating a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request). The [CR status tracker in plan.md §8.2](../../plan.md#82-cr-status-tracker) is where this CR's status is recorded.
+Then open a Pull Request on GitHub with **base = `main`**. Use the CR description template and paste your `scripts/deploy.sh infra validate` output as the testing evidence. → Reference: [GitHub: Creating a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request). The [CR status tracker in plan.md §8.2](../../plan.md#82-cr-status-tracker) is where this CR's status is recorded.
 
 ---
 
@@ -273,7 +268,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 - **`Parameter ... does not exist` or similar** — a template you edited is missing one of the six required parameters (`AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`, `WebInstanceType`, `DbInstanceClass`). Every template must declare all six, even unused ones.
 - **A generic "Template format error"** — YAML is whitespace-sensitive; a stray tab or a misaligned list item is the usual cause. Check the indentation immediately around the line CloudFormation reports.
 - **You forgot to change `RepoUrl`** — this won't fail `validate` (it's just a string to CloudFormation), but the server will fail to clone your code on first boot in lesson D2. Double-check it now before you deploy anything.
-- **`./deploy.sh validate` hangs or times out** — check `AWS_REGION`/`AWS_PROFILE`; the script defaults to `us-east-1` and whatever profile `aws configure` set up.
+- **`scripts/deploy.sh infra validate` hangs or times out** — check `AWS_REGION`/`AWS_PROFILE`; the script defaults to `us-east-1` and whatever profile `aws configure` set up.
 
 ---
 

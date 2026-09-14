@@ -6,9 +6,9 @@
 >
 > **Where this doc sits:** this is the **frontend design + implementation guide**, one of four docs in `plan/` — see the [document map in plan.md §0](../plan.md#0-start-here--which-document-do-i-read). `../plan.md` is the master/orchestrator; the sibling backend guide is `../backend/backend-development-guide.md`; deployment has its own guide at [`../deploy/deployment-guide.md`](../deploy/deployment-guide.md).
 >
-> **The code you're editing lives in its own repo:** [`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project) (locally `~/workspace/LT_Proj/lt-parking-site-project`). This `plan/` folder lives in the **backend** repo (`LTR-Backend`); the guides describe the frontend, but the frontend source is cloned separately — see [A3](#a3-get-the-project-onto-your-computer) below.
+> **The code you're editing lives in `frontend/` inside this one repo:** [`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project) (locally `~/workspace/lt-parking-site-project`). This `plan/` folder is also in that same repo, at `plan/ui/`; the guides describe the frontend, whose source lives in `frontend/` — see [A3](#a3-get-the-project-onto-your-computer) below.
 >
-> **Front-end-first, no backend required to follow along.** `src/api/client.ts` routes every call through an in-memory mock backend (`src/api/mock/backend.ts`, persisted to `localStorage`) whenever `VITE_USE_MOCK` isn't explicitly set to `"false"` — and it defaults **on**. So you can work through every CR below against the mock and see it behave like the real thing; point at a real backend only once you're ready to test that integration. Also: the CR-per-branch flow in **Part B/C** is the discipline we recommend, but it's not literally what happened here — the actual PoC history is a handful of squashed commits on one branch (`poc`).
+> **Front-end-first, no backend required to follow along.** `frontend/src/api/client.ts` routes every call through an in-memory mock backend (`frontend/src/api/mock/backend.ts`, persisted to `localStorage`) whenever `VITE_USE_MOCK` isn't explicitly set to `"false"` — and it defaults **on**. So you can work through every CR below against the mock and see it behave like the real thing; point at a real backend only once you're ready to test that integration. Also: the CR-per-branch flow in **Part B/C** is the discipline we recommend, but it's not literally what happened here — the actual PoC history is a handful of squashed commits on one branch (`poc`).
 
 ---
 
@@ -60,20 +60,20 @@ git config --global user.email "you@example.com"
 
 ### A3. Get the project onto your computer
 
-The frontend lives in its own GitHub repository: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)**. `cd` means "change directory" (move into a folder); `~` means your home folder.
+The frontend lives in the `frontend/` directory of the project's single GitHub repository: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)**. `cd` means "change directory" (move into a folder); `~` means your home folder.
 
 **If you don't have the project yet, clone it** (downloads a copy from GitHub):
 ```bash
-cd ~/workspace/LT_Proj                 # the folder that holds both repos (make it with: mkdir -p ~/workspace/LT_Proj)
+cd ~/workspace                         # (make it with: mkdir -p ~/workspace)
 git clone https://github.com/LTRide2/lt-parking-site-project.git
-cd lt-parking-site-project
+cd lt-parking-site-project/frontend
 ```
 
 **If you already have it,** just move into it:
 ```bash
-cd ~/workspace/LT_Proj/lt-parking-site-project
+cd ~/workspace/lt-parking-site-project/frontend
 ```
-> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`. This is a **different repo** from the backend (`~/workspace/LT_Proj/LTR-Backend`, which also holds these `plan/` docs) — keep the two terminals/folders straight.
+> **Tip:** to see where you are, type `pwd` (print working directory). To list files in the current folder, type `ls`. The backend lives alongside this at `~/workspace/lt-parking-site-project/backend` (same repo, and it also holds these `plan/` docs) — from here on, frontend commands assume you're inside `frontend/`.
 
 ### A4. Install the project's building blocks
 
@@ -144,17 +144,17 @@ Then open a **Pull Request** on GitHub with the **base branch set to the parent*
 
 ## Part D — What already exists (so you know what you're changing)
 
-The current app is a **prototype** — it looks right but has no real data and forgets everything on refresh. Key files in `src/`:
+The current app is a **prototype** — it looks right but has no real data and forgets everything on refresh. Key files in `frontend/src/`:
 
 | File | What it does today |
 |---|---|
-| `src/main.tsx` | Starts the app, connects Redux store. |
-| `src/App.tsx` | Top-level component; just renders `<Login />`. |
-| `src/Login.tsx` | Login screen (Student / Admin), fake login. |
-| `src/ControlBoard.tsx` | The shared screen for **both** roles: campus map + all 17 lots + edit mode. Admins get the control panel; students can click a spot to claim/unclaim it. |
-| `src/store/index.ts` | The Redux "store" (central data) + typed hooks. |
-| `src/store/authSlice.ts` | Login/logout state (currently fake). |
-| `src/store/parkingSlice.ts` | Selected lot, edit mode, selected spaces, and the server-fetched lots/spaces (`fetchLots` / `fetchSpaces` / `updateSpaces` / `saveLayout` / `createLot` / `deleteLot`). Assignment is server state (`status: "assigned"`), not a local map. |
+| `frontend/src/main.tsx` | Starts the app, connects Redux store. |
+| `frontend/src/App.tsx` | Top-level component; just renders `<Login />`. |
+| `frontend/src/Login.tsx` | Login screen (Student / Admin), fake login. |
+| `frontend/src/ControlBoard.tsx` | The shared screen for **both** roles: campus map + all 17 lots + edit mode. Admins get the control panel; students can click a spot to claim/unclaim it. |
+| `frontend/src/store/index.ts` | The Redux "store" (central data) + typed hooks. |
+| `frontend/src/store/authSlice.ts` | Login/logout state (currently fake). |
+| `frontend/src/store/parkingSlice.ts` | Selected lot, edit mode, selected spaces, and the server-fetched lots/spaces (`fetchLots` / `fetchSpaces` / `updateSpaces` / `saveLayout` / `createLot` / `deleteLot`). Assignment is server state (`status: "assigned"`), not a local map. |
 
 > **Redux in one sentence:** it's a single shared box of data (`state`) that any component can read with `useAppSelector`, and change by `dispatch`-ing an action. Don't worry about mastering it — you'll copy the existing patterns.
 
@@ -166,11 +166,11 @@ The current app is a **prototype** — it looks right but has no real data and f
 
 ### The source structure you're building toward
 
-The left side is the **conceptual starting point** these CRs build from (a click-only, browser-only prototype); the right side is where they land. Each CR adds a little of the right. Note: the code actually shipped in `src/` is already at (or beyond) the right-hand target — it's fully server-backed through the mock — so these two trees describe the *tutorial's* arc, not two states of the current repo.
+The left side is the **conceptual starting point** these CRs build from (a click-only, browser-only prototype); the right side is where they land. Each CR adds a little of the right. Note: the code actually shipped in `frontend/src/` is already at (or beyond) the right-hand target — it's fully server-backed through the mock — so these two trees describe the *tutorial's* arc, not two states of the current repo.
 
 **Starting point (a click-only prototype):**
 ```
-lt-parking-site-project/
+frontend/
 ├── public/
 │   └── lots/              # cropped photos of each real lot (lot1.jpg … lot17.jpg)
 └── src/
@@ -188,7 +188,7 @@ lt-parking-site-project/
 
 **The target (filled in, each file tagged by the CR that adds it):**
 ```
-src/
+frontend/src/
 ├── main.tsx              # adds <BrowserRouter>                                (U2)
 ├── App.tsx               # defines <Routes>, restores session on load          (U1, U2)
 ├── ProtectedRoute.tsx    # blocks pages you're not allowed to see              (U2)
@@ -210,7 +210,7 @@ src/
 
 > **How to read this:** a **slice** is one Redux file owning a slice of the shared data (auth, parking, interest). A **thunk** inside a slice is an async action that calls the backend. The full request/response shape of every endpoint is in the backend guide's [**API Reference**](../backend/backend-development-guide.md#appendix-a--backend-api-reference-v1) (`../backend/backend-development-guide.md`); the frontend-side conventions are collected in [Appendix — Frontend architecture reference](#appendix--frontend-architecture-reference) at the end of this guide.
 
-> **⚠️ Heads-up — the shipped prototype is *ahead* of these CRs.** The code you're looking at is the finished PoC: it's already **fully server-backed through the mock** (`src/api/mock/backend.ts`), so it is well past the "browser-only, resets on refresh" stages some CRs below describe as a starting point. In particular:
+> **⚠️ Heads-up — the shipped prototype is *ahead* of these CRs.** The code you're looking at is the finished PoC: it's already **fully server-backed through the mock** (`frontend/src/api/mock/backend.ts`), so it is well past the "browser-only, resets on refresh" stages some CRs below describe as a starting point. In particular:
 > - `parkingSlice.ts` has **no** `assignedSpaces` map — assignment lives on the server (`status: "assigned"` + `assigned_user_id`); it also carries a `deleteLot` thunk (**Remove Lot**).
 > - `ControlBoard.tsx` draws lots from uploaded map photos with spaces positioned by the server's `x`/`y` (falling back to a flex-wrap grid of coloured boxes), and its admin panel already has **Assign to Spot** (pick a pending request → click a space), **Arrange Spots** (place/resize/rotate + Save Layout, **U8**), **Remove Lot**, and a **Student Management** pane (**U10**).
 > - Students **pick one available spot** and submit it as their interest request, rather than a lot-only request.
@@ -252,16 +252,16 @@ When you open a Pull Request, paste this and fill it in:
 
 Every CR has a **Local testing guide** (test on your laptop — always do this first). Most also have a **☁️ Cloud check**: deploy the same CR to the real AWS server and confirm it works on the live site. This catches "works locally, breaks in production" problems (wrong API URL, CORS, a backend endpoint that isn't deployed yet) early.
 
-**One-time prerequisite:** the server has to exist. That's the backend guide's **D0 → D1 → D2** (provision AWS) plus a first `./release.sh all`. Do that once; then this recipe is just two commands.
+**One-time prerequisite:** the server has to exist. That's the backend guide's **D0 → D1 → D2** (provision AWS) plus a first `scripts/deploy.sh app all`. Do that once; then this recipe is just two commands.
 
 **The repeatable recipe — after committing the UI CR you want to verify in the cloud:**
 ```bash
-git push                                  # release.sh builds from your pushed code
-cd ~/workspace/LTR-Backend/deploy
-./release.sh frontend                     # builds the UI with the PROD api url + uploads to nginx
-./deploy.sh outputs                       # shows your site address (ElasticIp / domain)
+git push                                  # the app concern deploys the commit you pushed
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh app frontend            # builds the UI with the PROD api url + uploads to nginx
+scripts/deploy.sh infra outputs           # shows your site address (ElasticIp / domain)
 ```
-> **Key difference from local:** `release.sh frontend` builds with `VITE_API_URL` pointing at the **deployed backend** (not `localhost`). So a UI cloud check only works if the **matching backend CR is already deployed** (e.g. U3 needs B4 live, U5 needs B6 live). Open `http://<ElasticIp>` (or your domain) and repeat that CR's browser steps there.
+> **Key difference from local:** `scripts/deploy.sh app frontend` builds with `VITE_API_URL` pointing at the **deployed backend** (not `localhost`). So a UI cloud check only works if the **matching backend CR is already deployed** (e.g. U3 needs B4 live, U5 needs B6 live). Open `http://<ElasticIp>` (or your domain) and repeat that CR's browser steps there.
 >
 > If the live site shows "Failed to fetch"/CORS, the backend isn't deployed or its `CORS_ORIGINS` doesn't include your site's address — fix in the backend guide, not here.
 
@@ -296,9 +296,9 @@ git checkout -b cr/u0-hygiene
    ```
    > **Why `VITE_` at the front?** Vite only exposes variables that start with `VITE_` to your browser code, via `import.meta.env`. Anything else stays hidden.
 
-3. **Create the API helper** at `src/api/client.ts`. This is the **one place** that talks to the backend. It attaches the login token, unwraps the `{data: ...}` envelope, and turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`:
+3. **Create the API helper** at `frontend/src/api/client.ts`. This is the **one place** that talks to the backend. It attaches the login token, unwraps the `{data: ...}` envelope, and turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`:
    ```ts
-   // src/api/client.ts
+   // frontend/src/api/client.ts
    const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
    // The login token lives here. We keep a copy in localStorage so a page
@@ -337,7 +337,7 @@ git checkout -b cr/u0-hygiene
      del: (p: string) => request(p, { method: "DELETE" }),
    };
    ```
-   > **📸 What's already in the prototype:** the real `client.ts` on your screen is a bit bigger than this. It also has a `put` method on `api` (used from U8 on), a separate `uploadFile(path, file)` helper for multipart uploads (added in U7), a `log()` call around every request for console visibility, and — the big one — a `USE_MOCK` branch that routes every call through the in-memory mock backend (`src/api/mock/backend.ts`) instead of `fetch` whenever `VITE_USE_MOCK` isn't `"false"` (which is the default). None of that changes the shape above: `get`/`post`/`patch`/`del` behave exactly as described; you're just seeing more of the file than this step builds.
+   > **📸 What's already in the prototype:** the real `client.ts` on your screen is a bit bigger than this. It also has a `put` method on `api` (used from U8 on), a separate `uploadFile(path, file)` helper for multipart uploads (added in U7), a `log()` call around every request for console visibility, and — the big one — a `USE_MOCK` branch that routes every call through the in-memory mock backend (`frontend/src/api/mock/backend.ts`) instead of `fetch` whenever `VITE_USE_MOCK` isn't `"false"` (which is the default). None of that changes the shape above: `get`/`post`/`patch`/`del` behave exactly as described; you're just seeing more of the file than this step builds.
 
 4. **Make sure it compiles** (no behavior change yet):
    ```bash
@@ -359,7 +359,7 @@ git checkout -b cr/u0-hygiene
 2. Steps: open the site; click Student/Admin; click around the existing fake login.
 3. Expected: the app looks and behaves **exactly as before** (no visible change — you only added files). `npm run lint` and `npm run build` finish with **no errors**.
 
-**☁️ Cloud check (optional):** `git push` then `./release.sh frontend`. There's nothing new to *see*, but a clean build + deploy proves the production build still works (the cloud build is stricter than `npm run dev` — it runs `tsc`). Open the live site; it should look exactly as before.
+**☁️ Cloud check (optional):** `git push` then `scripts/deploy.sh app frontend`. There's nothing new to *see*, but a clean build + deploy proves the production build still works (the cloud build is stricter than `npm run dev` — it runs `tsc`). Open the live site; it should look exactly as before.
 
 **Commit & push:**
 ```bash
@@ -383,9 +383,9 @@ git checkout cr/u0-hygiene
 git checkout -b cr/u1-real-auth
 ```
 
-**Step 1 — Rewrite `src/store/authSlice.ts`** with real async thunks. Replace the whole file:
+**Step 1 — Rewrite `frontend/src/store/authSlice.ts`** with real async thunks. Replace the whole file:
 ```ts
-// src/store/authSlice.ts
+// frontend/src/store/authSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api, setToken } from "../api/client";
 
@@ -477,9 +477,9 @@ export default authSlice.reducer;
 ```
 > **What changed vs. the old slice?** The old `userType`/`userCode` fields are gone — the real `user` object (with `role`) now comes from the server. Any component reading `state.auth.userType` must switch to `state.auth.user?.role` (the ControlBoard/Login below already do).
 
-**Step 2 — Rewrite `src/Login.tsx`** so the forms call the thunks and show errors. Replace the whole file:
+**Step 2 — Rewrite `frontend/src/Login.tsx`** so the forms call the thunks and show errors. Replace the whole file:
 ```tsx
-// src/Login.tsx
+// frontend/src/Login.tsx
 import { useState, type FormEvent } from "react";
 import { useAppDispatch, useAppSelector } from "./store";
 import { loginStudent, loginAdmin, logout } from "./store/authSlice";
@@ -571,9 +571,9 @@ const Login = () => {
 export default Login;
 ```
 
-**Step 3 — Restore the session on refresh.** In `src/App.tsx`, ask the backend "who am I?" on load if a token exists:
+**Step 3 — Restore the session on refresh.** In `frontend/src/App.tsx`, ask the backend "who am I?" on load if a token exists:
 ```tsx
-// src/App.tsx
+// frontend/src/App.tsx
 import { useEffect } from "react";
 import "./App.css";
 import Login from "./Login";
@@ -626,7 +626,7 @@ export default App;
    - After refresh → **still logged in** (the token + `/api/auth/me` restore you).
    - Logout → back to the login selection; refresh now stays logged out.
 
-**☁️ Cloud check (optional):** needs backend **B3** deployed. `./release.sh frontend`, open the live site, and log in as `STU001` / `admin`. Logging in on the real domain proves the deployed UI reaches the deployed auth API (and that CORS is configured for your live origin).
+**☁️ Cloud check (optional):** needs backend **B3** deployed. `scripts/deploy.sh app frontend`, open the live site, and log in as `STU001` / `admin`. Logging in on the real domain proves the deployed UI reaches the deployed auth API (and that CORS is configured for your live origin).
 
 **Commit & push:**
 ```bash
@@ -650,9 +650,9 @@ git checkout cr/u1-real-auth
 git checkout -b cr/u2-routing
 ```
 
-**Step 1 — Wrap the app in a router.** In `src/main.tsx`, add `BrowserRouter`:
+**Step 1 — Wrap the app in a router.** In `frontend/src/main.tsx`, add `BrowserRouter`:
 ```tsx
-// src/main.tsx
+// frontend/src/main.tsx
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Provider } from "react-redux";
@@ -675,11 +675,11 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
-> `ErrorBoundary` (a small class component in `src/ErrorBoundary.tsx`) is wired **outermost of all** — around `Provider` *and* `BrowserRouter` — so a render crash anywhere in the app surfaces as a fallback message instead of a blank page. See [Lesson U2](lessons/U2-routing.md) for the component itself.
+> `ErrorBoundary` (a small class component in `frontend/src/ErrorBoundary.tsx`) is wired **outermost of all** — around `Provider` *and* `BrowserRouter` — so a render crash anywhere in the app surfaces as a fallback message instead of a blank page. See [Lesson U2](lessons/U2-routing.md) for the component itself.
 
-**Step 2 — Create the guard `src/ProtectedRoute.tsx`:**
+**Step 2 — Create the guard `frontend/src/ProtectedRoute.tsx`:**
 ```tsx
-// src/ProtectedRoute.tsx
+// frontend/src/ProtectedRoute.tsx
 import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAppSelector } from "./store";
@@ -694,9 +694,9 @@ export function ProtectedRoute({ role, children }: { role?: "student" | "admin";
 }
 ```
 
-**Step 3 — Define the routes in `src/App.tsx`.** Now `App` owns the URLs; `Login.tsx` becomes just the login *page* (no longer the gate):
+**Step 3 — Define the routes in `frontend/src/App.tsx`.** Now `App` owns the URLs; `Login.tsx` becomes just the login *page* (no longer the gate):
 ```tsx
-// src/App.tsx
+// frontend/src/App.tsx
 import { useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import "./App.css";
@@ -745,9 +745,9 @@ export default App;
 
 **Step 4 — Simplify `Login.tsx`.** Remove the `if (isLoggedIn) return <ControlBoard …>` block (routing handles that now) — keep only the selection / student form / admin form. The forms are unchanged from U1.
 
-**Step 5 — Temporary stub** so it compiles before U5. Create `src/StudentDashboard.tsx`:
+**Step 5 — Temporary stub** so it compiles before U5. Create `frontend/src/StudentDashboard.tsx`:
 ```tsx
-// src/StudentDashboard.tsx  (replaced for real in U5)
+// frontend/src/StudentDashboard.tsx  (replaced for real in U5)
 export default function StudentDashboard() {
   return <h2>Student dashboard (coming in U5)</h2>;
 }
@@ -773,7 +773,7 @@ export default function StudentDashboard() {
    - A logged-out user visiting any protected URL → redirected to `/login`.
    - Back/Forward buttons navigate between pages without a full reload.
 
-**☁️ Cloud check (optional):** `./release.sh frontend`, then on the live site visit `/admin` while logged out — you should be redirected to `/login`. **Heads-up:** deep links like `https://yoursite/admin` only work if nginx is configured to serve `index.html` for unknown paths (SPA fallback). If a refresh on `/admin` gives a 404, that's the nginx `try_files` rule — see **Part 3 / nginx config** in the backend guide.
+**☁️ Cloud check (optional):** `scripts/deploy.sh app frontend`, then on the live site visit `/admin` while logged out — you should be redirected to `/login`. **Heads-up:** deep links like `https://yoursite/admin` only work if nginx is configured to serve `index.html` for unknown paths (SPA fallback). If a refresh on `/admin` gives a 404, that's the nginx `try_files` rule — see **Part 3 / nginx config** in the backend guide.
 
 **Commit & push:**
 ```bash
@@ -799,9 +799,9 @@ git checkout cr/u2-routing
 git checkout -b cr/u3-real-lots
 ```
 
-**Step 1 — Rewrite `src/store/parkingSlice.ts`** to be data-driven. Replace the whole file:
+**Step 1 — Rewrite `frontend/src/store/parkingSlice.ts`** to be data-driven. Replace the whole file:
 ```ts
-// src/store/parkingSlice.ts
+// frontend/src/store/parkingSlice.ts
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { api } from "../api/client";
 
@@ -1005,7 +1005,7 @@ Then in the canvas body, the campus map shows when `selectedLotId === null`, and
    - While a lot loads you briefly see **"Loading…"**.
    - With the backend off, you see a **red error**, not a blank/crashed page.
 
-**☁️ Cloud check (optional):** needs backend **B4** deployed and RDS seeded. `./release.sh frontend`, open the live site as admin, click through the lots — they should draw the server's real spaces, same as local.
+**☁️ Cloud check (optional):** needs backend **B4** deployed and RDS seeded. `scripts/deploy.sh app frontend`, open the live site as admin, click through the lots — they should draw the server's real spaces, same as local.
 
 **Commit & push:**
 ```bash
@@ -1097,7 +1097,7 @@ Add `updateSpaces` to the import list from `./store/parkingSlice`.
    - If you stop the backend and try again, a red error appears; the optimistic grey stays on screen (it isn't auto-reverted) until the next load re-fetches the real state.
    - A space that's already `assigned` can't be disabled — the server returns 409 and you see the error (don't select assigned/blue spaces).
 
-**☁️ Cloud check (optional):** needs backend **B5** deployed. `./release.sh frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
+**☁️ Cloud check (optional):** needs backend **B5** deployed. `scripts/deploy.sh app frontend`, disable a few spaces on the live site, then **refresh** — they stay grey, proving it saved to RDS (not just your browser).
 
 **Commit & push:**
 ```bash
@@ -1119,9 +1119,9 @@ git checkout cr/u4-save-status
 git checkout -b cr/u5-student-interest
 ```
 
-**Step 1 — Create `src/store/interestSlice.ts`:**
+**Step 1 — Create `frontend/src/store/interestSlice.ts`:**
 ```ts
-// src/store/interestSlice.ts
+// frontend/src/store/interestSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api } from "../api/client";
 
@@ -1177,7 +1177,7 @@ const interestSlice = createSlice({
 export default interestSlice.reducer;
 ```
 
-**Step 2 — Register the slice.** In `src/store/index.ts`, add it to the reducer map:
+**Step 2 — Register the slice.** In `frontend/src/store/index.ts`, add it to the reducer map:
 ```ts
 import interestReducer from "./interestSlice";
 // ...
@@ -1190,9 +1190,9 @@ export const store = configureStore({
 });
 ```
 
-**Step 3 — Replace the stub `src/StudentDashboard.tsx`** with the real screen:
+**Step 3 — Replace the stub `frontend/src/StudentDashboard.tsx`** with the real screen:
 ```tsx
-// src/StudentDashboard.tsx
+// frontend/src/StudentDashboard.tsx
 import { useEffect } from "react";
 import { useAppDispatch, useAppSelector } from "./store";
 import { logout } from "./store/authSlice";
@@ -1279,7 +1279,7 @@ export default function StudentDashboard() {
    - After **refresh**, the request is still there (loaded by `fetchMyInterest`).
    - You can't create a second active request (the register buttons disappear once you have one); if you hit the API directly the backend returns 409 and you'd see a red error.
 
-**☁️ Cloud check (optional):** needs backend **B6** deployed. `./release.sh frontend`, log in as a student on the live site, register interest, and refresh — the request persists. (Half of the full cloud E2E; the other half lands with U6.)
+**☁️ Cloud check (optional):** needs backend **B6** deployed. `scripts/deploy.sh app frontend`, log in as a student on the live site, register interest, and refresh — the request persists. (Half of the full cloud E2E; the other half lands with U6.)
 
 **Commit & push:**
 ```bash
@@ -1409,7 +1409,7 @@ Add `fetchSpaces` to the parkingSlice import if it isn't already there.
    - Log in separately as that student → their dashboard shows **status: fulfilled**.
    - Clicking an already-assigned or disabled space does nothing; assigning when no request is picked does nothing.
 
-**☁️ Cloud check (optional):** needs backend **B7** deployed. `./release.sh all`, then run the **full two-window E2E story (Part F2)** against the **live site** instead of localhost — student registers, admin assigns, student sees `fulfilled`. This is the real end-to-end production test.
+**☁️ Cloud check (optional):** needs backend **B7** deployed. `scripts/deploy.sh app all`, then run the **full two-window E2E story (Part F2)** against the **live site** instead of localhost — student registers, admin assigns, student sees `fulfilled`. This is the real end-to-end production test.
 
 **Commit & push:**
 ```bash
@@ -1433,9 +1433,9 @@ git checkout cr/u6-admin-assign
 git checkout -b cr/u7-map-upload
 ```
 
-**Step 1 — Add an upload helper to `src/api/client.ts`.** It reuses the token but sends `FormData`:
+**Step 1 — Add an upload helper to `frontend/src/api/client.ts`.** It reuses the token but sends `FormData`:
 ```ts
-// add to src/api/client.ts
+// add to frontend/src/api/client.ts
 export async function uploadFile(path: string, file: File) {
   const fd = new FormData();
   fd.append("file", file);
@@ -1520,7 +1520,7 @@ Update the **Update School Map** button's `onClick` to open the picker, and add 
    - A valid image uploads; after the `fetchLots` refresh the new map shows on the Home view.
    - A non-image or too-large file → the server rejects it (400/413) and you see a **red error**, no crash.
 
-**☁️ Cloud check (optional):** needs the backend map-upload endpoint deployed. `./release.sh all`, upload an image on the live site. **Heads-up:** large uploads can hit nginx's `client_max_body_size` limit (default 1 MB → `413`). If real photos are rejected in the cloud but work locally, raise that limit in the nginx config (**Part 3 / nginx config** in the backend guide).
+**☁️ Cloud check (optional):** needs the backend map-upload endpoint deployed. `scripts/deploy.sh app all`, upload an image on the live site. **Heads-up:** large uploads can hit nginx's `client_max_body_size` limit (default 1 MB → `413`). If real photos are rejected in the cloud but work locally, raise that limit in the nginx config (**Part 3 / nginx config** in the backend guide).
 
 **Commit & push:**
 ```bash
@@ -1594,7 +1594,7 @@ Handle `saveLayout.rejected` to surface the 409/error into `state.error`.
    - Deleting an **assigned** spot and saving surfaces a red error (`409`) — nothing lost.
    - A never-arranged lot still draws via the flex-wrap grid of coloured boxes below the photo.
 
-**☁️ Cloud check (optional):** needs backend **B8** deployed. `./release.sh all`, arrange a lot on the live site, **refresh** — the layout persists in RDS; a second browser sees the same arrangement (it's server data now).
+**☁️ Cloud check (optional):** needs backend **B8** deployed. `scripts/deploy.sh app all`, arrange a lot on the live site, **refresh** — the layout persists in RDS; a second browser sees the same arrangement (it's server data now).
 
 **Commit & push:**
 ```bash
@@ -1650,7 +1650,7 @@ git checkout -b cr/u9-add-lot
    - After **refresh** the lot is still listed (persisted); you can Update School Map (U7) + Arrange Spots (U8) on it.
    - A **student** never sees ➕ Add Lot.
 
-**☁️ Cloud check (optional):** needs backend **B9** deployed. `./release.sh all`, create a lot live, **refresh** — persists in RDS; a second browser sees it. Full loop: create → map (U7) → arrange (U8) → student sees it in availability.
+**☁️ Cloud check (optional):** needs backend **B9** deployed. `scripts/deploy.sh app all`, create a lot live, **refresh** — persists in RDS; a second browser sees it. Full loop: create → map (U7) → arrange (U8) → student sees it in availability.
 
 **Commit & push:**
 ```bash
@@ -1722,9 +1722,9 @@ Up to now each CR's "Local testing guide" checked **one slice** of the app. An *
 
 ### Step 1 — Start the backend (Terminal 1)
 
-In the **backend** repo (`~/workspace/LTR-Backend`):
+In the **backend** directory (`~/workspace/lt-parking-site-project/backend`):
 ```bash
-cd ~/workspace/LTR-Backend
+cd ~/workspace/lt-parking-site-project/backend
 # make sure PostgreSQL is running (see backend guide B2 "Installing and starting PostgreSQL")
 brew services start postgresql@16        # or @17, whichever you installed
 
@@ -1744,9 +1744,9 @@ curl -s http://localhost:8000/api/health
 
 ### Step 2 — Start the frontend (Terminal 2)
 
-In the **frontend** repo (`~/workspace/LT_Proj/lt-parking-site-project`):
+In the **frontend** directory (`~/workspace/lt-parking-site-project/frontend`):
 ```bash
-cd ~/workspace/LT_Proj/lt-parking-site-project
+cd ~/workspace/lt-parking-site-project/frontend
 # For a REAL end-to-end test you must turn the mock OFF and point at the backend.
 # The app defaults to VITE_USE_MOCK=true, so without this it never touches Flask:
 #   VITE_USE_MOCK=false
@@ -1788,23 +1788,23 @@ If steps 1–5 all pass, the **core end-to-end flow works**: the student's reque
 
 ## Part F3 — Deployment (frontend)
 
-> **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable scripts/templates live in the repo-root [`deploy/`](../../deploy/README.md) folder.
+> **Scope.** This covers only how the **React SPA is built and served in production**. The AWS infrastructure it runs on — EC2, RDS, nginx/systemd, CloudFormation, DNS/TLS, and the cost model — lives in the [deployment guide](../deploy/deployment-guide.md): the [step-by-step (Part 1)](../deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4) and the [reference (Part 3)](../deploy/deployment-guide.md#part-3--reference-architecture-iac--cost-model). The runnable orchestration lives in [`scripts/`](../../scripts/) (the `scripts/deploy.sh` entrypoint); the templates and on-server config files live in the repo-root [`deploy/`](../../deploy/README.md) folder.
 
-> **⚠️ PoC caveat.** This checkout is a **frontend PoC that runs entirely on the in-memory mock** (`VITE_USE_MOCK` defaults to `true`), and the repo-root `deploy/` scripts (`release.sh`, `server/nginx-ltride.conf`) referenced throughout Part F3 and the per-CR "☁️ Cloud check" boxes **are not present here** — they belong to the deployment track. Treat those `./release.sh …` commands and cloud checks as the **plan of record**, not steps runnable from this repo as-is. Any real deploy also requires building with `VITE_USE_MOCK=false` and a reachable `VITE_API_URL`.
+> **⚠️ PoC caveat.** The frontend **runs entirely on the in-memory mock by default** (`VITE_USE_MOCK` defaults to `true`), so nothing below is needed just to develop the UI. The deploy tooling (`scripts/deploy.sh`, `deploy/server/nginx-ltride.conf`) referenced throughout Part F3 and the per-CR "☁️ Cloud check" boxes belongs to the **deployment track** — the `scripts/deploy.sh …` commands only do something once you've stood up the AWS side (backend guide's D0–D2). Any real deploy also requires building with `VITE_USE_MOCK=false` and a reachable `VITE_API_URL`.
 
 ### F3.1 What "deploying the frontend" means
 
 The frontend is **static files**. `npm run build` compiles the app into a `dist/` folder (HTML + hashed JS/CSS + assets); there is no Node server in production. Those files are copied onto the same EC2 box and **nginx serves them directly**, while `/api/*` requests are proxied to the Flask backend. There's nothing to "restart" for a frontend release — you just replace the files.
 
 ```
-npm run build ──▶ dist/ ──(rsync / release.sh)──▶ /var/www/ltride on EC2 ──▶ nginx serves it
+npm run build ──▶ dist/ ──(scripts/deploy.sh app frontend)──▶ /var/www/ltride on EC2 ──▶ nginx serves it
                                                                     └─ /api/* ─▶ gunicorn (Flask)
 ```
 
 ### F3.2 Build for production
 
 ```bash
-cd ~/workspace/LT_Proj/lt-parking-site-project
+cd ~/workspace/lt-parking-site-project/frontend
 # Point the build at the PUBLIC API URL (NOT localhost) — baked in at build time:
 VITE_API_URL=https://<your-domain> npm run build
 # output: dist/  (this is the entire deployable artifact)
@@ -1816,11 +1816,11 @@ npm run preview        # optional: serve dist/ locally to sanity-check the prod 
 
 ### F3.3 How it gets onto the server
 
-You normally don't copy files by hand — the repo-root [`deploy/release.sh`](../../deploy/release.sh) does the frontend release for you:
+You normally don't copy files by hand — the [`scripts/deploy.sh`](../../scripts/deploy.sh) entrypoint (the `app` concern) does the frontend release for you:
 
 ```bash
-./deploy/release.sh frontend    # builds with the prod VITE_API_URL, rsyncs dist/ to nginx
-./deploy/release.sh all         # backend + frontend together
+scripts/deploy.sh app frontend    # builds with the prod VITE_API_URL, rsyncs dist/ to nginx
+scripts/deploy.sh app all         # backend + frontend together
 ```
 
 The equivalent manual step (for debugging) is an `rsync` of `dist/` to `/var/www/ltride` on the box — see [deployment guide §B.7](../deploy/deployment-guide.md#b7-build--place-the-frontend).
@@ -1841,7 +1841,7 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 1. `VITE_API_URL` points at the **production** URL (or a relative `/api`), not localhost.
 2. `npm run build` succeeds; `npm run preview` renders and can log in against the prod API.
 3. Deep-link + refresh on a protected route works (SPA fallback in nginx).
-4. After `release.sh frontend`, hard-refresh the site and confirm the new build loads (check a changed string / the network tab hashes).
+4. After `scripts/deploy.sh app frontend`, hard-refresh the site and confirm the new build loads (check a changed string / the network tab hashes).
 
 ---
 
@@ -1858,7 +1858,7 @@ Vite fingerprints asset filenames (e.g. `index-a1b2c3.js`), so browsers safely c
 
 ## Part H — Daily checklist
 
-1. `cd ~/workspace/LT_Proj/lt-parking-site-project`
+1. `cd ~/workspace/lt-parking-site-project/frontend`
 2. `git status` (am I on the right branch? any leftover changes?)
 3. `npm run dev` (start the site)
 4. Make small changes → save → check the browser.
@@ -1877,7 +1877,7 @@ The React SPA is organised as a thin **API client**, three core Redux **slices**
 
 ### B. Design conventions
 
-- **API client** (`src/api/client.ts`): exports `api = {get, post, patch, put, del}` plus a standalone `uploadFile(path, file)` for multipart uploads. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`; logs every call via a `log()` helper. A `USE_MOCK` flag (`VITE_USE_MOCK`, on by default) routes calls to the in-memory mock backend (`src/api/mock/backend.ts`) instead of the network. It is the **one place** that talks to the backend (built in **U0**).
+- **API client** (`frontend/src/api/client.ts`): exports `api = {get, post, patch, put, del}` plus a standalone `uploadFile(path, file)` for multipart uploads. Base URL from `import.meta.env.VITE_API_URL`; attaches the `Authorization: Bearer <token>` header; unwraps the success envelope `{data: ...}`; turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`; logs every call via a `log()` helper. A `USE_MOCK` flag (`VITE_USE_MOCK`, on by default) routes calls to the in-memory mock backend (`frontend/src/api/mock/backend.ts`) instead of the network. It is the **one place** that talks to the backend (built in **U0**).
 - **State (Redux Toolkit):** convert slices to use **`createAsyncThunk`** for every server call; keep pure-UI state (`selectedLotId`, `isEditMode`, `selectedSpaces`) local to the slice, not on the server. Slices: `authSlice` (**U1**), `parkingSlice` (**U3/U4**), `interestSlice` (**U5/U6**), and — PoC extension — `studentsSlice` (roster CRUD/CSV/direct-assign, **U10**).
 - **Routing:** `react-router-dom` with routes `/login`, `/student`, `/admin`; a `ProtectedRoute` reads `auth.isLoggedIn` + `auth.user.role` and redirects (**U2**).
 - **Data-driven map:** the prototype draws each lot's uploaded map photo and positions its spaces from server data. Replace hard-coded strings with spaces fetched from `GET /api/lots/:id/spaces`, rendering `label`/`status` from the server (**U3**). Keep the existing pan/zoom for the "Home" campus map.
@@ -1894,7 +1894,7 @@ The React SPA is organised as a thin **API client**, three core Redux **slices**
 
 | Concern | Slice / file | CR |
 |---|---|---|
-| API client + token | `src/api/client.ts` | [U0](#cr-u0--project-hygiene-foundation-no-visible-change) |
+| API client + token | `frontend/src/api/client.ts` | [U0](#cr-u0--project-hygiene-foundation-no-visible-change) |
 | Auth (login/session) | `authSlice.ts`, `Login.tsx`, `App.tsx` | [U1](#cr-u1--real-login-replaces-the-fake-login) |
 | Routing + guards | `main.tsx`, `App.tsx`, `ProtectedRoute.tsx` | [U2](#cr-u2--routing-real-pages-with-urls) |
 | Lots/spaces data | `parkingSlice.ts`, `ControlBoard.tsx` | [U3](#cr-u3--show-real-lots-and-spaces-data-driven-map) |

@@ -30,12 +30,12 @@ The plumbing every later frontend lesson needs, **without changing what the user
 
 - [`react-router-dom`](GLOSSARY.md#react-router) installed (you won't use it until Lesson U2, but the foundation goes in now).
 - A local `.env` and a committed `env.example.txt` template, both holding the backend's address (and the mock toggle) — never hard-coded in your components.
-- `src/api/client.ts` — the **one place** in the whole app that talks to the backend: it attaches the [login token](GLOSSARY.md#jwt), unwraps the response [envelope](GLOSSARY.md#envelope), and turns backend errors into JavaScript `Error`s you can `try/catch`.
+- `frontend/src/api/client.ts` — the **one place** in the whole app that talks to the backend: it attaches the [login token](GLOSSARY.md#jwt), unwraps the response [envelope](GLOSSARY.md#envelope), and turns backend errors into JavaScript `Error`s you can `try/catch`.
 - A clean `npm run lint` and `npm run build` — proof the app still compiles.
 
 **✅ Done when (your deliverable checklist):**
 - [ ] `npm run dev` shows the site looking and behaving **exactly as before** — same fake Student/Admin login.
-- [ ] `src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken` — this lesson's starting surface; `put` (U8) and a separate `uploadFile()` (U7) land later in the same file.
+- [ ] `frontend/src/api/client.ts` exists and exports `api` (with `get`/`post`/`patch`/`del`) and `setToken` — this lesson's starting surface; `put` (U8) and a separate `uploadFile()` (U7) land later in the same file.
 - [ ] `.env` exists locally with `VITE_API_URL=http://localhost:8000` and `VITE_USE_MOCK=true`; the committed `env.example.txt` template has the same lines and **is** tracked by Git; `.env` is **not**.
 - [ ] `npm run lint` and `npm run build` both finish with **no errors**.
 - [ ] Your work is committed on branch `cr/u0-hygiene` and pushed, PR base = `main`.
@@ -50,7 +50,7 @@ Every one of the next seven lessons needs to call the backend — logging a stud
 
 So before touching a single visible screen, we build the **plumbing** once:
 
-1. **One [API](GLOSSARY.md#api) client.** Every network call in the app goes through `src/api/client.ts`. Fix a bug there, and it's fixed everywhere. This is the same "don't repeat yourself" instinct that makes the backend's `config.py` read secrets in one place instead of scattering them through the code.
+1. **One [API](GLOSSARY.md#api) client.** Every network call in the app goes through `frontend/src/api/client.ts`. Fix a bug there, and it's fixed everywhere. This is the same "don't repeat yourself" instinct that makes the backend's `config.py` read secrets in one place instead of scattering them through the code.
 2. **Config in the environment, not in the code.** The backend's address (`http://localhost:8000` on your laptop, something else once it's deployed) is a **setting**, not a fact baked into your components. It lives in `.env` so it can change per-environment without touching a single line of TypeScript.
 3. **Install dependencies before you need them.** `react-router-dom` isn't used until Lesson U2, but installing it now means U2 is only about *routing*, not *also* fighting a fresh install.
 
@@ -80,13 +80,13 @@ This lesson is intentionally invisible — nothing on screen changes. That's the
 
 **Time budget for the hour:** setup & branch (5 min) → install the router (5) → environment config (10) → build the API client (25) → verify it compiles (5) → test & commit (10).
 
-**Get the code.** The frontend is its own repo: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)** (locally `~/workspace/LT_Proj/lt-parking-site-project`). If you haven't cloned it yet, do the [UI guide → A3](../ui-development-guide.md#a3-get-the-project-onto-your-computer) step first. This is a *different* repo from the backend (`LTR-Backend`, which also holds these lesson docs).
+**Get the code.** The frontend lives in the `frontend/` directory of the single project repo: **[`github.com/LTRide2/lt-parking-site-project`](https://github.com/LTRide2/lt-parking-site-project)** (locally `~/workspace/lt-parking-site-project`). If you haven't cloned it yet, do the [UI guide → A3](../ui-development-guide.md#a3-get-the-project-onto-your-computer) step first. The backend lives alongside it at `backend/` (same repo), which also holds these lesson docs.
 
 **Open your terminal, move into the project folder, and make your branch.** In the stacked-CR workflow each lesson lives on its own branch; U0 starts from `main`.
 
 **macOS / Linux (bash/zsh):**
 ```bash
-cd ~/workspace/LT_Proj/lt-parking-site-project   # the frontend repo
+cd ~/workspace/lt-parking-site-project/frontend   # the frontend directory
 git checkout main
 git pull
 git checkout -b cr/u0-hygiene
@@ -94,7 +94,7 @@ git checkout -b cr/u0-hygiene
 
 **Windows (PowerShell):**
 ```powershell
-cd $HOME\workspace\LT_Proj\lt-parking-site-project   # the frontend repo
+cd $HOME\workspace\lt-parking-site-project\frontend   # the frontend directory
 git checkout main
 git pull
 git checkout -b cr/u0-hygiene
@@ -157,10 +157,10 @@ Both are the same safe "add-it-only-if-it's-missing" idiom; running either twice
 
 ### Step 3 — Build the API client (~25 min)
 
-Create `src/api/client.ts`. This is the **one place** in the app that talks to the backend — it attaches the login token, unwraps the `{data: ...}` envelope, and turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`:
+Create `frontend/src/api/client.ts`. This is the **one place** in the app that talks to the backend — it attaches the login token, unwraps the `{data: ...}` envelope, and turns the backend's `{error:{message}}` into a thrown `Error` so callers can `try/catch`:
 
 ```ts
-// src/api/client.ts
+// frontend/src/api/client.ts
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000"; // read from .env; falls back to localhost if unset
 
 // The login token lives here. We keep a copy in localStorage so a page
@@ -246,7 +246,7 @@ npm run build
 
 Both commands should finish with **no errors**.
 
-**☁️ Cloud check (optional):** `git push` then `./release.sh frontend` from the backend repo's `deploy/` folder. `release.sh` is a shell script, so on **Windows** run it from **Git Bash** or **WSL** (PowerShell can't execute `.sh` directly); macOS/Linux run it in any terminal. There's nothing new to *see* on the live site, but a clean build + deploy proves the **production** build still works — the cloud build is stricter than `npm run dev` because it also runs `tsc`. Open the live site; it should look exactly as before.
+**☁️ Cloud check (optional):** `git push` then `scripts/deploy.sh app frontend` from the repo root. `scripts/deploy.sh` is a shell script, so on **Windows** run it from **Git Bash** or **WSL** (PowerShell can't execute `.sh` directly); macOS/Linux run it in any terminal. There's nothing new to *see* on the live site, but a clean build + deploy proves the **production** build still works — the cloud build is stricter than `npm run dev` because it also runs `tsc`. Open the live site; it should look exactly as before.
 
 ---
 
@@ -264,7 +264,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 
 ## 🧯 If something breaks
 
-- **`npm run build` complains it can't find `import.meta.env.VITE_API_URL`'s type** — make sure `.env` is at the **project root** (same folder as `package.json`), not inside `src/`.
+- **`npm run build` complains it can't find `import.meta.env.VITE_API_URL`'s type** — make sure `.env` is at the **project root** (same folder as `package.json`), not inside `frontend/src/`.
 - **`git status` shows `.env`** — the `grep`/`echo` line in Step 2 either didn't run, or ran in the wrong folder. Re-run it from the project root, and if `.env` was already tracked, run `git rm --cached .env` then commit.
 - **`Cannot find module 'react-router-dom' or its corresponding type declarations'`** — the install in Step 1 didn't finish, or you're not in the project folder. Re-run `npm install react-router-dom` from the project root and check it appears under `"dependencies"` in `package.json`.
 - **ESLint or `tsc` errors in `client.ts`** — check your file matches Step 3 exactly, especially the types (`string | null`, `Record<string, string>`) — a missing type annotation is the most common cause.
@@ -277,7 +277,7 @@ Then open a Pull Request on GitHub with **base = `main`**. Use the CR descriptio
 
 - You installed `react-router-dom` ahead of needing it, so Lesson U2 is only about routing.
 - You set up **config in the environment**: the backend's address and mock toggle live in `.env` (private, local) and `env.example.txt` (committed template), never hard-coded.
-- You built `src/api/client.ts` — the single place every future lesson will call the backend through, complete with token handling and consistent error handling.
+- You built `frontend/src/api/client.ts` — the single place every future lesson will call the backend through, complete with token handling and consistent error handling.
 - You practiced the **stacked-CR git routine** (branch → change → test → commit → PR) you'll repeat in all 7 remaining frontend lessons.
 
 ---

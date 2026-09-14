@@ -41,7 +41,7 @@ An AWS account that is **ready for the deploy lessons** and **safe to leave runn
 
 Every lesson from here on assumes AWS is already set up — if this lesson is rushed or skipped, every later `deploy.sh` command will fail in confusing ways (bad credentials, wrong region, SSH refused). So we do it once, carefully, now.
 
-There's also a **money** reason this lesson matters more than the others: AWS is not free. The instances this project uses cost real dollars per hour, billed automatically to the card you attach today. Nothing here bankrupts a student project if you're careful, but "careful" means specific habits: using an admin **IAM user** instead of the all-powerful root login (so a leaked key can't destroy the whole account), restricting SSH to only your IP (so randoms on the internet can't even try to log in), and — most importantly — **remembering to run `./deploy.sh down` when you're done experimenting** so nothing keeps billing while you sleep. Cost awareness isn't a side note here; it's the actual skill this lesson teaches, alongside the AWS mechanics. That's also why "set up a billing alarm" is part of the deliverable, not an afterthought.
+There's also a **money** reason this lesson matters more than the others: AWS is not free. The instances this project uses cost real dollars per hour, billed automatically to the card you attach today. Nothing here bankrupts a student project if you're careful, but "careful" means specific habits: using an admin **IAM user** instead of the all-powerful root login (so a leaked key can't destroy the whole account), restricting SSH to only your IP (so randoms on the internet can't even try to log in), and — most importantly — **remembering to run `scripts/deploy.sh infra down` when you're done experimenting** so nothing keeps billing while you sleep. Cost awareness isn't a side note here; it's the actual skill this lesson teaches, alongside the AWS mechanics. That's also why "set up a billing alarm" is part of the deliverable, not an afterthought.
 
 ---
 
@@ -72,7 +72,7 @@ There's also a **money** reason this lesson matters more than the others: AWS is
 
 Go to <https://aws.amazon.com> and sign up. You'll need an email address and a credit card — AWS requires a card on file even to use free-tier resources, as identity/fraud verification. The small instances this project uses cost a few dollars a month, and you'll learn exactly how to stop that spend in a moment.
 
-> **Remember to run `./deploy.sh down` when you're done experimenting** — that's the command (covered in lesson D2) that deletes the AWS resources so they stop billing. Say it out loud now; you'll want the habit before you create anything expensive.
+> **Remember to run `scripts/deploy.sh infra down` when you're done experimenting** — that's the command (covered in lesson D2) that deletes the AWS resources so they stop billing. Say it out loud now; you'll want the habit before you create anything expensive.
 
 ### Step 2 — Create an admin IAM user (~10 min)
 
@@ -92,21 +92,21 @@ The deploy scripts in this repo call the AWS CLI, so your laptop needs it instal
 
 **macOS / Linux**
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh validate           # this auto-installs awscli via brew if missing
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh infra validate           # this auto-installs awscli via brew if missing
 aws configure                  # paste your Access key, Secret, region us-east-1, output json
 ```
 
 **Windows (PowerShell)** — `deploy.sh` is a bash script and needs Git Bash/WSL; `aws configure` runs natively:
 ```powershell
 winget install Amazon.AWSCLI   # if aws isn't already installed
-cd $HOME\workspace\LTR-Backend\deploy
-bash ./deploy.sh validate
+cd $HOME\workspace\lt-parking-site-project
+bash scripts/deploy.sh infra validate
 aws configure                  # paste your Access key, Secret, region us-east-1, output json
 ```
 
 **What this does & why:**
-- `./deploy.sh validate` — the deploy script's own preflight check. Part of what it does is notice the AWS CLI isn't installed yet and install it for you via Homebrew, so you don't have to hunt down the right installer yourself. → Reference: [Installing the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+- `scripts/deploy.sh infra validate` — the deploy script's own preflight check. Part of what it does is notice the AWS CLI isn't installed yet and install it for you via Homebrew, so you don't have to hunt down the right installer yourself. → Reference: [Installing the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
 - `aws configure` — an interactive prompt that writes your Access key ID, Secret access key, default region, and default output format to `~/.aws/credentials` and `~/.aws/config`. Every later `aws` and `deploy.sh` command reads from these files. → Reference: [Configuring the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html).
 - **Region `us-east-1`:** this project's templates assume this region. A region is a physical location for your resources (e.g. Virginia, USA); mixing regions later causes "resource not found" errors that are confusing to debug. → Reference: [Regions and Availability Zones](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html).
 - **Output format `json`:** how the CLI prints responses to your terminal; `json` is the default the scripts expect.
@@ -190,7 +190,7 @@ There's no commit for this lesson — D0 has no code, so there's nothing to push
 - An SSH key pair (`ltride-key`) registered in AWS and saved locally at `~/.ssh/ltride-key.pem` with owner-only permissions.
 - `deploy/params/prod.json` filled in with your real `AdminCidr` and `KeyName`.
 
-**How to avoid charges while nothing is deployed yet:** right now, D0 alone creates **no billable AWS resources** — IAM users, CLI config, and key pairs are free. Charges only start once you run `./deploy.sh up` in lesson D2. Until then, there's nothing to tear down. Once you *do* start creating infrastructure in later lessons, the habit is the same every time: run `./deploy.sh down` when you're done experimenting for the day, and re-create with `./deploy.sh up` whenever you pick the project back up.
+**How to avoid charges while nothing is deployed yet:** right now, D0 alone creates **no billable AWS resources** — IAM users, CLI config, and key pairs are free. Charges only start once you run `scripts/deploy.sh infra up` in lesson D2. Until then, there's nothing to tear down. Once you *do* start creating infrastructure in later lessons, the habit is the same every time: run `scripts/deploy.sh infra down` when you're done experimenting for the day, and re-create with `scripts/deploy.sh infra up` whenever you pick the project back up.
 
 **Set a billing alarm now, while it's easy to remember:** go to AWS Console → search "Billing" → **Budgets** → create a budget with an email alert at, say, $10 or $20. This is the safety net that emails you before a mistake (like forgetting a server running for a month) turns into a surprise bill. → Reference: [Create a billing alarm](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/monitor_estimated_charges_with_cloudwatch.html).
 
@@ -214,7 +214,7 @@ This lesson's status is recorded like every other CR in the [CR status tracker](
 - You installed and configured the AWS CLI so your terminal can talk to AWS directly.
 - You created and locked down an SSH key pair you'll use to log into your server in later lessons.
 - You filled in your real settings (`AdminCidr`, `KeyName`) in `deploy/params/prod.json`, ready for the templates in the next lesson.
-- You set up a billing alarm and learned the core cost habit for this whole track: **`./deploy.sh down` when you're not actively using it.**
+- You set up a billing alarm and learned the core cost habit for this whole track: **`scripts/deploy.sh infra down` when you're not actively using it.**
 
 ---
 

@@ -209,7 +209,7 @@ export const importStudents = createAsyncThunk(
 
 ### Step 2 — The Students view: table + live search (~15 min)
 
-Create `src/StudentManagement.tsx` — an admin-only pane. It isn't a separate route: the Admin Control Board holds a `managingStudents` boolean in state, and a **👥 Student Management** sidebar button toggles it, rendering `<StudentManagement onClose={...} />` as an in-place **overlay** on top of the board (same admin-only gating as ➕ Add Lot) rather than navigating anywhere.
+Create `frontend/src/StudentManagement.tsx` — an admin-only pane. It isn't a separate route: the Admin Control Board holds a `managingStudents` boolean in state, and a **👥 Student Management** sidebar button toggles it, rendering `<StudentManagement onClose={...} />` as an in-place **overlay** on top of the board (same admin-only gating as ➕ Add Lot) rather than navigating anywhere.
 
 ```tsx
 export function StudentManagement({ onClose }: { onClose: () => void }) {
