@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  LTRide compute stack — the web server. Creates an IAM role that can read the
+  DB + app secrets from Secrets Manager, an EC2 instance running Ubuntu, and a
+  fixed public address (Elastic IP) so the DNS record never has to change. The
+  instance's UserData script provisions the box on first boot (mirrors
+  deploy/server/provision.sh): clones the monorepo, builds the backend/ venv,
+  writes backend/.env from the secrets, runs migrations, and starts the services.
+
+# -----------------------------------------------------------------------------
+# Parameters (all six declared — see note in 01-network.yaml)
+# -----------------------------------------------------------------------------
+Parameters:
+  AdminCidr:    { Type: String, Description: (Unused here; firewall lives in network stack) }
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 key pair, for SSH access.
+  DomainName:
+    Type: String
+    Description: Public domain; baked into CORS_ORIGINS in the app's .env.
+  HostedZoneId: { Type: String, Description: (Unused here) Used by the dns stack. }
+  WebInstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 size. t3.micro is free-tier eligible.
+  DbInstanceClass: { Type: String, Description: (Unused here) Used by the database stack. }
+
+  # Resolves to the latest Ubuntu 22.04 LTS AMI for whatever region we deploy
+  # in. Using an SSM public parameter means we never hard-code an AMI id (they
+  # differ per region and change as Canonical publishes updates).
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # --- IAM: let the instance read ONLY the LTRide DB secret -----------------
+  # The role is "what the instance is allowed to do". The instance profile is
+  # the wrapper that attaches a role to an EC2 instance.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ltride-web-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }   # EC2 may assume this role
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: read-app-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                # Scope to exactly the two secrets the secrets stack made — least
+                # privilege, so a compromised box can't read other secrets.
+                Resource:
+                  - !ImportValue ltride-DbSecretArn
+                  - !ImportValue ltride-AppSecretArn
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: ltride-web-profile
+      Roles: [ !Ref InstanceRole ]
+
+  # --- the server -----------------------------------------------------------
+  WebInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: !Ref WebInstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !ImportValue ltride-PublicSubnet1
+      SecurityGroupIds:
+        - !ImportValue ltride-WebSecurityGroupId
+      Tags:
+        - { Key: Name, Value: ltride-web }
+      # UserData runs ONCE, as root, on first boot. !Sub lets us drop CFN values
+      # (the secret ARN, DB endpoint, domain) straight into the script. Anything
+      # literal that looks like ${...} to CloudFormation must be escaped as
+      # ${!...} so the shell — not CFN — expands it.
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euxo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+
+            APP_USER=ltride
+            APP_DIR=/home/$APP_USER/app          # the monorepo root, cloned here
+            BACKEND_DIR=$APP_DIR/backend          # Flask app + venv + .env live here
+            WEB_ROOT=/var/www/ltride
+            REPO_URL="${RepoUrl}"
+
+            # 1. packages: python, nginx, git, postgres client, jq, aws cli
+            apt-get update -y
+            apt-get install -y python3 python3-venv python3-pip nginx git \
+                               postgresql-client jq unzip curl
+            if ! command -v aws >/dev/null 2>&1; then
+              curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+              unzip -q /tmp/awscliv2.zip -d /tmp
+              /tmp/aws/install
+            fi
+
+            # 2. app user
+            id "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash "$APP_USER"
+
+            # 3. code + virtualenv. Clone the whole monorepo; the backend is the
+            #    backend/ subtree, so the venv and requirements live under there
+            #    (gunicorn's "webapp.App:app" import resolves from backend/).
+            if [ ! -d "$APP_DIR/.git" ]; then
+              sudo -u "$APP_USER" git clone "$REPO_URL" "$APP_DIR"
+            else
+              sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
+            fi
+            sudo -u "$APP_USER" bash -lc "cd '$BACKEND_DIR' && python3 -m venv .venv && \
+              .venv/bin/pip install --upgrade pip && \
+              .venv/bin/pip install -r webapp/requirements.txt"
+
+            # 4. backend/.env from Secrets Manager (no secret touches the template).
+            #    DB username/password come from ltride/db; SECRET_KEY from ltride/app.
+            DB_SECRET_JSON=$(aws --region ${AWS::Region} secretsmanager get-secret-value \
+              --secret-id ${DbSecretArn} --query SecretString --output text)
+            DB_USER=$(echo "$DB_SECRET_JSON" | jq -r .username)
+            DB_PASS=$(echo "$DB_SECRET_JSON" | jq -r .password)
+            APP_SECRET_JSON=$(aws --region ${AWS::Region} secretsmanager get-secret-value \
+              --secret-id ${AppSecretArn} --query SecretString --output text)
+            SECRET_KEY=$(echo "$APP_SECRET_JSON" | jq -r .secret_key)
+            cat > "$BACKEND_DIR/.env" <<ENVEOF
+            SECRET_KEY=$SECRET_KEY
+            DATABASE_URL=postgresql://$DB_USER:$DB_PASS@${DbEndpoint}:${DbPort}/ltride
+            CORS_ORIGINS=https://${DomainName}
+            JWT_EXP_HOURS=12
+            ENVEOF
+            chown "$APP_USER":"$APP_USER" "$BACKEND_DIR/.env"
+            chmod 600 "$BACKEND_DIR/.env"
+
+            # 5. systemd unit + nginx site (shipped in the repo under deploy/server)
+            cp "$APP_DIR/deploy/server/ltride.service" /etc/systemd/system/ltride.service
+            mkdir -p "$WEB_ROOT"; chown -R "$APP_USER":"$APP_USER" "$WEB_ROOT"
+            cp "$APP_DIR/deploy/server/nginx-ltride.conf" /etc/nginx/sites-available/ltride
+            ln -sf /etc/nginx/sites-available/ltride /etc/nginx/sites-enabled/ltride
+            rm -f /etc/nginx/sites-enabled/default
+            systemctl daemon-reload
+            systemctl enable ltride
+            nginx -t
+
+            # 6. migrations + start (migrations live under backend/webapp/sql)
+            sudo -u "$APP_USER" bash -lc "cd '$BACKEND_DIR' && set -a && . .env && set +a && \
+              for f in webapp/sql/migrations/*.sql; do [ -e \"\$f\" ] || continue; \
+              echo \"applying \$f\"; psql \"\$DATABASE_URL\" -f \"\$f\"; done" || true
+            systemctl restart ltride
+            systemctl reload nginx
+          - DbEndpoint:   !ImportValue ltride-DbEndpoint
+            DbPort:       !ImportValue ltride-DbPort
+            DbSecretArn:  !ImportValue ltride-DbSecretArn
+            AppSecretArn: !ImportValue ltride-AppSecretArn
+            # Clone over HTTPS (the box has no SSH deploy key). This works as-is
+            # for a PUBLIC repo. If the monorepo is PRIVATE, either make a
+            # read-only deploy token and bake it in (https://<token>@github.com/...),
+            # or attach a deploy key and switch to the git@ SSH form.
+            RepoUrl: "https://github.com/LTRide2/lt-parking-site-project.git"
+
+  # A fixed public IP. Without it, stopping/starting the instance would hand
+  # back a new IP and break your DNS record. The dns stack points the domain
+  # at this address.
+  WebEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref WebInstance
+      Tags:
+        - { Key: Name, Value: ltride-eip }
+
+# -----------------------------------------------------------------------------
+# Outputs / Exports
+# -----------------------------------------------------------------------------
+# The db + app deploy scripts read `ElasticIp` (then fall back to `PublicIp`) to
+# find the host to SSH into. The dns stack imports `ElasticIp` for the A record.
+# -----------------------------------------------------------------------------
+Outputs:
+  InstanceId:
+    Value: !Ref WebInstance
+  PublicIp:
+    Description: The instance's current public IP
+    Value: !GetAtt WebInstance.PublicIp
+    Export: { Name: ltride-PublicIp }
+  ElasticIp:
+    Description: Fixed public IP — point DNS here
+    Value: !Ref WebEip
+    Export: { Name: ltride-ElasticIp }

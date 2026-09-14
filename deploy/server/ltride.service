@@ -1,0 +1,61 @@
+# =============================================================================
+# systemd service unit for the LTRide backend (gunicorn running Flask)
+# Goes on the server at: /etc/systemd/system/ltride.service
+#
+# systemd is Linux's "keep this program running" manager. This unit teaches it
+# how to start gunicorn, which env file to load, which user to run as, and to
+# restart the app automatically if it crashes or the server reboots.
+#
+# After editing on the server:
+#   sudo systemctl daemon-reload         # re-read unit files
+#   sudo systemctl restart ltride        # apply
+#   sudo systemctl status ltride         # check it's "active (running)"
+#   sudo journalctl -u ltride -n 50      # view the last 50 log lines
+# =============================================================================
+
+[Unit]
+Description=LTRide backend (gunicorn)
+# Don't start until the network is up. (We talk to RDS over the network.)
+After=network.target
+
+[Service]
+# --- who and where ----------------------------------------------------------
+# Run as the unprivileged "ltride" user, never root — if the app is ever
+# compromised, the blast radius is just this one account.
+User=ltride
+Group=ltride
+# The monorepo is cloned at /home/ltride/app; the Flask backend is the backend/
+# subtree, so we run from there — that's where "webapp.App:app" imports from.
+WorkingDirectory=/home/ltride/app/backend
+
+# --- configuration ----------------------------------------------------------
+# Load secrets/settings (SECRET_KEY, DATABASE_URL, CORS_ORIGINS, ...) from a
+# file that lives ONLY on the server and is readable only by ltride. This is
+# the production equivalent of your local .env — it is never committed to git.
+EnvironmentFile=/home/ltride/app/backend/.env
+
+# --- the command that runs the app -----------------------------------------
+# Use gunicorn from the project's virtualenv (NOT the system python).
+#   --workers 3        : run 3 processes to handle requests concurrently.
+#                        A common starting point is (2 * CPU cores) + 1; a
+#                        t3.micro has ~1-2 vCPU, so 3 is reasonable.
+#   --bind 127.0.0.1:8000 : listen ONLY on localhost. nginx (in front) is the
+#                        only thing that talks to us; the internet cannot reach
+#                        port 8000 directly.
+#   webapp.App:app     : import path "webapp.App" then the object named "app"
+#                        (that's the `app = create_app()` line from CR B1).
+ExecStart=/home/ltride/app/backend/.venv/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:8000 \
+    --access-logfile - \
+    --error-logfile - \
+    webapp.App:app
+
+# --- resilience -------------------------------------------------------------
+Restart=always          # if gunicorn exits for any reason, start it again
+RestartSec=3            # wait 3s between restart attempts (avoid tight crash loops)
+
+[Install]
+# "Enable" this unit (sudo systemctl enable ltride) so it starts automatically
+# on every boot, hooking into the normal multi-user startup target.
+WantedBy=multi-user.target

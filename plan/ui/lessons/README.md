@@ -33,7 +33,9 @@ Each lesson **builds on the one before it**, following the stacked-CR structure 
 
 ## What each lesson contains
 
-🎯 Goal + a "Done when" deliverable checklist · 🤔 Why it matters · 🧠 Concepts (with links) · ✅ Prereqs + a minute-by-minute time budget · 🛠 Step-by-step build (code + explanation + references) · 🧪 Testing guide · 🚀 Commit & open the CR · 🧯 Troubleshooting · 📝 Recap · 📚 References · ➡️ Next lesson.
+🎯 Goal + a "Done when" deliverable checklist · 🖼 a before → after wireframe of what changes on screen · 🤔 Why it matters · 🧠 Concepts (with links) · ✅ Prereqs + a minute-by-minute time budget · 🛠 Step-by-step build (code with inline comments + a short "why it works" + references) · 🧪 Testing guide · 🚀 Commit & open the CR · 🧯 Troubleshooting · 📝 Recap · 📚 References · ➡️ Next lesson.
+
+> **Stuck on a word?** New terms (Redux, thunk, slice, JWT, …) link to the shared [**Glossary**](GLOSSARY.md) the first time each lesson uses them — one plain-language sentence per term, written for a beginner. You never have to memorize a word before the lesson needs it.
 
 ## After the frontend
 

@@ -1,9 +1,9 @@
 and# LTRide — Deployment Guide (AWS)
 
-> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](../ui/ui-development-guide.md) and the [backend guide](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
+> **Where this doc sits.** This is the **deployment** design + implementation doc, a sibling of the [UI guide](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md) and the [backend guide](../backend/backend-development-guide.md), all orchestrated by [`../plan.md`](../plan.md). It owns everything about getting the app **onto AWS and keeping it running**: the step-by-step deploy CRs (D0–D4), live-server operations, and the full architecture/IaC/cost reference. The master plan links here from [`../plan.md` §10](../plan.md#10-aws-deployment--ec2--rds-via-cloudformation).
 >
-> - **Backend build** (the app these steps deploy) → [backend guide](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md)
-> - **Frontend build & serve** (the SPA nginx serves) → [UI guide → Deployment (frontend)](../ui/ui-development-guide.md#part-f3--deployment-frontend)
+> - **Backend build** (the app these steps deploy) → [backend guide](../backend/backend-development-guide.md)
+> - **Frontend build & serve** (the SPA nginx serves) → [UI guide → Deployment (frontend)](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md#part-f3--deployment-frontend)
 > - **Runnable artifacts** (templates, scripts, server config) → repo-root [`deploy/`](../../deploy/README.md)
 > - **CR ordering & status** → [`../plan.md` §8.2 tracker](../plan.md#82-cr-status-tracker)
 
@@ -17,18 +17,13 @@ This guide has three parts:
 
 ## Part 1 — Deploy to AWS, step by step (CRs D0–D4)
 
-> **Big picture:** we rent one small Linux computer from Amazon (**EC2**) to run the Flask backend, and one managed database (**RDS PostgreSQL**) for the data. We describe all of this in code (**CloudFormation**, called "IaC" = infrastructure as code) so it's repeatable. Two scripts do the work for you:
-> - `deploy/deploy.sh` — creates/updates the AWS infrastructure (the server, the database, networking, DNS).
-> - `deploy/release.sh` — ships your latest code (backend + frontend) onto that server.
+> **Big picture:** we rent one small Linux computer from Amazon (**EC2**) to run the Flask backend, and one managed database (**RDS PostgreSQL**) for the data. We describe all of this in code (**CloudFormation**, called "IaC" = infrastructure as code) so it's repeatable. One entrypoint, `scripts/deploy.sh <concern> <subcommand>`, does the work, split into **four concerns** you run in order:
+> - **secrets** — create the DB credentials + app `SECRET_KEY` in Secrets Manager (first, so the database can resolve its password).
+> - **infra** — create/update the AWS infrastructure (network, database, server, DNS).
+> - **db** — apply SQL migrations to the database.
+> - **app** — ship your latest code (backend + frontend) onto the server.
 >
-> You should have finished at least backend B1 (a working backend locally, see the [backend guide](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs)) before deploying. The full deep-dive on each CloudFormation stack — architecture, IaC layout, every stack's snippets, the AWS-services inventory, and the cost model — lives in [**Part 3 — Reference**](#part-3--reference-architecture-iac--cost-model) below. This Part 1 is the click-by-click version.
-
-> **💻 Windows note (applies to this whole guide).** The commands below are written for **macOS / Linux**; the handful that differ on Windows show a **PowerShell** block alongside. Three rules cover almost everything:
-> 1. **`git`, `ssh`, `scp`, and `curl` all ship with Windows 10/11** (curl is invoked as `curl.exe` in PowerShell). Only the SSH key *path* changes — `$HOME\.ssh\ltride-key.pem` instead of `~/.ssh/ltride-key.pem`.
-> 2. **The repo's `.sh` scripts (`deploy.sh`, `release.sh`) can't run in PowerShell** — run them from **Git Bash** or **WSL**, where the macOS/Linux commands work verbatim.
-> 3. **Everything you run *after* `ssh`-ing into the server is on the Ubuntu box** — those commands are identical no matter what your laptop runs. And **all AWS provisioning happens on Amazon's Linux servers**, so the whole architecture below is unaffected by your OS.
->
-> Two local swaps worth memorizing: use **`Resolve-DnsName`** wherever this guide shows `dig`, and `$HOME\` wherever it shows `~/`.
+> You should have finished at least backend B1 (a working backend locally, see the [backend guide](../backend/backend-development-guide.md#cr-b1--health-check-prove-the-server-runs)) before deploying. The full deep-dive on each CloudFormation stack — architecture, IaC layout, every stack's snippets, the AWS-services inventory, and the cost model — lives in [**Part 3 — Reference**](#part-3--reference-architecture-iac--cost-model) below. This Part 1 is the click-by-click version.
 
 ### Deployment vocabulary
 
@@ -38,40 +33,49 @@ This guide has three parts:
 - **Security group** — a firewall: which ports/IPs may connect.
 - **Elastic IP** — a fixed public address for your server.
 - **SSH** — a secure way to log into the server from your terminal.
-- **Secrets Manager** — where AWS stores the database password safely.
+- **Secrets Manager** — where AWS stores the database password + app `SECRET_KEY` safely.
+
+> **Windows note:** `scripts/deploy.sh` and the concern scripts it calls are `#!/bin/bash` scripts and
+> do not run in PowerShell or `cmd`. On Windows, invoke them from **Git Bash** (bundled with
+> [Git for Windows](https://git-scm.com/download/win)) or **WSL** — e.g. `bash scripts/deploy.sh infra up`.
+> The `aws`, `ssh`, `scp`, and `ssh-keygen` commands below work natively in PowerShell (Windows
+> ships OpenSSH); only the bash wrapper scripts need Git Bash/WSL. Steps below give a
+> **macOS / Linux** and a **Windows (PowerShell)** variant side by side wherever they differ.
 
 ---
 
 ### D0 — One-time AWS account setup (not a code CR, but do it once)
 
-1. **Create an AWS account** at <https://aws.amazon.com> (a credit card is required; the small instances we use cost a few dollars a month — **remember to run `./deploy.sh down` when you're done experimenting** to stop charges).
+1. **Create an AWS account** at <https://aws.amazon.com> (a credit card is required; the small instances we use cost a few dollars a month — **remember to run `scripts/deploy.sh destroy` when you're done experimenting** to stop charges).
 2. **Create an admin IAM user** (don't use the root account day-to-day). In the AWS Console → IAM → Users → create a user with programmatic access and `AdministratorAccess` (for a school project this is acceptable; tighten later). Save the **Access key ID** and **Secret access key**.
-3. **Install & configure the AWS CLI.** Our script installs it for you (on macOS via brew), but you must give it your keys. `deploy.sh` is a shell script — run it from Git Bash/WSL on Windows.
+3. **Install & configure the AWS CLI.** Our script installs it for you, but you must give it your keys:
 
-   **macOS / Linux (bash/zsh):**
+   **macOS / Linux**
    ```bash
-   cd ~/workspace/LTR-Backend/deploy
-   ./deploy.sh validate           # this auto-installs awscli via brew if missing
-   aws configure                  # paste your Access key, Secret, region us-east-1, output json
+   cd ~/workspace/lt-parking-site-project
+   scripts/deploy.sh infra validate   # dry-check the templates (needs awscli configured)
+   aws configure                      # paste your Access key, Secret, region us-east-1, output json
    ```
-   **Windows:** install the AWS CLI yourself (`winget install -e --id Amazon.AWSCLI`, or the MSI from AWS), then run the script from **Git Bash / WSL**:
-   ```bash
-   cd $HOME/workspace/LTR-Backend/deploy
-   ./deploy.sh validate           # from Git Bash or WSL (PowerShell can't run .sh)
-   aws configure                  # same on every OS — paste keys, region us-east-1, output json
+
+   **Windows (PowerShell)**
+   ```powershell
+   winget install Amazon.AWSCLI       # if aws isn't already installed
+   cd $HOME\workspace\lt-parking-site-project
+   bash scripts/deploy.sh infra validate   # bash script — run it from Git Bash/WSL
+   aws configure                      # paste your Access key, Secret, region us-east-1, output json
    ```
 4. **Create an SSH key pair** named `ltride-key` (AWS Console → EC2 → Key Pairs → Create), download `ltride-key.pem`, and move it where the scripts expect:
 
-   **macOS / Linux (bash/zsh):**
+   **macOS / Linux**
    ```bash
    mv ~/Downloads/ltride-key.pem ~/.ssh/ltride-key.pem
    chmod 600 ~/.ssh/ltride-key.pem
    ```
-   **Windows (PowerShell):** move it into `%USERPROFILE%\.ssh`, then lock it down with `icacls` (the Windows equivalent of `chmod 600` — remove inherited permissions, grant read to just you):
+
+   **Windows (PowerShell)** — Windows OpenSSH keys live under `$HOME\.ssh`; use `icacls` instead of `chmod` to lock the key to your own account:
    ```powershell
-   New-Item -ItemType Directory -Force $HOME\.ssh | Out-Null
    Move-Item $HOME\Downloads\ltride-key.pem $HOME\.ssh\ltride-key.pem
-   icacls $HOME\.ssh\ltride-key.pem /inheritance:r /grant:r "$($env:USERNAME):R"
+   icacls $HOME\.ssh\ltride-key.pem /inheritance:r /grant:r "$($env:USERNAME):(R)"
    ```
 5. **Fill in `deploy/params/prod.json`** with your real values:
    - `AdminCidr` — your home IP followed by `/32` (find it at <https://whatismyip.com>); this restricts SSH to you.
@@ -84,24 +88,25 @@ This guide has three parts:
 
 **Depends on:** nothing in the app. **Branch:** `cr/d1-cfn-templates` (off `main`).
 
-**Goal:** have the four template files the scripts expect, in `deploy/cfn/`. These are now **already written and committed** (heavily commented so you can read what every resource does); your job in this CR is to understand them and confirm they validate. The four files:
+**Goal:** have the five template files the scripts expect, in `deploy/cfn/`. These are now **already written and committed** (heavily commented so you can read what every resource does); your job in this CR is to understand them and confirm they validate. The five files:
 
+- `deploy/cfn/00-secrets.yaml` — the two Secrets Manager secrets, `ltride/db` (RDS username + generated password) and `ltride/app` (generated `SECRET_KEY`). Deployed **first** (by `scripts/deploy.sh secrets init`) so the database can resolve its password. Exports `ltride-DbSecretArn` and `ltride-AppSecretArn`.
 - `deploy/cfn/01-network.yaml` — VPC, two public subnets (RDS needs two AZs), internet gateway, and the web + database security groups (firewalls).
-- `deploy/cfn/02-database.yaml` — RDS PostgreSQL + a Secrets-Manager-generated password (so the DB password is never written in plaintext).
-- `deploy/cfn/03-compute.yaml` — the EC2 instance + Elastic IP + an IAM role that may read only the DB secret + UserData that installs Python/nginx/gunicorn and writes `.env` from the secret on first boot.
+- `deploy/cfn/02-database.yaml` — RDS PostgreSQL; it **resolves** its username/password from the `ltride/db` secret (created by `00-secrets.yaml`), so the DB password is never written in plaintext.
+- `deploy/cfn/03-compute.yaml` — the EC2 instance + Elastic IP + an IAM role that may read only the two `ltride/*` secrets + UserData that clones the monorepo, builds the `backend/` venv, and writes `backend/.env` (DB creds from `ltride/db`, `SECRET_KEY` from `ltride/app`) on first boot.
 - `deploy/cfn/04-dns.yaml` — Route 53 A record (domain → Elastic IP). It is guarded by a `HasHostedZone` condition: while `HostedZoneId` is still the placeholder in `params/prod.json`, the stack creates nothing, so the deploy succeeds even before you own a domain.
 
 > **Two non-obvious rules these templates follow** (worth knowing if you edit them):
-> 1. `deploy.sh` passes the *entire* `params/prod.json` to *every* stack, and CloudFormation rejects an override for a parameter a template doesn't declare. So **every template declares all six keys** (`AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`, `WebInstanceType`, `DbInstanceClass`) — the unused ones are simply never referenced, which is allowed.
+> 1. The deploy scripts pass the *entire* `params/prod.json` to *every* stack, and CloudFormation rejects an override for a parameter a template doesn't declare. So **every template declares all six keys** (`AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`, `WebInstanceType`, `DbInstanceClass`) — the unused ones are simply never referenced, which is allowed.
 > 2. There is no output→param wiring between stacks, so cross-stack values travel via **`Export` / `Fn::ImportValue`** (e.g. the network stack exports `ltride-VpcId`, the compute stack imports `ltride-DbEndpoint`). Rename an export → update its importers.
 
-**One thing you MUST change before deploying:** in `03-compute.yaml`, the `RepoUrl` near the bottom of the UserData block is `https://github.com/YOUR_ORG/LTR-Backend.git` — set it to your repo's real clone URL, or the instance can't fetch the code on boot.
+**One thing to check before deploying:** in `03-compute.yaml`, the `RepoUrl` near the bottom of the UserData block is set to the monorepo (`https://github.com/LTRide2/lt-parking-site-project.git`). If you forked it, point `RepoUrl` at *your* fork's clone URL, or the instance can't fetch the code on boot. If your repo is private, use a read-only token URL or a deploy key (see the comment in the template).
 
 **Local testing guide:**
-1. Setup: AWS CLI configured (D0); `cd deploy`.
-2. Steps (on Windows, run from Git Bash / WSL — `deploy.sh` is a shell script):
+1. Setup: AWS CLI configured (D0); at the repo root.
+2. Steps:
    ```bash
-   ./deploy.sh validate
+   scripts/deploy.sh infra validate
    ```
 3. Expected: prints `valid: 01-network.yaml` … through all four. No template errors. **No AWS resources are created by `validate`** — it's a dry check that just asks AWS "is this template well-formed?".
 
@@ -136,7 +141,7 @@ server {
 
     client_max_body_size 10M;      # allow map-image uploads (nginx default is 1M → 413 errors)
 
-    root /var/www/ltride;          # where release.sh puts the built React files
+    root /var/www/ltride;          # where `deploy.sh app frontend` puts the built React files
     index index.html;
 
     location / {
@@ -176,9 +181,11 @@ After=network.target
 [Service]
 User=ltride
 Group=ltride
-WorkingDirectory=/home/ltride/app
-EnvironmentFile=/home/ltride/app/.env
-ExecStart=/home/ltride/app/.venv/bin/gunicorn \
+# The monorepo is cloned at /home/ltride/app; the Flask backend is the backend/
+# subtree, so we run from there (that's where "webapp.App:app" imports from).
+WorkingDirectory=/home/ltride/app/backend
+EnvironmentFile=/home/ltride/app/backend/.env
+ExecStart=/home/ltride/app/backend/.venv/bin/gunicorn \
     --workers 3 \
     --bind 127.0.0.1:8000 \
     --access-logfile - \
@@ -208,13 +215,13 @@ sudo systemctl daemon-reload        # after EDITING the .service file itself
 
 #### File 3 — `deploy/server/provision.sh` (first-boot setup)
 
-This is what `03-compute.yaml`'s UserData runs (roughly) on a fresh instance, and what you can run by hand to (re)build a box. In order, it: ① `apt-get install` python/nginx/git/`postgresql-client`; ② create the system user `ltride`; ③ clone the repo and build the `.venv`; ④ write a `.env` template (real secrets come from Secrets Manager in the CFN flow); ⑤ install File 2 into systemd and File 1 into nginx (symlinking it into `sites-enabled` and removing nginx's default welcome page); ⑥ run the SQL migrations against RDS; ⑦ start `ltride` and reload nginx.
+This is what `03-compute.yaml`'s UserData runs (roughly) on a fresh instance, and what you can run by hand to (re)build a box. In order, it: ① `apt-get install` python/nginx/git/`postgresql-client`; ② create the system user `ltride`; ③ clone the monorepo and build the `.venv` **under `backend/`**; ④ write a `backend/.env` template (real secrets come from Secrets Manager in the CFN flow); ⑤ install File 2 into systemd and File 1 into nginx (symlinking it into `sites-enabled` and removing nginx's default welcome page); ⑥ run the SQL migrations against RDS; ⑦ start `ltride` and reload nginx.
 
-> **Set `REPO_URL`** at the top of `provision.sh` to your repo before first use. The script installs only the postgres **client** (`psql`) — the database itself is RDS, managed by AWS, not on this box.
+> **`REPO_URL`** at the top of `provision.sh` defaults to the monorepo (`lt-parking-site-project`); override it only if you forked. The script installs only the postgres **client** (`psql`) — the database itself is RDS, managed by AWS, not on this box.
 
 **Local testing guide:**
 1. Setup: `cd deploy/server`.
-2. Steps (these use `bash`/`nginx`; on Windows run them from Git Bash / WSL, or just skip them — the real validation is on the Ubuntu server after D2/D3):
+2. Steps:
    ```bash
    # config files are static — validate them without a server:
    bash -n provision.sh                 # shell-syntax check (no execution)
@@ -237,27 +244,46 @@ PR base = `cr/d1-cfn-templates`.
 
 **Depends on:** D1. **Branch off D1** (`cr/d2-provision`). *(This CR is mostly running commands and recording outputs; the "code" is any small fixes you make to the templates.)*
 
-**Goal:** actually create the network, database, and server in AWS.
+**Goal:** actually create the secrets, network, database, and server in AWS.
 
-**Steps** (`deploy.sh` is a shell script — on Windows run these from Git Bash / WSL, using `$HOME` for `~`):
+Everything runs through one entrypoint, `scripts/deploy.sh <concern> <subcommand>`,
+split into **four concerns** you run in order:
+
+1. **secrets** — create the `ltride/db` (RDS credentials) and `ltride/app`
+   (`SECRET_KEY`) secrets. This goes **first** because the database resolves its
+   password from `ltride/db`.
+2. **infra** — the CloudFormation stacks: network → database → compute → dns.
+3. **db** — apply SQL migrations (CR D3).
+4. **app** — ship backend + frontend code (CR D3).
+
+This CR covers concerns 1–2.
+
+**Steps:**
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh up            # validates, then creates all stacks in order
-./deploy.sh status        # watch until each says CREATE_COMPLETE
-./deploy.sh outputs       # note the EC2 public IP / Elastic IP
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh secrets init     # create ltride/db + ltride/app (before infra)
+scripts/deploy.sh infra up          # validates, then creates all stacks in order
+scripts/deploy.sh infra status      # watch until each says CREATE_COMPLETE
+scripts/deploy.sh infra outputs     # note the EC2 public IP / Elastic IP
 ```
-This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the AWS Console → CloudFormation → click the stack → **Events** tab to see the red error, fix the template, and re-run `./deploy.sh up` (it updates in place).
+This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the AWS Console → CloudFormation → click the stack → **Events** tab to see the red error, fix the template, and re-run `scripts/deploy.sh infra up` (it updates in place).
 
 **Local testing guide:**
 1. Setup: D0 complete; templates valid (D1).
-2. Steps: run the three commands above; then SSH in to confirm (`ssh` ships with Windows — in PowerShell use the key path `$HOME\.ssh\ltride-key.pem`):
+2. Steps: run the three commands above; then SSH in to confirm:
+
+   **macOS / Linux**
    ```bash
    ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp-from-outputs>
-   # Windows (PowerShell): ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp-from-outputs>
+   ```
+
+   **Windows (PowerShell)** — same command, native OpenSSH:
+   ```powershell
+   ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp-from-outputs>
    ```
 3. Expected: all stacks reach `CREATE_COMPLETE`; `outputs` shows a public IP; you can SSH into the server. Type `exit` to leave.
 
-> 💸 **Cost control:** when you're done for the day and don't need it live, `./deploy.sh down` deletes everything (RDS keeps a final snapshot). Re-create anytime with `./deploy.sh up`.
+> 💸 **Cost control:** when you're done for the day and don't need it live, `scripts/deploy.sh destroy` deletes everything in reverse order (RDS keeps a final snapshot). Re-create anytime with `scripts/deploy.sh secrets init && scripts/deploy.sh infra up`.
 
 ---
 
@@ -265,26 +291,54 @@ This takes ~10–15 minutes (RDS is slow to create). If a stack fails, open the 
 
 **Depends on:** D2, and backend through at least B1 (ideally B7) merged. **Branch off D2** (`cr/d3-release`).
 
-**Goal:** put your actual backend + frontend onto the running server using `release.sh`.
+**Goal:** put your actual backend + frontend onto the running server using the
+**db** and **app** concerns (concerns 3–4).
 
-**Steps** (`release.sh` is a shell script — on Windows run these from Git Bash / WSL):
+Run **db** before **app** whenever a release changes the schema, so the new
+columns exist before the new code serves traffic.
+
+**Steps:**
+
+**macOS / Linux**
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./release.sh all          # builds the UI, ships both, migrates DB, restarts services
-# or one at a time:
-./release.sh backend
-./release.sh frontend
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh db migrate      # apply backend/webapp/sql/migrations/*.sql on the box
+scripts/deploy.sh app all         # deploy backend, then build + ship the frontend
+# or one part at a time:
+scripts/deploy.sh app backend
+scripts/deploy.sh app frontend
 ```
-What it does (so you understand it, from `release.sh`):
-- **Backend:** SSHes in, `git pull`, installs requirements, runs any `sql/migrations/*.sql`, restarts the `ltride` service (gunicorn), and curls `/api/health`.
-- **Frontend:** runs `npm run build` with the production API URL, then copies `dist/` into nginx's web root and reloads nginx.
+
+**Windows (PowerShell)** — these are bash scripts; run them via Git Bash/WSL:
+```powershell
+cd $HOME\workspace\lt-parking-site-project
+bash scripts/deploy.sh db migrate
+bash scripts/deploy.sh app all
+# or one part at a time:
+bash scripts/deploy.sh app backend
+bash scripts/deploy.sh app frontend
+```
+What each does (so you understand it):
+- **db migrate:** SSHes in as `ltride`, `git pull`, then applies every `backend/webapp/sql/migrations/*.sql` with `psql` (stops on the first error).
+- **app backend:** SSHes in, `git pull`, reinstalls requirements, restarts the `ltride` service (gunicorn), and curls `/api/health`.
+- **app frontend:** runs `npm run build` with the production API URL, then rsyncs `dist/` into nginx's web root and reloads nginx.
 
 **Local testing guide:**
-1. Setup: D2 done (`./deploy.sh outputs` shows an IP); your code committed and pushed.
-2. Steps (run `release.sh` from Git Bash/WSL on Windows; `curl` is `curl.exe` in PowerShell):
+1. Setup: D2 done (`scripts/deploy.sh infra outputs` shows an IP); your code committed and pushed.
+2. Steps:
+
+   **macOS / Linux**
    ```bash
-   ./release.sh all
-   curl http://<ElasticIp>/api/health      # Windows PowerShell: curl.exe http://<ElasticIp>/api/health
+   scripts/deploy.sh db migrate
+   scripts/deploy.sh app all
+   curl http://<ElasticIp>/api/health
+   ```
+
+   **Windows (PowerShell)**
+   ```powershell
+   bash scripts/deploy.sh db migrate
+   bash scripts/deploy.sh app all
+   Invoke-RestMethod http://<ElasticIp>/api/health
    ```
    Then open `http://<ElasticIp>` (or your domain) in a browser and log in as a seeded student.
 3. Expected: the health curl returns `{"data":{"status":"ok"}}`; the website loads; login works against the real server.
@@ -334,21 +388,23 @@ A "hosted zone" is the container in Route 53 that holds your domain's DNS record
    ```
    **Copy these four** — you need them in Step 2. Also copy the **Hosted zone ID** (looks like `Z0123456789ABCDEFGHIJ`).
 
-**CLI way (equivalent).** The `aws` commands are identical everywhere; only the "unique string" trick in `--caller-reference` differs:
+**CLI way (equivalent):**
 
-**macOS / Linux (bash/zsh):**
+**macOS / Linux**
 ```bash
 aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(date +%s)"
 # then read the nameservers + zone id back:
 aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
 ```
-**Windows (PowerShell):**
+
+**Windows (PowerShell)** — same `aws` command; only the timestamp substitution differs:
 ```powershell
-aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$([DateTimeOffset]::Now.ToUnixTimeSeconds())"
+aws route53 create-hosted-zone --name example.com --caller-reference "ltride-$(Get-Date -UFormat %s)"
+# then read the nameservers + zone id back:
 aws route53 get-hosted-zone --id <HostedZoneId> --query 'DelegationSet.NameServers'
 ```
 
-Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and `release.sh` can find it:
+Put the Hosted zone ID into `deploy/params/prod.json` so the DNS stack and the `app` concern can find it:
 ```json
 [
   "DomainName=ltride.example.com",
@@ -379,13 +435,17 @@ This is the step that actually "connects" your purchased name to Route 53. You'r
    ns-234.awsdns-56.co.uk
    ```
 4. **Save.** Propagation usually takes minutes but can take **up to 24–48 hours**. Check progress:
+
+   **macOS / Linux**
    ```bash
-   dig NS example.com +short                 # macOS/Linux — should list the 4 awsdns nameservers
+   dig NS example.com +short        # should eventually list the 4 awsdns nameservers
    ```
+
+   **Windows (PowerShell)** — `dig` isn't native; use `Resolve-DnsName`:
    ```powershell
-   Resolve-DnsName example.com -Type NS      # Windows equivalent
+   Resolve-DnsName -Name example.com -Type NS   # should eventually list the 4 awsdns nameservers
    ```
-   When it shows the AWS nameservers, the hand-off is done — the internet now asks Route 53 for your domain.
+   When the nameserver lookup shows the AWS nameservers, the hand-off is done — the internet now asks Route 53 for your domain.
 
 > **Common mistake:** people add an "A record" at the registrar AND set Route 53 nameservers. Don't. Once you delegate nameservers to Route 53, the registrar's own DNS records are ignored — **all records go in Route 53** from now on (Step 3).
 
@@ -393,41 +453,42 @@ This is the step that actually "connects" your purchased name to Route 53. You'r
 
 #### Step 3 — Point the domain at your server (A record in Route 53)
 
-Now create the record that maps your name → your server's Elastic IP. Our `04-dns.yaml` stack does this from `params/prod.json` (`deploy.sh` is a shell script — run from Git Bash/WSL on Windows):
+Now create the record that maps your name → your server's Elastic IP. Our `04-dns.yaml` stack does this from `params/prod.json`:
 ```bash
-cd ~/workspace/LTR-Backend/deploy
-./deploy.sh up            # picks up 04-dns.yaml using DomainName + HostedZoneId
+cd ~/workspace/lt-parking-site-project
+scripts/deploy.sh infra up   # picks up 04-dns.yaml using DomainName + HostedZoneId
 ```
 `04-dns.yaml` creates an **A record** `ltride.example.com → <ElasticIp>` (the Elastic IP from the compute stack, so it's stable across restarts).
 
 **Or do it by hand** in the Console: Route 53 → your hosted zone → **Create record** → Record name `ltride` (or leave blank for the root), Type **A**, Value = your Elastic IP, TTL 300 → Create.
 
-Verify (`dig` → `Resolve-DnsName`, `curl` → `curl.exe` on Windows):
+Verify:
 
-**macOS / Linux (bash/zsh):**
+**macOS / Linux**
 ```bash
 dig ltride.example.com +short    # should print your Elastic IP
 curl -I http://ltride.example.com/api/health   # should reach your server (200)
 ```
-**Windows (PowerShell):**
+
+**Windows (PowerShell)**
 ```powershell
-Resolve-DnsName ltride.example.com -Type A       # should print your Elastic IP
-curl.exe -I http://ltride.example.com/api/health # should reach your server (200)
+Resolve-DnsName -Name ltride.example.com -Type A     # should print your Elastic IP
+Invoke-WebRequest -Uri http://ltride.example.com/api/health -Method Head   # should reach your server (200)
 ```
 
 ---
 
 #### Step 4 — Update the app for the new hostname, then add HTTPS
 
-1. **Tell the backend to trust the new origin.** Edit the server's `.env` `CORS_ORIGINS` to include `https://ltride.example.com`, then `sudo systemctl restart ltride`. (Locally you set this in `params`/`.env`; on the server it's in `/home/ltride/app/.env`.)
-2. **Rebuild the frontend** so it calls the domain, not the IP: `release.sh` already builds the UI with `VITE_API_URL=https://<DomainName>` when `DomainName` is set in `params/prod.json`. Re-run (from Git Bash/WSL on Windows):
+1. **Tell the backend to trust the new origin.** Edit the server's `.env` `CORS_ORIGINS` to include `https://ltride.example.com`, then `sudo systemctl restart ltride`. (Locally you set this in `params`/`.env`; on the server it's in `/home/ltride/app/backend/.env`.)
+2. **Rebuild the frontend** so it calls the domain, not the IP: `scripts/deploy.sh app frontend` already builds the UI with `VITE_API_URL=https://<DomainName>` when `DomainName` is set in `params/prod.json`. Re-run:
    ```bash
-   ./release.sh frontend
+   scripts/deploy.sh app frontend
    ```
-3. **Get a free TLS certificate** with certbot (Let's Encrypt). SSH in and run (`ssh` ships with Windows; in PowerShell use `-i $HOME\.ssh\ltride-key.pem`):
+3. **Get a free TLS certificate** with certbot (Let's Encrypt). SSH in (native OpenSSH on Windows too —
+   just `$HOME\.ssh\ltride-key.pem` for the key path) and run the same commands once connected:
    ```bash
-   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>   # Windows: -i $HOME\.ssh\ltride-key.pem
-   # --- the two commands below run on the Ubuntu server, identical on every OS ---
+   ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
    sudo apt-get install -y certbot python3-certbot-nginx
    sudo certbot --nginx -d ltride.example.com
    ```
@@ -439,17 +500,18 @@ curl.exe -I http://ltride.example.com/api/health # should reach your server (200
 1. Setup: hosted zone created (Step 1); nameservers delegated (Step 2, if 3rd-party) and `dig NS` shows AWS; A record live (Step 3); certbot run (Step 4).
 2. Steps:
 
-   **macOS / Linux (bash/zsh):**
+   **macOS / Linux**
    ```bash
    dig ltride.example.com +short                 # → your Elastic IP
    curl -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
    curl -I http://ltride.example.com             # → 301 redirect to https
    ```
-   **Windows (PowerShell):**
+
+   **Windows (PowerShell)**
    ```powershell
-   Resolve-DnsName ltride.example.com -Type A        # → your Elastic IP
-   curl.exe -I https://ltride.example.com/api/health # → HTTP/2 200, valid cert
-   curl.exe -I http://ltride.example.com             # → 301 redirect to https
+   Resolve-DnsName -Name ltride.example.com -Type A                          # → your Elastic IP
+   Invoke-WebRequest -Uri https://ltride.example.com/api/health -Method Head # → 200, valid cert
+   Invoke-WebRequest -Uri http://ltride.example.com -Method Head             # → 301 redirect to https
    ```
    Then open `https://ltride.example.com` in a browser and log in.
 3. Expected:
@@ -476,12 +538,19 @@ PR base = `cr/d3-release`.
 
 ## Part 2 — Operating & troubleshooting the live server
 
-**Log into the server** (`ssh` ships with Windows — in PowerShell use `-i $HOME\.ssh\ltride-key.pem`):
+**Log into the server:**
+
+**macOS / Linux**
 ```bash
 ssh -i ~/.ssh/ltride-key.pem ubuntu@<ElasticIp>
 ```
 
-**Useful commands once you're on the server** (these all run on the Ubuntu box, so they're identical no matter what your laptop runs):
+**Windows (PowerShell)** — native OpenSSH, same command:
+```powershell
+ssh -i $HOME\.ssh\ltride-key.pem ubuntu@<ElasticIp>
+```
+
+**Useful commands once you're on the server:**
 ```bash
 sudo systemctl status ltride       # is the backend running?
 sudo journalctl -u ltride -n 50    # last 50 lines of backend logs
@@ -489,12 +558,12 @@ sudo systemctl restart ltride      # restart the backend
 sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
 ```
 
-> **Where the config lives on the server** (created in **D1b**): nginx site at `/etc/nginx/sites-available/ltride` (→ symlinked into `sites-enabled/`), gunicorn service at `/etc/systemd/system/ltride.service`, app secrets at `/home/ltride/app/.env`. After editing the nginx file run `sudo nginx -t && sudo systemctl reload nginx`; after editing the `.service` file run `sudo systemctl daemon-reload && sudo systemctl restart ltride`; after editing `.env` just `sudo systemctl restart ltride`.
+> **Where the config lives on the server** (created in **D1b**): nginx site at `/etc/nginx/sites-available/ltride` (→ symlinked into `sites-enabled/`), gunicorn service at `/etc/systemd/system/ltride.service`, app secrets at `/home/ltride/app/backend/.env`. After editing the nginx file run `sudo nginx -t && sudo systemctl reload nginx`; after editing the `.service` file run `sudo systemctl daemon-reload && sudo systemctl restart ltride`; after editing `.env` just `sudo systemctl restart ltride`.
 
 **Common problems:**
 - **`502 Bad Gateway` in the browser** — the backend (gunicorn) crashed; check `journalctl -u ltride`. Usually a missing env var or a DB connection error.
-- **Website loads but API calls fail** — the frontend was built with the wrong `VITE_API_URL`; re-run `./release.sh frontend`.
-- **Can't SSH** — your home IP changed; update `AdminCidr` in `params/prod.json` and `./deploy.sh up`.
+- **Website loads but API calls fail** — the frontend was built with the wrong `VITE_API_URL`; re-run `scripts/deploy.sh app frontend`.
+- **Can't SSH** — your home IP changed; update `AdminCidr` in `params/prod.json` and `scripts/deploy.sh infra up`.
 - **Database connection refused** — check the RDS endpoint and that the EC2 security group is allowed to reach RDS ([Part 3 §B.3–§B.4](#b3-network-stack-01-networkyaml)).
 
 
@@ -526,31 +595,48 @@ sudo nginx -t && sudo systemctl reload nginx   # test + reload the web server
 - The RDS master password stored in **AWS Secrets Manager** (CloudFormation references it dynamically; it is never written into the template or git).
 
 ### B.2 IaC layout
-Keep deployment code in the repo under `deploy/`, split into composable nested/standalone stacks so they can be updated independently:
+The CloudFormation templates + on-server config live under `deploy/`; the runnable orchestration lives under `scripts/`, split into four concerns behind one entrypoint:
 ```
 deploy/
   cfn/
+    00-secrets.yaml     # Secrets Manager: ltride/db + ltride/app (deploy FIRST)
     01-network.yaml     # VPC, 2 public + 2 private subnets, IGW, route tables, SGs
-    02-database.yaml    # RDS PostgreSQL, DB subnet group, Secrets Manager secret
+    02-database.yaml    # RDS PostgreSQL, DB subnet group (resolves creds from ltride/db)
     03-compute.yaml     # EC2 + Elastic IP + IAM instance role, UserData bootstrap
     04-dns.yaml         # Route 53 A record → Elastic IP
   params/
     prod.json           # stack parameters (instance type, domain, key name, ...)
-  deploy.sh             # wrapper: aws cloudformation deploy for each stack in order
+  server/               # files installed on the box (nginx conf, systemd unit, provision.sh)
+scripts/
+  deploy.sh             # single entrypoint: deploy.sh <concern> <subcommand>
+  deploy-secrets.sh     # concern 1: Secrets Manager
+  deploy-infra.sh       # concern 2: CloudFormation stacks, in dependency order
+  deploy-db.sh          # concern 3: SQL migrations (over SSH, on the box)
+  deploy-app.sh         # concern 4: ship backend + frontend code
+  lib/deploy-common.sh  # shared helpers (env, AWS wrappers, stack/secret/SSH resolvers)
 ```
-Rather than typing four `aws cloudformation deploy` commands, **`deploy/deploy.sh` wraps them all** — it validates every template, then creates/updates the stacks in dependency order, adds `CAPABILITY_NAMED_IAM` only where needed, and prints the stack outputs:
+**`scripts/deploy.sh <concern> <subcommand>`** is the one entrypoint. It sources optional AWS credentials from `scripts/aws-credential.sh` (gitignored) and verifies them with `sts get-caller-identity` before any change, then dispatches to the concern:
+
+**macOS / Linux**
 ```bash
-./deploy/deploy.sh up        # validate + create/update all stacks (env defaults to prod)
-./deploy/deploy.sh validate  # validate templates only, no changes
-./deploy/deploy.sh status    # show each stack's status
-./deploy/deploy.sh outputs   # print each stack's Outputs
-./deploy/deploy.sh down      # delete all stacks in reverse order (DB leaves a final snapshot)
+scripts/deploy.sh all               # guided end-to-end: secrets → infra → db → app
+scripts/deploy.sh secrets init      # concern 1: create ltride/db + ltride/app
+scripts/deploy.sh infra up          # concern 2: create/update all stacks in order
+scripts/deploy.sh infra validate    # validate templates only, no changes
+scripts/deploy.sh infra status      # show each stack's status
+scripts/deploy.sh infra outputs     # print each stack's Outputs
+scripts/deploy.sh db migrate        # concern 3: apply backend/webapp/sql/migrations/*.sql
+scripts/deploy.sh app all           # concern 4: deploy backend, then frontend
+scripts/deploy.sh destroy           # guided teardown, reverse order (DB leaves a snapshot)
 ```
-Region/profile come from `AWS_REGION` / `AWS_PROFILE`; stack parameters live in `deploy/params/<env>.json` (e.g. `AdminCidr`, `KeyName`, `DomainName`, `HostedZoneId`). Cross-stack wiring uses `Outputs` + `Fn::ImportValue` (e.g. network exports `VpcId`, `WebSubnetId`, `WebSecurityGroupId`, `DbSecurityGroupId`; database exports the RDS endpoint).
 
-The script is self-bootstrapping: a `preflight` step checks for the AWS CLI and **only installs it (via `brew install awscli`) if it is missing on macOS** — an existing AWS CLI is detected and left untouched. It also verifies credentials (`sts get-caller-identity`) before making any changes.
-
-> **On Windows:** `deploy.sh`/`release.sh` are Bash scripts — run them from **Git Bash** or **WSL** (PowerShell can't execute `.sh`). The brew auto-install is macOS-only, so install the AWS CLI yourself first (`winget install -e --id Amazon.AWSCLI`, or the MSI); the script then detects it and proceeds. Once inside Git Bash/WSL, every command in this section works verbatim.
+**Windows (PowerShell)** — these are bash scripts; run them via Git Bash/WSL:
+```powershell
+bash scripts/deploy.sh all
+bash scripts/deploy.sh infra up
+bash scripts/deploy.sh app all
+```
+Region comes from `AWS_REGION` (default `us-east-1`); `-e/--env <name>` selects `params/<name>.json` (default `prod`). Stack names stay `ltride-<suffix>` (one environment per account/region). Cross-stack wiring uses `Outputs` + `Fn::ImportValue` (e.g. the secrets stack exports `ltride-DbSecretArn`/`ltride-AppSecretArn`, network exports `ltride-VpcId`/`ltride-WebSecurityGroupId`/`ltride-DbSecurityGroupId`, database exports `ltride-DbEndpoint`).
 
 ### B.3 Network stack (`01-network.yaml`)
 Provisions: a VPC (`10.0.0.0/16`), two public subnets + two private subnets across two AZs, an Internet Gateway + public route table, and two security groups:
@@ -571,7 +657,9 @@ Provisions: a VPC (`10.0.0.0/16`), two public subnets + two private subnets acro
 ```
 
 ### B.4 Database stack (`02-database.yaml`)
-Provisions a **Secrets Manager** secret (auto-generated password), a DB subnet group across the two private subnets, and the RDS instance. `MasterUserPassword` is resolved from the secret at deploy time — never in plaintext.
+Provisions a DB subnet group across two subnets and the RDS instance; `MasterUsername`/`MasterUserPassword` are resolved from the `ltride/db` secret at deploy time — never in plaintext.
+
+> **The snippet below is illustrative** (shows the resolve-from-secret shape). In the **actual** templates the secret is created by `00-secrets.yaml` (concern 1), *not* here — this stack only consumes `ltride/db` by name. Read the real files: [`deploy/cfn/00-secrets.yaml`](../../deploy/cfn/00-secrets.yaml) and [`deploy/cfn/02-database.yaml`](../../deploy/cfn/02-database.yaml).
 
 ```yaml
   DbSecret:
@@ -603,7 +691,9 @@ Provisions a **Secrets Manager** secret (auto-generated password), a DB subnet g
 ```
 
 ### B.5 Compute stack (`03-compute.yaml`) — EC2 + bootstrap
-Provisions an Elastic IP, an IAM instance role (read the DB secret + write CloudWatch logs), and the EC2 instance whose **`UserData`** bootstraps the server on first boot — so the box is reproducible from the template, not hand-configured. UserData performs the same steps that were previously manual:
+Provisions an Elastic IP, an IAM instance role (read the two `ltride/*` secrets), and the EC2 instance whose **`UserData`** bootstraps the server on first boot — so the box is reproducible from the template, not hand-configured. UserData performs the same steps that were previously manual.
+
+> **The snippet below is illustrative.** The **actual** [`deploy/cfn/03-compute.yaml`](../../deploy/cfn/03-compute.yaml) clones the monorepo (`lt-parking-site-project`), builds the venv under `backend/`, writes `backend/.env` with the DB creds from `ltride/db` and `SECRET_KEY` from `ltride/app`, and runs gunicorn as `webapp.App:app` from `backend/`. Read the real file for the exact commands.
 
 ```yaml
   WebServer:
@@ -669,23 +759,15 @@ curl http://127.0.0.1:8000/api/health
 ```
 
 ### B.7 Build & place the frontend
-The SPA build is an app artifact, not infrastructure, so it stays a CI step. The inline-env-var build syntax differs by shell (`release.sh` handles all of this for you — this manual form is for debugging):
-
-**macOS / Linux (bash/zsh):**
+The SPA build is an app artifact, not infrastructure, so it stays a CI step. On your machine (or in CI): `VITE_API_URL=https://<your-domain> npm run build` → produces `dist/`. Copy it to the server:
 ```bash
-VITE_API_URL=https://<your-domain> npm run build     # produces dist/
 rsync -avz -e "ssh -i ltride-key.pem" dist/ ubuntu@<elastic-ip>:/tmp/dist/
-```
-**Windows (PowerShell):** PowerShell can't set an env var inline before a command, and `rsync` isn't native — set it separately, then ship with `scp` (which ships with Windows):
-```powershell
-$env:VITE_API_URL="https://<your-domain>"; npm run build   # produces dist/
-scp -i ltride-key.pem -r dist/* ubuntu@<elastic-ip>:/tmp/dist/
-```
-Then, **on the server**, put the files in place (identical on every OS):
-```bash
 sudo mkdir -p /var/www/ltride && sudo cp -r /tmp/dist/* /var/www/ltride/
 ```
-*(Alternative: a separate CloudFormation stack provisions an S3 bucket + CloudFront distribution; CI syncs `dist/` to S3 and invalidates the cache. nginx then only proxies `/api`.)* The frontend-side build/serve details also live in the [UI guide's Deployment section](../ui/ui-development-guide.md#part-f3--deployment-frontend).
+> **Windows note:** `rsync` isn't available natively; run the `rsync` line from Git Bash/WSL, or
+> substitute `scp -i ltride-key.pem -r dist\* ubuntu@<elastic-ip>:/tmp/dist/` (native OpenSSH `scp`
+> works the same as macOS/Linux). The `sudo mkdir`/`cp` line runs on the server either way.
+*(Alternative: a separate CloudFormation stack provisions an S3 bucket + CloudFront distribution; CI syncs `dist/` to S3 and invalidates the cache. nginx then only proxies `/api`.)* The frontend-side build/serve details also live in the [UI guide's Deployment section](https://github.com/LTRide2/lt-parking-site-project/blob/main/plan/ui/ui-development-guide.md#part-f3--deployment-frontend).
 
 ### B.8 nginx reverse proxy + SPA
 `/etc/nginx/sites-available/ltride`:
@@ -737,31 +819,48 @@ sudo systemctl status certbot.timer   # auto-renewal enabled
 *(For fully-managed certs without certbot, front the instance with an ALB + ACM certificate in a future stack revision.)*
 
 ### B.10 Deploy / update workflow
-**Infrastructure changes** go through CloudFormation only — edit the template, preview a change set, then apply:
+**Infrastructure changes** go through the **infra** concern — edit the template, then apply (it updates in place):
+
+**macOS / Linux**
 ```bash
-aws cloudformation deploy --stack-name ltride-compute --template-file deploy/cfn/03-compute.yaml \
-  --parameter-overrides file://deploy/params/prod.json --capabilities CAPABILITY_NAMED_IAM
-# inspect drift any time:
-aws cloudformation detect-stack-drift --stack-name ltride-compute
+scripts/deploy.sh infra up            # create/update all stacks in dependency order
+scripts/deploy.sh infra status        # per-stack status
 ```
-**Application changes** (code, not infra) are shipped with **`deploy/release.sh`**, which resolves the EC2 host from the compute stack outputs and deploys both tiers over SSH:
+Under the hood this runs `aws cloudformation deploy` per stack, adding `CAPABILITY_NAMED_IAM` only for the compute stack (which names its IAM role).
+
+**Schema changes** go through the **db** concern (run it *before* shipping code that needs the new columns):
 ```bash
-./deploy/release.sh all        # deploy backend then frontend (env defaults to prod)
-./deploy/release.sh backend    # backend only: git pull + pip install + DB migrate + restart gunicorn
-./deploy/release.sh frontend   # frontend only: npm build (prod VITE_API_URL) + rsync dist/ to nginx
+scripts/deploy.sh db migrate          # apply backend/webapp/sql/migrations/*.sql on the box
 ```
-It reads the SSH key from `~/.ssh/<KeyName>.pem` (override with `SSH_KEY`), builds the UI from `UI_DIR` (default `../lt-parking-site-project`) pointing at `https://<DomainName>`, runs backend migrations, restarts gunicorn, and verifies `/api/health` before finishing.
+
+**Application changes** (code, not infra) go through the **app** concern, which resolves the EC2 host from the compute stack outputs and deploys over SSH:
+
+**macOS / Linux**
+```bash
+scripts/deploy.sh app all             # deploy backend then frontend
+scripts/deploy.sh app backend         # backend only: git pull + pip install + restart gunicorn + health check
+scripts/deploy.sh app frontend        # frontend only: npm build (prod VITE_API_URL) + rsync dist/ to nginx
+```
+
+**Windows (PowerShell)** — these are bash scripts; run them via Git Bash/WSL:
+```powershell
+bash scripts/deploy.sh app all
+bash scripts/deploy.sh app backend
+bash scripts/deploy.sh app frontend
+```
+It reads the SSH key from `~/.ssh/<KeyName>.pem` (override with `SSH_KEY`), builds the UI from the repo's `frontend/` pointing at `https://<DomainName>`, restarts gunicorn, and verifies `/api/health` before finishing.
 
 The equivalent **manual steps** (useful for debugging on the box) remain:
 ```bash
-# backend — on the server, as ltride
-cd ~/app && git pull
-. .venv/bin/activate && pip install -r requirements.txt
-psql "$DATABASE_URL" -f sql/migrations/<new>.sql   # if schema changed
+# backend — on the server, as ltride (monorepo cloned at /home/ltride/app)
+cd /home/ltride/app && git pull
+cd backend && .venv/bin/pip install -r webapp/requirements.txt
+set -a; . .env; set +a
+psql "$DATABASE_URL" -f webapp/sql/migrations/<new>.sql   # if schema changed
 sudo systemctl restart ltride
 # frontend — rebuild locally, rsync dist/ (or S3 sync), no service restart needed
 ```
-**CI/CD (CR D2):** a GitHub Actions workflow on push to `main` runs `cloudformation deploy` for infra changes, then calls `release.sh` to deploy the application code.
+**CI/CD (CR D2):** a GitHub Actions workflow on push to `main` can run `scripts/deploy.sh infra up` for infra changes, then `scripts/deploy.sh db migrate` and `scripts/deploy.sh app all` to deploy the application code.
 
 ### B.11 Operations & hardening
 - **Backups:** RDS `BackupRetentionPeriod: 7` is set in the template; `DeletionPolicy: Snapshot` prevents data loss if the DB stack is deleted.

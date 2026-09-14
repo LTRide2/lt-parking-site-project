@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  LTRide network stack — the "plot of land" everything else sits on.
+  Creates a VPC, two public subnets (in two Availability Zones), an internet
+  gateway + route table, and the two security groups (firewalls) used by the
+  web server and the database. Other stacks reference the things created here
+  by importing the "Export" names listed at the bottom.
+
+# -----------------------------------------------------------------------------
+# Parameters
+# -----------------------------------------------------------------------------
+# IMPORTANT: deploy.sh passes the SAME params/<env>.json file to EVERY stack
+# (`--parameter-overrides file://params/prod.json`). CloudFormation rejects an
+# override for a parameter a template does not declare, so EVERY template must
+# declare all six keys — even the ones it doesn't actually use. The unused ones
+# here (KeyName, DomainName, HostedZoneId, WebInstanceType, DbInstanceClass) are
+# simply never referenced. That is allowed; unreferenced parameters are fine.
+# -----------------------------------------------------------------------------
+Parameters:
+  AdminCidr:
+    Type: String
+    Description: >
+      Your IP range (e.g. 203.0.113.10/32) allowed to SSH to the web server.
+      Find yours with `curl ifconfig.me` then append /32.
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: (Unused here) EC2 key pair name; used by the compute stack.
+  DomainName:
+    Type: String
+    Description: (Unused here) Used by the dns stack.
+  HostedZoneId:
+    Type: String
+    Description: (Unused here) Used by the dns stack.
+  WebInstanceType:
+    Type: String
+    Description: (Unused here) Used by the compute stack.
+  DbInstanceClass:
+    Type: String
+    Description: (Unused here) Used by the database stack.
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # The VPC is your private slice of AWS's network — a 65,536-address block.
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true       # let instances resolve DNS names
+      EnableDnsHostnames: true     # give instances public DNS names
+      Tags:
+        - { Key: Name, Value: ltride-vpc }
+
+  # The internet gateway is the VPC's "door to the internet".
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: ltride-igw }
+
+  # Attaching the gateway to the VPC actually wires the door in.
+  GatewayAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # Two subnets in two different Availability Zones (AZs). RDS *requires* a
+  # subnet group spanning at least two AZs, even if we only run one DB. Each is
+  # a smaller slice (256 addresses) of the VPC's range.
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]   # first AZ in this region
+      MapPublicIpOnLaunch: true                    # instances get a public IP
+      Tags:
+        - { Key: Name, Value: ltride-public-1 }
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]   # second AZ
+      MapPublicIpOnLaunch: true
+      Tags:
+        - { Key: Name, Value: ltride-public-2 }
+
+  # A route table is a set of "to reach X, go via Y" rules.
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: ltride-public-rt }
+
+  # The rule that makes the subnets "public": send all non-local traffic
+  # (0.0.0.0/0 = the whole internet) out through the internet gateway.
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttach
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate each subnet with that route table so the rule applies to them.
+  Subnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  Subnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # --- Firewalls (security groups) ------------------------------------------
+  # The web server's firewall: allow HTTP(80)/HTTPS(443) from anyone, and SSH
+  # (22) only from your admin IP. Everything else is blocked inbound.
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ltride web server — HTTP/HTTPS from world, SSH from admin
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0, Description: HTTP }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminCidr
+          Description: SSH from admin only
+      Tags:
+        - { Key: Name, Value: ltride-web-sg }
+
+  # The database's firewall: allow Postgres (5432) ONLY from the web server's
+  # security group — not from the internet, not even from your laptop. The
+  # `SourceSecurityGroupId` rule means "any instance in the web SG may connect".
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ltride database — Postgres from the web SG only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref WebSecurityGroup
+          Description: Postgres from web tier
+      Tags:
+        - { Key: Name, Value: ltride-db-sg }
+
+# -----------------------------------------------------------------------------
+# Outputs / Exports
+# -----------------------------------------------------------------------------
+# `Export` publishes a value under a global (per-region) name. Other stacks pull
+# it with `Fn::ImportValue`. The names below are referenced by the database and
+# compute templates — keep them in sync if you rename anything.
+# -----------------------------------------------------------------------------
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export: { Name: ltride-VpcId }
+  PublicSubnet1:
+    Value: !Ref PublicSubnet1
+    Export: { Name: ltride-PublicSubnet1 }
+  PublicSubnet2:
+    Value: !Ref PublicSubnet2
+    Export: { Name: ltride-PublicSubnet2 }
+  WebSecurityGroupId:
+    Value: !Ref WebSecurityGroup
+    Export: { Name: ltride-WebSecurityGroupId }
+  DbSecurityGroupId:
+    Value: !Ref DbSecurityGroup
+    Export: { Name: ltride-DbSecurityGroupId }

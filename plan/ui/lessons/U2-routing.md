@@ -19,17 +19,32 @@ Right now the app decides "which screen to show" with a plain JavaScript `if` �
 - [ ] The browser's **Back**/**Forward** buttons move between pages without a full page reload.
 - [ ] Your work is committed on branch `cr/u2-routing` and pushed, PR base = `cr/u1-real-auth`.
 
+**🖼 What changes on screen (before → after):**
+```
+      BEFORE (no real routes)                  AFTER (real routes)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│        Address: "/"       │      │  Address: /login          │
+│                           │      │  Address: /student        │
+│  Login ↔ student board ↔  │  ─▶  │  Address: /admin          │
+│  admin board — all swap   │      │                           │
+│  in place, URL never moves│      │  Student visits /admin →  │
+│                           │      │  bounced back to /login   │
+│  Back button: unreliable  │      │  Back / Forward: just work│
+└───────────────────────────┘      └───────────────────────────┘
+```
+Every screen gets its own bookmarkable address; the guard you'll build decides who's allowed on it.
+
 ---
 
 ## 🤔 Why this lesson matters (read this first — it's the "why")
 
-Right now, `Login.tsx` decides what to show with a `useState<"selection" | "student" | "admin">` and an `if (isLoggedIn) return <ControlBoard />`. That works for a tiny prototype, but it breaks down fast in a real app:
+Right now, `Login.tsx` decides what to show with a [`useState`](GLOSSARY.md#usestate) (a hook for a component's own memory) `<"selection" | "student" | "admin">` and an `if (isLoggedIn) return <ControlBoard />`. That works for a tiny prototype, but it breaks down fast in a real app:
 
-- **There's no address to bookmark or share.** Every screen lives at the same URL (`/`), so you can't send a teammate a link straight to the admin board, and refreshing always dumps you back at the start of whatever component tree happened to be mounted.
-- **The browser's Back button does the wrong thing.** Without real routes, "back" doesn't mean "the page I was just on" — it means "whatever the last React re-render happened to show."
+- **There's no address to bookmark or share.** Every screen lives at the same URL (`/`), so you can't send a teammate a link straight to the admin board, and refreshing always dumps you back at the start of whatever [component](GLOSSARY.md#component) tree happened to be mounted.
+- **The browser's Back button does the wrong thing.** Without real routes, "back" doesn't mean "the page I was just on" — it means "whatever the last [React](GLOSSARY.md#react) re-render happened to show."
 - **"Should I even be here?" is checked in the wrong place.** Today a student who's logged in just... doesn't see an `/admin` button. But nothing stops them from guessing the flow and getting there anyway, because there's no single place that says "this page requires the admin role."
 
-**React Router** solves all three: it maps a URL path to a component, gives the browser real navigation (Back/Forward/bookmark/share all work), and lets you write **one reusable guard** — `ProtectedRoute` — that every protected page passes through. This is the standard pattern almost every production React app uses, and it's also the plumbing that lesson U3 onward build on top of (e.g. deep-linking to a specific lot).
+**[React Router](GLOSSARY.md#react-router)** (the library that connects a URL to the screen that renders there) solves all three: it maps a URL path to a component, gives the browser real navigation (Back/Forward/bookmark/share all work), and lets you write one reusable **[protected route](GLOSSARY.md#protected-route)** guard — `ProtectedRoute` — that every protected page passes through. This is the standard pattern almost every production React app uses, and it's also the plumbing that lesson U3 onward build on top of (e.g. deep-linking to a specific lot).
 
 ---
 
@@ -44,6 +59,8 @@ Right now, `Login.tsx` decides what to show with a `useState<"selection" | "stud
 | **Protected / private route** | A wrapper component that checks "are you allowed here?" and redirects if not, before rendering the real page. | [React Router — `Navigate`](https://reactrouter.com/en/main/components/navigate) |
 | **`useNavigate`** | A hook that lets code (not just a link) send the user to a new URL, e.g. after login. | [React Router — `useNavigate`](https://reactrouter.com/en/main/hooks/use-navigate) |
 | **URL params** | Later CRs will put IDs right in the URL (e.g. `/admin/lots/3`) instead of only in Redux state. | [React Router — Routing concepts](https://reactrouter.com/en/main/start/concepts) |
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -66,7 +83,7 @@ git checkout -b cr/u2-routing
 
 ### Step 1 — Wrap the app in a router, and add an ErrorBoundary safety net (~10 min)
 
-Right now, any runtime render error (a typo'd prop, a `null` where an object was expected) blanks the whole page silently — no error, no stack, just white. Before wiring up routes, give the app a **safety net** that turns that silent blank page into an on-screen error message.
+Right now, any runtime render error (a typo'd [prop](GLOSSARY.md#props), a `null` where an object was expected) blanks the whole page silently — no error, no stack, just white. Before wiring up routes, give the app a **safety net** that turns that silent blank page into an on-screen error message.
 
 Create `src/ErrorBoundary.tsx`:
 
@@ -74,18 +91,19 @@ Create `src/ErrorBoundary.tsx`:
 // src/ErrorBoundary.tsx
 import { Component, type ReactNode } from "react";
 
-interface Props { children: ReactNode }
-interface State { error: Error | null }
+interface Props { children: ReactNode }              // whatever this boundary wraps
+interface State { error: Error | null }               // the crash we caught, if any
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null };                      // start assuming no crash
 
   static getDerivedStateFromError(error: Error) {
-    return { error };
+    return { error };                                  // React calls this when a child below throws
   }
 
   render() {
     if (this.state.error) {
+      // Show the crash on-screen instead of a silent blank page.
       return (
         <pre style={{ padding: 20, color: "crimson", whiteSpace: "pre-wrap" }}>
           {this.state.error.message}
@@ -94,7 +112,7 @@ export class ErrorBoundary extends Component<Props, State> {
         </pre>
       );
     }
-    return this.props.children;
+    return this.props.children;                        // no crash: render normally
   }
 }
 ```
@@ -114,9 +132,9 @@ import { ErrorBoundary } from "./ErrorBoundary";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <Provider store={store}>
-        <BrowserRouter>
+    <ErrorBoundary>                    {/* catches a render crash anywhere below here */}
+      <Provider store={store}>         {/* Redux state: available to everything below */}
+        <BrowserRouter>                {/* turns on real URL-based navigation below here */}
           <App />
         </BrowserRouter>
       </Provider>
@@ -125,12 +143,12 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
-**Explanation:**
-- `ErrorBoundary` must be a **class component** — `getDerivedStateFromError` is React's hook for catching render errors, and it's only available on classes, not function components. → [React docs: Error boundaries](https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary).
+**Why it works & further reading:**
+- **[Error boundary](GLOSSARY.md#error-boundary)** — `ErrorBoundary` must be a class component; `getDerivedStateFromError` is part of React's error-boundary lifecycle, only available on classes (not on function components). → [React docs: Error boundaries](https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary).
 - It's wired **outermost of all** (around `Provider` *and* `BrowserRouter`), so a render crash anywhere in the app — a bad route, a bad page, a bad guard, even something during store setup — surfaces here instead of blanking the page.
-- `<BrowserRouter>` — turns on real URL-based navigation for everything inside it. It reads the current browser address and lets any nested component ask "what's the URL right now?" or "take me to a different one." → [React Router — `BrowserRouter`](https://reactrouter.com/en/main/router-components/browser-router).
-- **Order matters here:** `<ErrorBoundary>` wraps `<Provider>` (Redux), which wraps `<BrowserRouter>`, which wraps `<App>`. That way every component can read Redux state and use routing, and the boundary sits outside both so it can catch a crash even in store or router setup.
-- You installed the `react-router-dom` package back in **U0** (`npm install react-router-dom`) specifically so it would be ready for this lesson.
+- **`<BrowserRouter>`** lets any nested component ask "what's the URL right now?" or "take me to a different one." → [React Router — `BrowserRouter`](https://reactrouter.com/en/main/router-components/browser-router).
+- **Wrapping order** — `<ErrorBoundary>` wraps `<Provider>` ([Redux](GLOSSARY.md#redux)), which wraps `<BrowserRouter>`, which wraps `<App>`, so every component can read Redux state *and* use routing while the boundary sits outside both to catch a crash even in store or router setup.
+- You installed the `react-router-dom` package back in **U0** ([`npm`](GLOSSARY.md#npm) `install react-router-dom`) specifically so it would be ready for this lesson.
 
 ### Step 2 — Build the route guard: `src/ProtectedRoute.tsx` (~10 min)
 
@@ -148,16 +166,16 @@ export function ProtectedRoute({ role, children }: { role?: "student" | "admin";
 
   if (!isLoggedIn) return <Navigate to="/login" replace />;          // not logged in
   if (role && userRole !== role) return <Navigate to="/login" replace />; // wrong role
-  return <>{children}</>;
+  return <>{children}</>;                                            // allowed: render the wrapped page
 }
 ```
 
-**Explanation, line by line:**
-- `{ role, children }` — `role` is optional (`role?`); if you don't pass one, any logged-in user may see the page. `children` is whatever page you wrapped this guard around.
-- `useAppSelector((s) => s.auth.isLoggedIn)` and `s.auth.user?.role` — these read the exact fields `authSlice` (built in **U1**) keeps in Redux. If those field names don't match what your `authSlice.ts` actually exports, the guard will always fail — see **🧯 If something breaks** below.
-- `<Navigate to="/login" replace />` — instead of rendering the protected page, render a redirect instruction. `replace` means "don't add a new Back-button entry for this" — otherwise pressing Back after being bounced from `/admin` would just send you right back to `/admin` again. → [React Router — `Navigate`](https://reactrouter.com/en/main/components/navigate).
-- The two `if` checks run **top to bottom**: not logged in beats everything; then, if a specific `role` was required, a mismatched role also bounces to `/login`.
-- `return <>{children}</>` — only reached if both checks pass. The `<>...</>` is a **Fragment**: it groups `children` without adding an extra HTML element.
+**Why it works & further reading:**
+- `role?` is optional — omit it and any logged-in user may see the page; `children` is whatever page this guard wraps.
+- Reads the exact `auth` fields `authSlice` (built in **U1**) keeps in Redux. If your `authSlice.ts` uses different field names, the guard always fails — see **🧯 If something breaks** below.
+- `<Navigate replace />` renders a redirect instead of the page; `replace` skips adding a Back-button entry for the bounce itself, so pressing Back after being bounced from `/admin` doesn't just send you right back. → [React Router — `Navigate`](https://reactrouter.com/en/main/components/navigate).
+- The two checks run **top to bottom**: not logged in beats everything; only then does a mismatched `role` also bounce to `/login`.
+- `<>{children}</>` uses a **[Fragment](GLOSSARY.md#fragment)** so `children` render without an extra wrapping element.
 
 ### Step 3 — Define the routes in `src/App.tsx` (~15 min)
 
@@ -181,6 +199,7 @@ function App() {
   const user = useAppSelector((s) => s.auth.user);
 
   useEffect(() => {
+    // Same session-restore call as U1: a saved token means "confirm who I am."
     if (localStorage.getItem("token")) dispatch(fetchMe());
   }, [dispatch]);
 
@@ -195,14 +214,16 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/student" element={
+          // Guarded: only a logged-in student may render StudentDashboard.
           <ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>
         } />
         <Route path="/admin" element={
+          // Guarded: only a logged-in admin may render ControlBoard.
           <ProtectedRoute role="admin">
             <ControlBoard onLogout={() => { dispatch(logout()); navigate("/login"); }} />
           </ProtectedRoute>
         } />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />  {/* unknown URL: send to login */}
       </Routes>
     </div>
   );
@@ -211,13 +232,12 @@ function App() {
 export default App;
 ```
 
-**Explanation, piece by piece:**
-- `<Routes>` — a container that looks at the current URL and renders **the one** `<Route>` inside it that matches. → [React Router — `Routes`](https://reactrouter.com/en/main/route/route).
-- `<Route path="/admin" element={...} />` — "if the URL is `/admin`, render this element." The `element` for `/student` and `/admin` is wrapped in `<ProtectedRoute>` from Step 2, so the guard runs *before* the real page ever mounts.
-- `<Route path="*" element={<Navigate to="/login" replace />} />` — the catch-all. `*` matches anything not matched above (a typo'd URL, an old bookmark), and redirects it to `/login` instead of showing a blank page.
-- The first `useEffect` — unchanged from **U1**: on page load, if a token was saved, ask the backend "who am I?" (`fetchMe`) to restore the session.
-- The second `useEffect` — new in this CR. Once `user` is known (either from a fresh login or from `fetchMe` restoring one), it calls `navigate(...)` to send the user to their home page. This is what makes "log in" land you on `/student` or `/admin` instead of staying on `/login`.
-- `useNavigate()` — a hook that returns a function for navigating **from code** (as opposed to a `<Link>` the user clicks). We need it here because "go to `/admin`" happens as a *reaction* to login succeeding, not a click. → [React Router — `useNavigate`](https://reactrouter.com/en/main/hooks/use-navigate).
+**Why it works & further reading:**
+- **`<Routes>`** renders the single `<Route>` whose path matches the current URL. → [React Router — `Routes`](https://reactrouter.com/en/main/route/route).
+- Wrapping the `/student` and `/admin` elements in `<ProtectedRoute>` from Step 2 means the guard runs *before* the real page ever mounts.
+- `path="*"` is the catch-all — a typo'd URL or old bookmark gets redirected to `/login` instead of a blank page.
+- The first [`useEffect`](GLOSSARY.md#useeffect) is unchanged from **U1**; the second is new here — logging in only updates Redux state, it doesn't navigate by itself, so this effect is what actually lands a fresh login on `/student` or `/admin`.
+- `useNavigate()` is a [hook](GLOSSARY.md#hook) for navigating **from code**, not a click — needed because "go to `/admin`" happens as a *reaction* to login succeeding. → [React Router — `useNavigate`](https://reactrouter.com/en/main/hooks/use-navigate).
 
 ### Step 4 — Simplify `Login.tsx` (~5 min)
 
@@ -249,7 +269,7 @@ export default function StudentDashboard() {
 }
 ```
 
-**Explanation:** this is a **stub** — a minimal stand-in that satisfies the import so TypeScript and the router are happy, with no real behavior yet. It gets fully replaced in a later lesson; for now it just proves the `/student` route and its `ProtectedRoute` guard work end-to-end.
+**Explanation:** this is a **stub** — a minimal stand-in that satisfies the import so [TypeScript](GLOSSARY.md#typescript) and the router are happy, with no real behavior yet. It gets fully replaced in a later lesson; for now it just proves the `/student` route and its `ProtectedRoute` guard work end-to-end.
 
 ---
 
@@ -289,7 +309,7 @@ Then open a Pull Request on GitHub with **base = `cr/u1-real-auth`** (not `main`
 - **You're bounced to `/login` even though you just logged in successfully** — `ProtectedRoute` is reading `s.auth.isLoggedIn` / `s.auth.user?.role`. If your `authSlice.ts` from U1 uses different field names, the guard will always see "not logged in." Compare the field names in Step 2 against your actual `authSlice.ts`.
 - **Logging in doesn't navigate anywhere** — check the second `useEffect` in `App.tsx` (Step 3). It only fires when `user` changes, so if login isn't actually updating `state.auth.user`, you'll stay on `/login`. Confirm U1's login thunks are working first (re-run U1's testing guide).
 - **`Cannot find module './StudentDashboard'` or a TypeScript error about a missing default export** — you skipped Step 5, or the stub file's export isn't `export default`. Re-check the exact snippet in Step 5.
-- **Typing `/admin` directly and refreshing shows a 404** — this shouldn't happen with `npm run dev` (Vite's dev server serves `index.html` for any path automatically). If you *do* see it locally, make sure you're running `npm run dev` and not opening a built `dist/index.html` directly. (This exact problem *can* happen after deploying to production — that's an nginx "SPA fallback" setting, covered in the guide's [Part F3.4](../ui-development-guide.md#f34-nginx-static-files--spa-fallback--api-proxy) — not something to worry about in this lesson.)
+- **Typing `/admin` directly and refreshing shows a 404** — this shouldn't happen with `npm run dev` ([Vite](GLOSSARY.md#vite)'s dev server serves `index.html` for any path automatically). If you *do* see it locally, make sure you're running `npm run dev` and not opening a built `dist/index.html` directly. (This exact problem *can* happen after deploying to production — that's an nginx "[SPA](GLOSSARY.md#spa) fallback" setting, covered in the guide's [Part F3.4](../ui-development-guide.md#f34-nginx-static-files--spa-fallback--api-proxy) — not something to worry about in this lesson.)
 
 ---
 

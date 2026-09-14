@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python (backend/)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+webapp/var/
+
+# Environment files (secrets live only on the box / locally, never committed)
+.env
+.env.*
+!.env.example
+
+# Deploy credentials (real file is created from scripts/aws-credential.sh.example)
+scripts/aws-credential.sh

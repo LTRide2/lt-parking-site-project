@@ -29,13 +29,34 @@ Concretely, you will have:
 - [ ] After a **refresh**, a created lot is still there, and a removed lot is still gone (it's the database, not local state).
 - [ ] Work committed on `cr/u9-add-lot` and pushed, PR base = `cr/u8-arrange-spots`.
 
+**🖼 What changes on screen (before → after):**
+```
+     BEFORE (fixed lot list)                AFTER (admin can grow/shrink it)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│ [Home][Lot 1]…[Lot 17]    │      │ [Home][Lot 1]…[Lot 17]    │
+│                           │  ─▶  │ ➕ Add Lot   🗑 Remove Lot │
+│ (hard-coded loop — adding │      │                           │
+│  "Lot 18" means editing   │      │ ➕ opens:                 │
+│  code and redeploying)    │      │   Name    [North Lot___]  │
+│                           │      │   Lot #   [7__] optional  │
+│                           │      │       [Cancel]  [Create]  │
+└───────────────────────────┘      └───────────────────────────┘
+                                     new lot appears + is selected;
+                                     🗑 stays disabled while any of
+                                     the selected lot's spaces are
+                                     still assigned to a student
+```
+The lot-nav row itself doesn't change shape — what's new is the admin's ability to add to it (and, for an empty lot, remove from it) without anyone touching code.
+
 ---
 
 ## 🤔 Why this lesson matters
 
-Every previous CR either *read* server data or *edited* rows that the seed already created. This is the first time the UI **creates a brand-new top-level resource** — a `POST` that makes a row that didn't exist. That's a small but important shift: the app stops being limited to the 17 lots someone typed into a seed file and becomes something the school can grow on its own.
+Every previous CR either *read* server data or *edited* rows that the seed already created. This is the first time the UI **creates a brand-new top-level resource** — a [POST](GLOSSARY.md#http-methods) that makes a row that didn't exist. That's a small but important shift: the app stops being limited to the 17 lots someone typed into a seed file and becomes something the school can grow on its own.
 
 It's also the capstone that ties U7 and U8 together into a real workflow. On its own, "add a lot" would give you an empty, mapless lot — not very useful. But you already built the two tools that finish the job: **U7** puts a photo behind it and **U8** places its spots. So this lesson deliberately ends by **selecting the new lot and pointing the admin at those tools** — three CRs combining into one coherent "stand up a new lot from scratch" flow. Recognizing when a new feature should *hand off* to features you already have (instead of re-implementing them) is a habit worth building.
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -59,8 +80,8 @@ You need **U8** merged (or on your machine) and backend **B9** running. This CR 
 
 **The backend contract this lesson calls (backend B9):**
 
-- `POST /api/lots` — admin only. Body `{ name: string, number?: number, capacity?: number, display_order?: number }`. Creates the lot (and, if `capacity` is given, that many `available` spaces with no position yet — you place them in U8). The optional **`number`** is a non-negative integer, **unique across lots** (defaults to the lot's `display_order` when omitted); auto-generated spaces are labelled `<number>-<n>`. Returns the new `Lot` (including `number`). Rejects a blank/duplicate `name` **or a duplicate `number`** with `400`/`409` and the standard `{error:{message}}` envelope.
-- `DELETE /api/lots/:id` — admin only. Removes the lot and cascade-deletes its spaces and any interest rows referencing it. Returns **`409`** (with the standard error envelope) if **any** space in the lot is currently `assigned` — the admin must unassign first (U6). This mirrors the "can't delete an assigned space" guard on the layout endpoint (U8/B8).
+- `POST /api/lots` — admin only. Body `{ name: string, number?: number, capacity?: number, display_order?: number }`. Creates the lot (and, if `capacity` is given, that many `available` spaces with no position yet — you place them in U8). The optional **`number`** is a non-negative integer, **unique across lots** (defaults to the lot's `display_order` when omitted); auto-generated spaces are labelled `<number>-<n>`. Returns the new `Lot` (including `number`). Rejects a blank/duplicate `name` **or a duplicate `number`** with `400`/`409` and the standard `{error:{message}}` [envelope](GLOSSARY.md#envelope).
+- [DELETE](GLOSSARY.md#http-methods) `/api/lots/:id` — admin only. Removes the lot and cascade-deletes its spaces and any interest rows referencing it. Returns **`409`** (with the standard error envelope) if **any** space in the lot is currently `assigned` — the admin must unassign first (U6). This mirrors the "can't delete an assigned space" guard on the layout [endpoint](GLOSSARY.md#endpoint) (U8/B8).
 
 > **📸 What's already in the prototype:** the bottom nav is built from `['Home', ...Array.from({ length: 17 }, (_, i) => \`Lot ${i + 1}\`)]` — a hard-coded list. Since **U3** you already replaced that with `lots.map(...)` fed by `fetchLots()`. This lesson just adds a way to *grow* that server list; if your U3 change is in place, a new lot appears in the nav for free once `fetchLots()` re-runs.
 
@@ -101,76 +122,90 @@ export const deleteLot = createAsyncThunk(
 );
 ```
 
-Handle their states in `extraReducers`:
+Handle their states in [`extraReducers`](GLOSSARY.md#extrareducers):
 
 ```ts
 .addCase(createLot.fulfilled, (state, action) => {
   state.selectedLotId = action.payload.id;   // jump to the new lot
 })
 .addCase(createLot.rejected, (state, action) => {
-  state.error = action.error.message ?? "Could not create the lot";
+  state.error = action.error.message ?? "Could not create the lot";   // show the server's reason, or a fallback
 })
 .addCase(deleteLot.fulfilled, (state, action) => {
   if (state.selectedLotId === action.payload) state.selectedLotId = null;   // back to Home, but only if the deleted lot was the one showing
 })
 .addCase(deleteLot.rejected, (state, action) => {
-  state.error = action.error.message ?? "Could not remove the lot";
+  state.error = action.error.message ?? "Could not remove the lot";   // e.g. the server's 409 "unassign first" message
 });
 ```
 
-**Explanation:**
-- The thunk returns the created `Lot`, and `createLot.fulfilled` sets `selectedLotId` to it — that's the "land on the new lot" behavior. → [MDN: POST](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST).
-- `dispatch(fetchLots())` reuses the **refetch-after-mutation** pattern (U4/U6/U7): don't hand-append to the list, just re-ask the server so the client can't drift out of sync.
-- `deleteLot.rejected` carries the server's `409` message (e.g. "unassign its spaces first") straight into `state.error` — the client never has to know the rule, it just shows what the server said. You'll *also* gate the button client-side (Step 4) so the common case never even sends a doomed request.
+**Why it works & further reading:**
+- The [thunk](GLOSSARY.md#thunk) returns the created `Lot`, and `createLot.fulfilled` sets `selectedLotId` to it — that's the "land on the new lot" behavior. → [MDN: POST](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST).
+- The [`dispatch`](GLOSSARY.md#dispatch)`(fetchLots())` call inside the thunk reuses the **refetch-after-mutation** pattern (U4/U6/U7): don't hand-append to the list, just re-ask the server so the client can't drift out of sync.
+- `deleteLot.rejected` carries the server's `409` message straight into `state.error` — the client never has to know the rule, it just shows what the server said. You'll *also* gate the button client-side (Step 4) so the common case never even sends a doomed request.
 
 ### Step 2 — Add the button and the Create Lot modal in `ControlBoard.tsx` (~20 min)
 
 **2a. Local modal state** near the top of `ControlBoard`:
 
 ```tsx
-const [showAddLot, setShowAddLot] = useState(false);
-const [lotName, setLotName] = useState('');
-const [lotNumber, setLotNumber] = useState('');
-const [lotCapacity, setLotCapacity] = useState('');
+const [showAddLot, setShowAddLot] = useState(false);   // is the Create Lot modal open?
+const [lotName, setLotName] = useState('');            // required
+const [lotNumber, setLotNumber] = useState('');        // optional; kept as a string so an empty box can stay empty
+const [lotCapacity, setLotCapacity] = useState('');    // optional; how many spaces to pre-create
 ```
+
+**Why it works & further reading:**
+- [`useState`](GLOSSARY.md#usestate) is [React](GLOSSARY.md#react)'s [hook](GLOSSARY.md#hook) for [state](GLOSSARY.md#state) that belongs to just this [component](GLOSSARY.md#component) — it hands back a value and a setter that re-renders the component when called. → [React: useState](https://react.dev/reference/react/useState).
+- `lotNumber`/`lotCapacity` are numbers on the server, but kept as strings here so an empty box doesn't snap to `0`; the Create button (Step 2c) converts them with `Number(...)` only at submit time.
+- All four fit **local component state** rather than Redux: they only matter for the lifetime of one modal interaction, and reset fresh each time the modal reopens (Step 2b's `onClick`).
 
 **2b. The button.** Add **➕ Add Lot** to the admin sidebar. Unlike the edit actions, this is a management action, so it isn't gated behind Edit Mode — but it *is* admin-only (the whole control panel already only renders for `isAdmin`). Put it just above the account section, or as the first control-panel button:
 
 ```tsx
 <button
-  style={sideButtonStyle(false, false)}
-  onClick={() => { setLotName(''); setLotNumber(''); setLotCapacity(''); setShowAddLot(true); }}
+  style={sideButtonStyle(false, false)}   // not selected, not disabled — same helper the other sidebar buttons use
+  onClick={() => { setLotName(''); setLotNumber(''); setLotCapacity(''); setShowAddLot(true); }}   // reset the form, then open the modal
 >
   ➕ Add Lot
 </button>
 ```
 
+**Why it works & further reading:**
+- Clearing all three fields *before* opening the modal (not after closing it) means a previous attempt's leftover text never flashes when the modal reopens.
+- The emoji is just a visual cue, matching the `🗑 Remove Lot` button you'll add in Step 4.
+
 **2c. The modal.** Mirror the Manual Assign modal you built in U6:
 
 ```tsx
 {showAddLot && (
+  // full-screen dark backdrop, centers the card — same shape as the U6 Manual Assign modal
   <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
     <div style={{ background: 'white', color: '#333', borderRadius: '10px', padding: '24px', width: '320px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
       <div style={{ fontWeight: 'bold' }}>Create Parking Lot</div>
 
+      {/* required field */}
       <label style={{ fontSize: '0.85rem' }}>Name
         <input autoFocus value={lotName} onChange={(e) => setLotName(e.target.value)}
           placeholder="e.g. North Lot"
           style={{ width: '100%', border: '1px solid #ccc', borderRadius: '6px', padding: '8px', marginTop: '4px' }} />
       </label>
 
+      {/* optional — sets the prefix every spot label in this lot gets, e.g. 7-1, 7-2 */}
       <label style={{ fontSize: '0.85rem' }}>Lot number (optional)
         <input type="number" min={0} value={lotNumber} onChange={(e) => setLotNumber(e.target.value)}
           placeholder="e.g. 7 — prefixes spot labels as 7-1, 7-2…"
           style={{ width: '100%', border: '1px solid #ccc', borderRadius: '6px', padding: '8px', marginTop: '4px' }} />
       </label>
 
+      {/* optional — how many positionless spaces the server pre-creates; place them in U8 */}
       <label style={{ fontSize: '0.85rem' }}>Capacity (optional)
         <input type="number" min={0} value={lotCapacity} onChange={(e) => setLotCapacity(e.target.value)}
           placeholder="how many spaces to start with"
           style={{ width: '100%', border: '1px solid #ccc', borderRadius: '6px', padding: '8px', marginTop: '4px' }} />
       </label>
 
+      {/* shows the server's rejection reason, e.g. duplicate name/number */}
       {error && <div style={{ color: '#b00', fontSize: '0.8rem' }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -179,11 +214,11 @@ const [lotCapacity, setLotCapacity] = useState('');
           Cancel
         </button>
         <button
-          disabled={!lotName.trim() || status === 'loading'}
+          disabled={!lotName.trim() || status === 'loading'}   // client-side UX only; the server is the real gate
           onClick={async () => {
             const res = await dispatch(createLot({
               name: lotName.trim(),
-              number: lotNumber ? Number(lotNumber) : undefined,
+              number: lotNumber ? Number(lotNumber) : undefined,     // "" -> undefined, so the server default applies
               capacity: lotCapacity ? Number(lotCapacity) : undefined,
             }));
             if (createLot.fulfilled.match(res)) setShowAddLot(false);   // close only on success
@@ -201,23 +236,26 @@ const [lotCapacity, setLotCapacity] = useState('');
 
 Add `createLot` (and `deleteLot`, used in Step 4) to the `./store/parkingSlice` import list.
 
-**Explanation:**
-- The **Create** button is disabled until the name is non-blank — client-side UX only. The server still enforces the real rules (`400`/`409`), and `createLot.rejected` puts that message into `state.error`, which the modal renders in red. → [OWASP: Input validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html).
-- `createLot.fulfilled.match(res)` — the dispatch returns an action; we only close the modal if it *succeeded*, so a rejected create keeps the modal open with the error visible. → [Redux Toolkit: `unwrapResult`/matchers](https://redux-toolkit.js.org/api/createAsyncThunk#checking-errors-after-dispatching).
-- **Lot number** is optional. When set, the server stores it (rejecting a duplicate with `409`) and every spot you add in U8 auto-labels `<number>-<n>` (e.g. `7-1`), so a spot's label tells you its lot at a glance. Leave it blank and the server defaults it to the lot's display order. It's a plain number field — the same disabled/`state.error` handling covers a duplicate.
-- Capacity is optional; when given, the backend seeds that many positionless spaces you'll place in U8 (labelled with the lot number prefix if you set one).
+**Why it works & further reading:**
+- Disabling **Create** until the name is non-blank is client-side UX only — the server still enforces the real rules (`400`/`409`), and `createLot.rejected` puts that message into `state.error` for the modal to render in red. → [OWASP: Input validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html).
+- `createLot.fulfilled.match(res)` checks whether the dispatched [action](GLOSSARY.md#action) succeeded, so a rejected create keeps the modal open with the error visible instead of closing on every attempt. → [Redux Toolkit: checking errors after dispatching](https://redux-toolkit.js.org/api/createAsyncThunk#checking-errors-after-dispatching).
+- **Lot number**, left blank, defaults to the lot's display order on the server; set, it's rejected as a duplicate the same way a duplicate name is — one `state.error` path covers both.
 
 ### Step 3 — Hand off to map + arrange (~5 min)
 
 Because `createLot.fulfilled` already set `selectedLotId` to the new lot, the canvas switches to it automatically. Give the admin the obvious next step by showing a hint when the selected lot has no spaces yet. In the main content, near the canvas:
 
 ```tsx
+{/* only shows for a selected, still-empty lot — disappears on its own once spots exist */}
 {selectedLotId != null && (spacesByLot[selectedLotId]?.length ?? 0) === 0 && (
   <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#eee' }}>
     New lot created. Next: <b>Update School Map</b> to add its photo, then <b>Arrange Spots</b> to place its spaces.
   </div>
 )}
 ```
+
+**Why it works & further reading:**
+- No extra state to track or clear — the hint's visibility is entirely derived from `selectedLotId` and the current space count, so it appears and disappears on its own as the admin's work (U7/U8) fills the lot in.
 
 **UI mock (after this phase).** Clicking **➕ Add Lot** opens the modal; after Create, the nav gains the lot and it's selected with a next-step hint.
 ```
@@ -239,16 +277,16 @@ Removing a lot is the mirror of creating one — but with a **safety rule**: you
 Add this to the admin control panel, near **➕ Add Lot** (both are admin-only management actions):
 
 ```tsx
-{selectedLotId != null && (() => {
+{selectedLotId != null && (() => {   // nothing to remove on Home, so render nothing there
   const spaces = spacesByLot[selectedLotId] ?? [];
-  const hasAssigned = spaces.some((s) => s.status === 'assigned');
+  const hasAssigned = spaces.some((s) => s.status === 'assigned');   // client-side gate; the server's 409 is the real one
   return (
     <div>
       <button
         style={sideButtonStyle(false, hasAssigned)}
         disabled={hasAssigned || status === 'loading'}
         onClick={() => {
-          if (window.confirm('Remove this lot and all its spaces? This cannot be undone.')) {
+          if (window.confirm('Remove this lot and all its spaces? This cannot be undone.')) {   // guard the destructive click
             dispatch(deleteLot(selectedLotId));
           }
         }}
@@ -265,10 +303,9 @@ Add this to the admin control panel, near **➕ Add Lot** (both are admin-only m
 })()}
 ```
 
-**Explanation:**
-- The button only shows when a lot is selected (`selectedLotId != null`) — Home has nothing to remove.
-- `hasAssigned` checks the lot's spaces for an `assigned` one and **disables** the button with an explanatory note. This is UX only; the rule is really enforced by the server's `409`, which `deleteLot.rejected` would still surface if the state were stale. → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
-- `window.confirm` guards the destructive click. On success, `deleteLot.fulfilled` nulls `selectedLotId` — it only does that when the deleted lot was the one selected, which here it always is (you dispatched `deleteLot(selectedLotId)`) — so the view returns to Home, and `fetchLots()` has already dropped the lot from the nav.
+**Why it works & further reading:**
+- `hasAssigned` disables the button with an explanatory note as UX only; the rule is really enforced by the server's `409`, which `deleteLot.rejected` would still surface if this state were stale. → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
+- On success, `deleteLot.fulfilled` nulls `selectedLotId` (Step 1) — since you always dispatched `deleteLot(selectedLotId)`, the deleted lot was always the one selected, so the view returns to Home, and `fetchLots()` has already dropped the lot from the nav.
 
 ---
 

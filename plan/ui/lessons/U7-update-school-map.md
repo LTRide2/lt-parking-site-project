@@ -13,8 +13,8 @@ Right now the **Update School Map** button just sits there — clicking it does 
 
 Concretely, you will have:
 
-- An `uploadFile` helper in `src/api/client.ts` that sends a file as `FormData` instead of JSON.
-- An `uploadLotMap` thunk that `POST`s the file to `/api/lots/:id/map` and then refreshes the lots so the new image shows up.
+- An `uploadFile` helper in `src/api/client.ts` that sends a file as [`FormData`](GLOSSARY.md#formdata) instead of JSON.
+- An `uploadLotMap` [thunk](GLOSSARY.md#thunk) that [`POST`](GLOSSARY.md#http-methods)s the file to `/api/lots/:id/map` and then refreshes the lots so the new image shows up.
 - A hidden `<input type="file">` wired to the **Update School Map** button, so a click opens the OS picker instead of doing nothing.
 - A shared `mapImg()` helper so the map image renders in **every** lot view — not only the one with spots already arranged on it.
 
@@ -26,17 +26,33 @@ Concretely, you will have:
 - [ ] Choosing the *same* file a second time still triggers another upload (the picker doesn't silently ignore a repeat choice).
 - [ ] Your work is committed on branch `cr/u7-map-upload` and pushed, PR base = `cr/u6-admin-assign`.
 
+**🖼 What changes on screen (before → after):**
+```
+      BEFORE (placeholder map)                AFTER (real school map)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│  ░░░░░░░░░░░░░░░░░░░░░░░  │      │  🛰️  (aerial photo of     │
+│  ░░  [A1] [A2] [A3]   ░░  │  ─▶  │       the real campus)    │
+│  ░░  [B1] [B2] [B3]   ░░  │      │  [A1] [A2] [A3]           │
+│  ░░░░░░░░░░░░░░░░░░░░░░░  │      │  [B1] [B2] [B3]           │
+└───────────────────────────┘      └───────────────────────────┘
+  a generic gray placeholder         the school's real aerial/site
+  sits behind every spot             map, same spots drawn on top
+```
+Nothing about the spots themselves moves — what changes is the image drawn *underneath* them, from a generic placeholder to the map you upload with **Update School Map**.
+
 ---
 
 ## 🤔 Why this lesson matters
 
-Every request you've made so far — login, fetching lots, creating an assignment — has been **JSON**: a JavaScript object, turned into text, sent as the request body. A file upload can't work that way. An image is binary data, not text, and your existing `api` helper (built in U0) hard-codes `Content-Type: application/json` and runs `JSON.stringify` on the body. Force a file through that and you'd send a corrupted mess the server can't read.
+Every request you've made so far — login, fetching lots, creating an assignment — has been **JSON**: a JavaScript object, turned into text, sent as the request body. A file upload can't work that way. An image is binary data, not text, and your existing [`api`](GLOSSARY.md#api) helper (built in U0) hard-codes `Content-Type: application/json` and runs `JSON.stringify` on the body. Force a file through that and you'd send a corrupted mess the server can't read.
 
 The fix is a different **encoding**: `multipart/form-data`. Instead of one JSON blob, the request body is split into named "parts" (here, one part named `file` holding the raw image bytes), separated by a boundary string the *browser* generates for you — which is exactly why you must **not** set `Content-Type` yourself; the browser needs to write the boundary into that header.
 
 That's also why Step 1 below builds a *second*, dedicated helper rather than teaching `api` a new trick: mixing "always JSON-encode" and "sometimes send raw bytes" into one function would make it harder to reason about, not easier. Recognizing "this request is fundamentally a different shape, so it gets its own path" — rather than jamming everything through one client function — is a decision you'll keep making as apps grow.
 
-This is also a nice, small, complete feature to close out the frontend track on: one button, one file, one endpoint — and it's the last piece before the whole app goes live.
+This is also a nice, small, complete feature to close out the frontend track on: one button, one file, one [endpoint](GLOSSARY.md#endpoint) — and it's the last piece before the whole app goes live.
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -83,14 +99,17 @@ export async function uploadFile(path: string, file: File) {
   if (token) headers["Authorization"] = `Bearer ${token}`;   // NOTE: no Content-Type — the browser sets it
 
   if (USE_MOCK) {
+    // Dev-default path: hand the file to the in-memory mock instead of a real server.
     const res = await mockUpload(path, file, headers);
     const body = (await res.json()) as { data?: unknown; error?: { message?: string } };
     if (!res.ok) throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
     return body.data;
   }
 
+  // Real path: build a multipart body — one named "file" part holding the raw bytes.
   const formData = new FormData();
   formData.append("file", file);
+  // No Content-Type here on purpose — fetch writes the multipart boundary itself.
   const res = await fetch(`${BASE}${path}`, { method: "POST", body: formData, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
@@ -98,13 +117,12 @@ export async function uploadFile(path: string, file: File) {
 }
 ```
 
-**Explanation, line by line:**
-- The `Authorization` header is set the same way `api` does it — the admin's login token still needs to ride along so the server knows who's asking. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
-- **`if (USE_MOCK) { ... }` — the same mock/real branch every other `api` call already takes.** With the PoC's mock backend on (the default), the upload goes to `mockUpload(path, file, headers)` — an in-memory stand-in that stores the file without touching the network — instead of a real multipart request. This is why the whole frontend, including file uploads, runs standalone with no live server.
-- **The real path builds the multipart body**: `new FormData()` / `formData.append("file", file)` puts the raw `File` object the browser gave you into one part named `"file"`. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
-- **No `Content-Type` header is set on the real `fetch` call.** When `fetch`'s `body` is a `FormData` object, the browser automatically writes `Content-Type: multipart/form-data; boundary=...` for you — and it's the *only* one who knows the exact boundary string it's about to use. Setting `Content-Type` yourself would very likely break the upload.
-- `res.json()...` and the `!res.ok` check mirror the error-handling pattern `api` already uses (in both branches), so a failed upload surfaces a readable message instead of an unhandled exception.
-- `token`, `BASE`, and `USE_MOCK` are module-level variables already defined in `client.ts` (from earlier lessons); `mockUpload` is imported from `src/api/mock/backend.ts`. This helper reads them directly without any new imports of its own beyond that.
+**Why it works & further reading:**
+- **`Authorization` header** — set the same way `api` does it, so the admin's login [token](GLOSSARY.md#jwt) still rides along and the server knows who's asking. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
+- **[Mock backend](GLOSSARY.md#mock-backend) branch** — same mock/real split every other `api` call takes; `mockUpload` stores the file in memory with no network, which is why the whole frontend (uploads included) runs standalone. → [Lesson U0](U0-project-hygiene.md).
+- **[`FormData`](GLOSSARY.md#formdata) builds the multipart body** — `formData.append("file", file)` puts the raw `File` in one part named `"file"`. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
+- **Why no `Content-Type`** — when `fetch`'s body is a `FormData` object, the browser writes `Content-Type: multipart/form-data; boundary=...` itself; it's the only one that knows the boundary string. Setting it yourself breaks the upload.
+- `token`, `BASE`, `USE_MOCK` are existing module-level values from `client.ts`; `mockUpload` comes from `src/api/mock/backend.ts` — no new imports needed beyond that.
 
 ### Step 2 — Add an upload thunk to `parkingSlice.ts` (~10 min)
 
@@ -115,7 +133,7 @@ import { api, uploadFile } from "../api/client";   // extend the existing import
 export const uploadLotMap = createAsyncThunk(
   "parking/uploadMap",
   async (args: { lotId: number; file: File }, { dispatch }) => {
-    await uploadFile(`/api/lots/${args.lotId}/map`, args.file);
+    await uploadFile(`/api/lots/${args.lotId}/map`, args.file);   // send the file
     await dispatch(fetchLots());     // refresh so the new map_url is in state
     return args.lotId;
   }
@@ -126,17 +144,17 @@ Handle its `rejected` case to surface errors:
 
 ```ts
 .addCase(uploadLotMap.rejected, (state, action) => {
-  state.error = action.error.message ?? "Map upload failed";
+  state.error = action.error.message ?? "Map upload failed";   // show the failure reason
 })
 ```
 
-**Explanation:**
-- `uploadLotMap`'s payload creator calls your new `uploadFile` helper (not `api`) — this is the one place in the whole app that sends a non-JSON request.
-- After the upload succeeds, it `dispatch(fetchLots())` — the same **refetch-after-mutation** pattern from U6's `createAssignment`: rather than guessing what the server changed, ask it again and trust the fresh answer. That's what puts the new `map_url` into Redux state.
-- The `.rejected` case writes any thrown error (including the message your `uploadFile` helper throws on a non-`ok` response) into `state.error`, the same field your existing error UI already reads.
+**Why it works & further reading:**
+- **`uploadFile`, not `api`** — the payload creator calls your new helper from Step 1; this is the one place in the app sending a non-JSON request.
+- **Refetch-after-mutation** — after the upload succeeds, [`dispatch`](GLOSSARY.md#dispatch)ing `fetchLots()` reuses U6's `createAssignment` pattern: ask the server again rather than guessing what changed, which is what lands the new `map_url` in [state](GLOSSARY.md#state). → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
+- **`.rejected`** writes any thrown error (including `uploadFile`'s non-`ok` message) into `state.error`, the same field the existing error UI already reads.
 
 > **Two things that make an uploaded map "not load" — worth knowing before you test.**
-> - **Where the image lives (mock backend only).** If you run the PoC against the mock backend, it must store the file as a base64 **data URL** (`FileReader.readAsDataURL`), *never* `URL.createObjectURL(file)`. A `blob:` URL is valid only for the current page session — it renders once but is dead after a refresh and is meaningless once written to `localStorage`, so the map "doesn't load" on reload. A **real** backend persists the file and returns a durable URL, so it has no blob-lifetime bug. (Caveat: the mock's `persist()` swallows `QuotaExceededError` and base64 inflates size ~33%, so several multi-MB uploads can quietly exceed the ~5 MB `localStorage` quota — fine in-session, gone after reload.)
+> - **Where the image lives (mock backend only).** If you run the PoC against the mock backend, it must store the file as a base64 **data URL** (`FileReader.readAsDataURL`), *never* `URL.createObjectURL(file)`. A `blob:` URL is valid only for the current page session — it renders once but is dead after a refresh and is meaningless once written to `localStorage`, so the map "doesn't load" on reload. A **real** backend persists the file and returns a durable URL, so it has no blob-lifetime bug. (Caveat: the mock's `persist()` swallows `QuotaExceededError` and base64 inflates size ~33%, so several multi-MB uploads can quietly exceed the ~5 MB [`localStorage`](GLOSSARY.md#localstorage) quota — fine in-session, gone after reload.)
 > - **Where the image is drawn (frontend).** The lot view must render `map_image_url` **whenever it exists** — in the no-spaces view, the fallback grid, the authored layout, *and* arrange mode. A common bug is drawing the `<img>` only in the authored-layout/arrange views, so a lot with no spaces or positionless spaces never shows a freshly uploaded map. U3/U8 centralize this in one small `mapImg()` helper used by every lot view; make sure yours does too, or your upload will "succeed" yet appear to do nothing.
 
 ### Step 3 — Wire the button in `ControlBoard.tsx` (~15 min)
@@ -146,10 +164,10 @@ A plain `<button>` can't open the OS file picker on its own — only a real `<in
 ```tsx
 import { uploadLotMap } from './store/parkingSlice';
 // ...
-const fileInputRef = useRef<HTMLInputElement>(null);
+const fileInputRef = useRef<HTMLInputElement>(null);   // handle to the hidden real <input>
 
 const onMapFileChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
+  const file = e.target.files?.[0];                                          // the picked File, if any
   if (file && selectedLotId != null) dispatch(uploadLotMap({ lotId: selectedLotId, file }));
   e.target.value = "";   // allow re-choosing the same file later
 };
@@ -160,7 +178,7 @@ Update the **Update School Map** button's `onClick` to open the picker, and add 
 ```tsx
 <button
   style={sideButtonStyle(editAction === 'update', !isControlPanelActive)}
-  onClick={() => { dispatch(setEditAction('update')); fileInputRef.current?.click(); }}
+  onClick={() => { dispatch(setEditAction('update')); fileInputRef.current?.click(); }}  // click() opens the OS picker
   disabled={!isControlPanelActive}
 >
   Update School Map
@@ -168,18 +186,18 @@ Update the **Update School Map** button's `onClick` to open the picker, and add 
 <input
   ref={fileInputRef}
   type="file"
-  accept="image/png,image/jpeg"
-  style={{ display: 'none' }}
+  accept="image/png,image/jpeg"   // hint only, not a security check
+  style={{ display: 'none' }}     // never shown; triggered via the button above
   onChange={onMapFileChosen}
 />
 ```
 
-**Explanation:**
-- `useRef<HTMLInputElement>(null)` creates a handle React can attach to the real DOM `<input>` element, so your code can call browser methods on it directly (`.click()`) instead of only reading its rendered value.
-- `fileInputRef.current?.click()` is the whole trick: **you never show this input.** Clicking the visible button programmatically clicks the hidden one, which is what actually opens the OS file picker. → [MDN: `<input type="file">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/file).
-- `accept="image/png,image/jpeg"` hints the OS picker to show/prefer image files — it's a UX nicety, **not** a security boundary; a user can still pick a renamed file, so the server must validate the real content (that's why a bad file still comes back as a 400/413 from the backend, not silently accepted).
-- `onMapFileChosen` reads the chosen file off `e.target.files?.[0]` (file inputs always hold an array-like `FileList`, even for a single file), guards that a lot is selected, then dispatches `uploadLotMap`.
-- `e.target.value = ""` at the end resets the input. Without this, choosing the *exact same file* a second time wouldn't fire `onChange` at all — the browser only fires it on a value **change**, and re-picking an identical file doesn't look like one unless the field was cleared first.
+**Why it works & further reading:**
+- **[`useRef`](GLOSSARY.md#useref)** creates a handle to the real DOM `<input>`, so code can call `.click()` on it directly instead of only reading its rendered value. → [React: useRef](https://react.dev/reference/react/useRef).
+- **The hidden-input trick** — the input is never shown; clicking the visible button programmatically clicks the hidden one, which is what actually opens the OS file picker. → [MDN: `<input type="file">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/file).
+- **`accept` is a UX hint, not a security boundary** — a user can still pick a renamed file, so the server must validate the real content (a bad file comes back as a 400/413, never silently accepted).
+- **Reading the file** — `e.target.files?.[0]` (file inputs hold an array-like `FileList` even for one file); guarded on a lot being selected, then dispatched to `uploadLotMap`.
+- **Why `e.target.value = ""`** — without it, re-picking the *exact same* file wouldn't fire `onChange` at all; the browser only fires it on a value change, and the field must be cleared first to look like one.
 
 **UI mock (after this phase).** Pressing **Update School Map** opens the OS file picker; after a successful upload the campus image on Home refreshes.
 ```

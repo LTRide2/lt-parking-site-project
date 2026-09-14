@@ -13,8 +13,8 @@ Right now the admin's **Manual Assign** button is a toy — it pops up a box ask
 
 Concretely, you will have:
 
-- A `fetchInterest` thunk that loads **all** pending interest requests (the admin's view, not just "mine"), now carrying each requester's **name**.
-- A `createAssignment` thunk that `POST`s to `/api/assignments` and then **refreshes** the pending list.
+- A `fetchInterest` [thunk](GLOSSARY.md#thunk) that loads **all** pending interest requests (the admin's view, not just "mine"), now carrying each requester's **name**.
+- A `createAssignment` thunk that [`POST`](GLOSSARY.md#http-methods)s to `/api/assignments` and then **refreshes** the pending list.
 - An `unassignSpace` thunk (`DELETE /api/assignments/:spaceId`) that frees a space **and** re-queues the student's request as `pending`.
 - A `moveAssignment` thunk (`POST /api/assignments/move`) that frees a space and re-queues the occupant's request as `pending` **in a different lot**.
 - An "Assign to Spot" sub-panel in `ControlBoard.tsx`, split into **requests for this lot** (clickable, by name, each showing **the spot they requested**) and **requests for other lots** (read-only), plus an unassign/move panel for an already-assigned spot.
@@ -30,17 +30,35 @@ Concretely, you will have:
 - [ ] A stale pick from another lot can never get assigned into the wrong lot (`pickedInterest.lot_id === selectedLotId` is checked before assigning).
 - [ ] Your work is committed on branch `cr/u6-admin-assign` and pushed, PR base = `cr/u5-student-interest`.
 
+**🖼 What changes on screen (before → after):**
+```
+      BEFORE (toy manual assign)                   AFTER (real assign/unassign/move)
+┌───────────────────────────┐          ┌───────────────────────────┐
+│   Admin Ctrl              │          │   Admin Ctrl              │
+│   [Manual Assign]         │   ─▶     │   [Assign to Spot]        │
+│                           │          │   This lot (2):           │
+│  click a space → type a   │          │    Ana  · wants A3        │
+│  student ID by hand       │          │    Ben  · wants —         │
+│  (never saved anywhere)   │          │   [Unassign]  Move: [▾]   │
+└───────────────────────────┘          └───────────────────────────┘
+  the "assignment" only                  pick a request, click its
+  lives in your browser tab              outlined spot — saved for real
+```
+Clicking an already-*assigned* space no longer assigns or removes anything on the spot — it now **selects** that space and opens the Unassign / Move sub-panel below it.
+
 ---
 
 ## 🤔 Why this lesson matters
 
 Lesson U5 gave students a way to **ask** for a spot. But asking isn't getting — someone on the other side has to say yes. That's what U6 is: the other half of the same conversation. The student's request and the admin's assignment are two views onto **one shared piece of server truth** (the `interest` and `spaces` tables you built on the backend).
 
-This is also your first lesson where a UI action **changes data that another user is looking at**. When the admin clicks "assign," the student's dashboard needs to reflect that — not because the browser magically syncs, but because the student's page will `fetch` again later and get the new answer from the server. Getting comfortable with "the server is the single source of truth, the UI just asks it questions" is the single most important mental model for the rest of your career as a web developer.
+This is also your first lesson where a UI action **changes data that another user is looking at**. When the admin clicks "assign," the student's dashboard needs to reflect that — not because the browser magically syncs, but because the student's page will [`fetch`](GLOSSARY.md#fetch) again later and get the new answer from the server. Getting comfortable with "the server is the single source of truth, the UI just asks it questions" is the single most important mental model for the rest of your career as a web developer.
 
 Finally, this CR is a good example of **replacing a fake feature with a real one without starting over**. The prototype's UI (the sidebar, the panel styling, the click-to-select flow) stays. Only the *data* — where the list of requests comes from, and what happens on click — gets rewired to the server. You'll do this again and again in real jobs: swap the wiring behind a screen that already looks right.
 
-> **Scope note:** this lesson covers assigning/unassigning/moving a student who already filed an **interest request**. Assigning a *roster* student who never filed a request (e.g. one only entered via CSV import) is a separate flow covered in the Student Management lesson.
+> **Scope note:** this lesson covers assigning/unassigning/moving a student who already filed an **interest request**. Assigning a *roster* student who never filed a request (e.g. one only entered via [CSV](GLOSSARY.md#csv) import) is a separate flow covered in the Student Management lesson.
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -80,9 +98,9 @@ git checkout -b cr/u6-admin-assign
 
 ### Step 1 — Add admin thunks to `interestSlice.ts` (~20 min)
 
-The student-facing slice you built in U5 only tracks "my" request. The admin needs the **full** list of pending requests (with names, not just ids), a way to create an assignment, and ways to undo one. Add an `all` field and four thunks:
+The student-facing [slice](GLOSSARY.md#slice) you built in U5 only tracks "my" request. The admin needs the **full** list of pending requests (with names, not just ids), a way to create an assignment, and ways to undo one. Add an `all` field and four thunks:
 
-> **Contract change — interest now carries a name.** `GET /api/interest` items now include **`user_name`**, so the admin panel can show *who* is asking instead of a raw id. Add `user_name?: string;` next to `lot_name?` on the shared `Interest` interface in `interestSlice.ts` (from U5) if it isn't there yet.
+> **Contract change — interest now carries a name.** `GET /api/interest` items now include **`user_name`**, so the admin panel can show *who* is asking instead of a raw id. Add `user_name?: string;` next to `lot_name?` on the shared `Interest` [interface](GLOSSARY.md#interface) in `interestSlice.ts` (from U5) if it isn't there yet.
 
 ```ts
 // fields to add to InterestState:
@@ -123,7 +141,7 @@ export const moveAssignment = createAsyncThunk(
   "interest/move",
   async (args: { fromSpaceId: number; toLotId: number }, { dispatch }) => {
     await api.post("/api/assignments/move", { fromSpaceId: args.fromSpaceId, toLotId: args.toLotId });
-    await dispatch(fetchInterest("pending"));
+    await dispatch(fetchInterest("pending"));   // re-queues the moved student's request as pending in the new lot
     return args;
   }
 );
@@ -131,22 +149,24 @@ export const moveAssignment = createAsyncThunk(
 
 Notice neither thunk takes a `fromLotId`/source-lot argument, and neither dispatches `fetchSpaces` itself — each only re-dispatches `fetchInterest`. Refreshing the *spaces* grid is the calling component's job, done in a `.then()` after the dispatch (Steps 4–5) — that's deliberate: the thunk doesn't know which lot's grid is currently on screen, only `ControlBoard.tsx` does.
 
-**Explanation, piece by piece:**
-- `fetchInterest` takes a `statusFilter` argument (defaulting to `"pending"`) and calls `GET /api/interest?status=pending` — the same endpoint U5 used, but without narrowing to "mine," and now with each item carrying `user_name`. That's the admin's-eye view of everyone's requests, by name.
-- `createAssignment`'s payload creator is an `async` function that does **two** things in sequence: first it `POST`s the new assignment, then it **dispatches `fetchInterest` again** using the `dispatch` Redux Toolkit hands it in the second argument (`thunkAPI`). → [createAsyncThunk docs](https://redux-toolkit.js.org/api/createAsyncThunk).
-- `createAssignment`'s args carry a `lotId`, but the POST body sent to the server is only `{ spaceId, userId, interestId }` — `lotId` never leaves the browser. It's client-side-only, there so `ControlBoard.tsx` (Step 4) knows which lot's spaces to re-fetch once the assignment succeeds.
-- Why refetch instead of just removing the assigned request from `all` by hand? Because the server is the one place that actually knows the new truth (the request's `status` flipped to `fulfilled` there). Asking it again is simpler and can't drift out of sync. → [Refetch vs. optimistic update](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates).
-- `api.post` (from `src/api/client.ts`, built in U0) automatically attaches `Authorization: Bearer <token>` to the request — that's how the backend knows this call is coming from a logged-in admin and not a random visitor. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
-- `unassignSpace` calls `DELETE /api/assignments/:spaceId`. The backend does two things for one DELETE: it frees the space **and** flips the occupant's fulfilled interest row back to `pending`, so the student re-enters the queue instead of just vanishing. The thunk itself only re-dispatches `fetchInterest` (the pending list); it does **not** touch the spaces grid — `ControlBoard.tsx` re-fetches spaces itself in a `.then()` after dispatching, once it knows which lot's grid needs re-colouring (Step 5). → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
-- `moveAssignment` is `unassignSpace`'s cousin: instead of the request re-queuing in the *same* lot, `POST /api/assignments/move` re-queues it as `pending` **in `toLotId`**. It only asks for a target **lot**, not a target spot — the admin still assigns the actual spot afterward through the normal Step 4 flow, once they've switched to that lot. That keeps a single "assign" code path instead of two. Same pattern as `unassignSpace`: the thunk takes `{ fromSpaceId, toLotId }` — no source-lot argument — and only re-dispatches `fetchInterest`; the component supplies the source lot itself when it re-fetches spaces afterward.
+**Why it works & further reading:**
+- `fetchInterest` calls the same `/api/interest` [endpoint](GLOSSARY.md#endpoint) U5 used — `GET`-only, but for *everyone's* pending requests, each now carrying `user_name`.
+- [Redux Toolkit](GLOSSARY.md#redux-toolkit)'s `thunkAPI` hands `createAssignment` its own [`dispatch`](GLOSSARY.md#dispatch), so the payload creator can fire a *second* thunk (`fetchInterest`) once the `POST` resolves. → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
+- Refetching beats hand-patching state — only the server knows an interest row flipped to `fulfilled`, so asking it again can't drift out of sync. → [RTK: Optimistic Updates](https://redux-toolkit.js.org/rtk-query/usage/manual-cache-updates#optimistic-updates).
+- `lotId` never leaves the browser — it's there only so `ControlBoard.tsx` (Step 4) knows which lot's spaces to refetch; the `POST` body itself is just `{ spaceId, userId, interestId }`.
+- `unassignSpace`'s single `DELETE` frees the space **and** reverts the occupant's interest row to `pending` server-side, so the student re-enters the queue instead of vanishing. → [MDN: HTTP DELETE](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/DELETE).
+- `api.post`/`api.del` attach the admin's [token](GLOSSARY.md#jwt) as an `Authorization` header automatically — how the backend knows an admin, not a visitor, is asking. → [MDN: Authorization header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Authorization).
+- `moveAssignment` only takes a target **lot**, not a target spot — the admin assigns the actual space afterward through the normal Step 4 flow, keeping one assign path instead of two.
 
-Add `all: []` to `initialState`, and handle the new fulfilled action in `extraReducers`:
+Add `all: []` to `initialState`, and handle the new fulfilled action in [`extraReducers`](GLOSSARY.md#extrareducers):
 
 ```ts
 .addCase(fetchInterest.fulfilled, (s, a) => { s.status = "idle"; s.all = a.payload; })
 ```
 
-**What this does:** whenever `fetchInterest` finishes successfully, the reducer copies the returned array into `state.all`. This is the exact same "listen for `.fulfilled`" pattern you used for `fetchMyInterest` in U5, just writing to a different field. `unassignSpace` and `moveAssignment` don't need their own `extraReducers` cases for `state.all` — each already re-dispatches `fetchInterest` itself, and that thunk's own `fulfilled` handler does the real state update. (They each still get a `.rejected` case wired to a shared `fail` handler, same as `createAssignment`.)
+**Why it works & further reading:**
+- Same "listen for `.fulfilled`" pattern as `fetchMyInterest` in U5, just writing to a different field (`state.all`) — the [reducer](GLOSSARY.md#reducer) only runs when the thunk actually succeeds.
+- `unassignSpace`/`moveAssignment` don't need their own `all`-updating case — each re-dispatches `fetchInterest`, and *that* thunk's `.fulfilled` handler already does the real update. Each still gets a `.rejected` case wired to the shared `fail` handler, same as `createAssignment`.
 
 ### Step 2 — Track the chosen request and the chosen spot in `ControlBoard.tsx` (~15 min)
 
@@ -155,12 +175,12 @@ Assigning is a two-click flow: pick a request, *then* click a space. **Unassign/
 ```tsx
 import { fetchInterest, createAssignment, unassignSpace, moveAssignment, type Interest } from './store/interestSlice';
 // ...
-const interestList = useAppSelector(state => state.interest.all);
-const [pickedInterest, setPickedInterest] = useState<Interest | null>(null);
-const [assignedPick, setAssignedPick] = useState<Space | null>(null);
-const [moveLotId, setMoveLotId] = useState<number | null>(null);
+const interestList = useAppSelector(state => state.interest.all);   // admin's full pending list from Step 1
+const [pickedInterest, setPickedInterest] = useState<Interest | null>(null);   // which request the admin clicked
+const [assignedPick, setAssignedPick] = useState<Space | null>(null);          // which assigned space is selected for unassign/move
+const [moveLotId, setMoveLotId] = useState<number | null>(null);              // target lot chosen in the Move dropdown
 
-useEffect(() => { dispatch(fetchInterest('pending')); }, [dispatch]);
+useEffect(() => { dispatch(fetchInterest('pending')); }, [dispatch]);   // load the pending list once, on mount
 
 // Clears the "which spot is picked for unassign/move" state. Called directly
 // from the lot-nav buttons and the "Assign to Spot" mode button below —
@@ -173,12 +193,11 @@ function resetAssignPick() {
 }
 ```
 
-**Explanation:**
-- `interestList` reads the `all` array you just added, the same way `selectedLotId` and the other pieces of `ControlBoard`'s state are already read via `useAppSelector`.
-- `pickedInterest` is plain React state (`useState`), not Redux — it only exists to remember "which request is highlighted," and nothing outside this component needs to know about it.
-- `assignedPick` and `moveLotId` are the new state for the unassign/move flow (Step 5): which already-assigned space the admin clicked, and which lot they've chosen as a move target.
-- `resetAssignPick()` exists because a stale pick from a lot you've since navigated away from — or from a previous trip into Assign-to-Spot mode — must not linger. You'll call it from the lot-nav `onClick` and from the mode-entry button's `onClick` in Step 3, so the reset happens as a direct consequence of the action that changed lot/mode, not as a side effect reacting to state that already changed.
-- The `useEffect` runs once when `ControlBoard` mounts (its dependency array is just `[dispatch]`, which never changes) and loads the pending list right away, so the panel isn't empty the first time the admin opens Assign to Spot. → [React docs: Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects).
+**Why it works & further reading:**
+- `interestList` reads `all` the same way other pieces of `ControlBoard`'s state are read, via [`useAppSelector`](GLOSSARY.md#selector).
+- `pickedInterest` is plain [React](GLOSSARY.md#react) [state](GLOSSARY.md#state) ([`useState`](GLOSSARY.md#usestate)), not [Redux](GLOSSARY.md#redux) — nothing outside this [component](GLOSSARY.md#component) needs to know about it. `assignedPick`/`moveLotId` are the same idea, for the Step 5 unassign/move flow.
+- `resetAssignPick()` exists so a stale pick from a lot you've left, or a previous trip into Assign-to-Spot mode, can't linger — it's called directly from the lot-nav and mode-entry `onClick`s below, as a consequence of the action that changed lot/mode, not as a reaction to it.
+- The [`useEffect`](GLOSSARY.md#useeffect) runs once on mount (`[dispatch]` never changes) so the panel isn't empty the first time it opens. → [React: Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects).
 
 **Wire the reset into the lot-nav buttons (built back in U3) and the mode-entry button:**
 
@@ -190,6 +209,10 @@ onClick={() => { dispatch(setSelectedLot(lot.id)); resetAssignPick(); }}
 onClick={() => { dispatch(setEditAction('manual')); resetAssignPick(); }}
 ```
 
+**Why it works & further reading:**
+- Both handlers call `resetAssignPick()` right after their original `dispatch(...)` — switching lots still works exactly as in U3, it just also clears any half-finished pick on the way out.
+- That's what makes the `pickedInterest.lot_id === selectedLotId` guard hold in practice: a pick from the lot you just left can never carry over into the wrong one. → [React: You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect).
+
 ### Step 3 — Show the Assign to Spot panel, split by lot (~20 min)
 
 > **Menu note — grouped into sub-panels, with tooltips.** The old flat sidebar had **Manual Assign** and **Unassign** as separate top-level buttons. They're now one mode button, **"Assign to Spot"** (`editAction === 'manual'` — the internal name is unchanged, only the label), whose sub-panel handles picking a request, assigning, unassigning, *and* moving. Every main-menu button and sub-panel button gets a `title=` tooltip describing what it does — add one to each button you touch in this lesson.
@@ -198,9 +221,9 @@ The old panel rendered every pending request as `#<user_id>` with all lots mixed
 
 ```tsx
 const requestsForThisLot = [...interestList]
-  .filter(r => r.lot_id === selectedLotId)
+  .filter(r => r.lot_id === selectedLotId)               // only requests for the lot currently open
   .sort((a, b) => a.created_at.localeCompare(b.created_at));   // earliest submitted = first-come order
-const requestsForOtherLots = interestList.filter(r => r.lot_id !== selectedLotId);
+const requestsForOtherLots = interestList.filter(r => r.lot_id !== selectedLotId);   // read-only hint list
 ```
 
 Add a tiny helper above the return, so a request with no chosen spot still reads sensibly (older lot-only data):
@@ -218,6 +241,7 @@ Then render the panel — each row now also names the requested spot:
   <div style={{ background: '#fff', color: '#000', borderRadius: '10px', padding: '8px', fontSize: '0.8rem' }}>
     <b>Assign to Spot</b>
 
+    {/* This lot's requests are clickable — picking one arms the assign click in Step 4 */}
     <div style={{ marginTop: '6px', fontWeight: 600 }}>Requests for this lot ({requestsForThisLot.length})</div>
     {requestsForThisLot.length === 0 && <div>None</div>}
     {requestsForThisLot.map(req => (
@@ -227,13 +251,14 @@ Then render the panel — each row now also names the requested spot:
         onClick={() => setPickedInterest(req)}
         style={{
           padding: '4px', cursor: 'pointer', borderRadius: '4px',
-          background: pickedInterest?.id === req.id ? '#f5c542' : 'transparent',
+          background: pickedInterest?.id === req.id ? '#f5c542' : 'transparent',   // gold highlight when picked
         }}
       >
         {req.user_name ?? `user #${req.user_id}`} · wants {requestedSpotText(req)}
       </div>
     ))}
 
+    {/* Read-only — switching lots is required before these can be acted on */}
     {requestsForOtherLots.length > 0 && (
       <>
         <div style={{ marginTop: '8px', fontWeight: 600 }}>Requests for other lots</div>
@@ -245,20 +270,18 @@ Then render the panel — each row now also names the requested spot:
       </>
     )}
 
+    {/* Guides the admin to the next click once a request is picked */}
     {pickedInterest && <div style={{ marginTop: '6px' }}>Approving <b>{pickedInterest.user_name ?? `user #${pickedInterest.user_id}`}</b> — wants spot <b>{requestedSpotText(pickedInterest)}</b> — now click an available space →</div>}
   </div>
 )}
 ```
 
-**Explanation:**
-- `{editAction === 'manual' && (...)}` is React's usual "only render this if the condition is true" trick — the panel only shows up while the admin is in Assign to Spot mode.
-- `requestsForThisLot`/`requestsForOtherLots` do the split: filtering by `r.lot_id === selectedLotId` is what makes "choose which student to approve" apparent when several students want the same lot, instead of one long mixed-lot list.
-- `.sort((a, b) => a.created_at.localeCompare(b.created_at))` orders this lot's requests **earliest-first** — first-come order — so the admin's natural top-to-bottom reading matches who asked first.
-- Rows in "Requests for this lot" are clickable (`onClick={() => setPickedInterest(req)}`); rows in "Requests for other lots" are plain, dimmed (`opacity: 0.6`) `<div>`s with no `onClick` — a read-only hint that switching lots would let the admin act on them.
-- `req.user_name ?? \`user #${req.user_id}\`` shows the requester's **name** now that the backend sends it, falling back to the id only if `user_name` is ever missing.
-- `requestedSpotText(req)` shows the **spot the student picked in U5** (their `space_labels`), so the admin sees *what* was requested, not just who. A request with no picked spot (older lot-only data) reads `no specific spot` instead of a blank — that's the `space_labels?.length ? … : …` guard.
-- `key={req.id}` is required by React whenever you render a list, so it can tell rows apart across re-renders.
-- The hint line only appears once a request is picked; it now names the student being approved **and the spot they requested**, guiding the admin to the next step.
+**Why it works & further reading:**
+- `{editAction === 'manual' && (...)}` is the usual "only render while in this mode" guard.
+- Filtering by `r.lot_id === selectedLotId` is what splits "this lot" from "other lots" — the fix for one long mixed-lot list once two students want the same lot.
+- `.sort(...)` on `created_at` orders this lot's requests earliest-first, matching first-come order.
+- `req.user_name ?? \`user #${req.user_id}\`` shows a **name** now that the backend sends one; `requestedSpotText(req)` shows the **spot** the student picked in U5 (or `no specific spot` for older lot-only data).
+- "Requests for other lots" rows have no `onClick` and are dimmed — a read-only hint, not a dead end (switching lots makes them actionable).
 
 ### Step 4 — Make clicking a space assign it — or select it for unassign/move (~15 min)
 
@@ -266,36 +289,33 @@ Now wire the payoff. In Assign to Spot mode, a click means one of two things dep
 
 ```tsx
 onClick={() => {
-  if (isSelecting) { dispatch(toggleSpaceSelection(space.id)); return; }
-  if (editAction !== 'manual' || selectedLotId == null) return;
+  if (isSelecting) { dispatch(toggleSpaceSelection(space.id)); return; }   // space-select mode from earlier lessons — unchanged
+  if (editAction !== 'manual' || selectedLotId == null) return;           // only act while in Assign to Spot mode, with a lot open
 
   if (space.status === 'assigned') {
     // Select it for the Step 5 sub-panel — do NOT unassign on this click.
     setAssignedPick(space);
     return;
   }
-  if (pickedInterest && space.status === 'available' && pickedInterest.lot_id === selectedLotId) {
+  if (pickedInterest && space.status === 'available' && pickedInterest.lot_id === selectedLotId) {   // guards against a stale cross-lot pick
     dispatch(createAssignment({
       spaceId: space.id,
       userId: pickedInterest.user_id,
       interestId: pickedInterest.id,
       lotId: selectedLotId,
     }));
-    setPickedInterest(null);
+    setPickedInterest(null);              // clear the highlight so the next click doesn't reuse this request
     dispatch(fetchSpaces(selectedLotId));   // re-colour the lot
   }
 }}
 ```
 (Make sure `fetchSpaces` is imported from `parkingSlice` alongside the other actions, if it isn't already.)
 
-**Explanation:**
-- The first `if` is unchanged from earlier lessons — while the admin is *selecting spaces to enable/disable*, a click just toggles the selection and stops there.
-- The early `return` guards the rest of the handler on being in Assign to Spot mode with a lot open, so nothing below runs otherwise.
-- **Clicking an assigned (blue) space now selects it** (`setAssignedPick(space)`) instead of firing an immediate unassign confirm — that's the U-29 fix. The Step 5 sub-panel reads `assignedPick` and offers Unassign / Move once something is selected.
-- **Clicking an available (yellow) space** assigns it, but only when `pickedInterest.lot_id === selectedLotId` — this closes a real bug: without that check, a stale `pickedInterest` left over from a previous lot could get assigned into the *wrong* lot's space. Since Step 3 now only lets the admin click requests that already belong to `selectedLotId`, this guard is mostly a safety net — but it's a cheap one, so keep it.
-- `dispatch(createAssignment({...}))` sends the `POST` from Step 1. Because `createAssignment` also dispatches `fetchInterest` internally, the pending list updates on its own — you don't need to do anything extra here to make the request disappear from the panel.
-- `setPickedInterest(null)` clears the local "picked" highlight so the admin doesn't accidentally assign the *next* space to the *same* request by mistake.
-- `dispatch(fetchSpaces(selectedLotId))` re-fetches this lot's spaces so the grid re-colors the assigned space blue. `createAssignment` only refreshes the *interest* list, not the *spaces* list, so this second dispatch is what actually updates the grid you're looking at.
+**Why it works & further reading:**
+- The `isSelecting` branch is unchanged from earlier lessons; the mode/lot guard below it stops everything else from running outside Assign to Spot.
+- Clicking an **assigned** space now *selects* it (`setAssignedPick`) instead of unassigning immediately — Step 5's sub-panel reads that pick and offers Unassign/Move.
+- Clicking an **available** space only assigns when `pickedInterest.lot_id === selectedLotId` — closes a real bug where a stale cross-lot pick could assign into the wrong lot's space.
+- `createAssignment` already re-dispatches `fetchInterest` internally, so the request disappears from the panel on its own; `dispatch(fetchSpaces(selectedLotId))` is the separate call that re-colors the grid, since `createAssignment` never touches the spaces list.
 
 **Outline the picked request's spot on the map.** Showing the requested spot in the list is good; outlining it **on the map** is better — the admin can see exactly which box the student wants and click it. Add a helper next to the space-colour logic (`spaceColor`, from U3):
 
@@ -312,10 +332,9 @@ Then, where each space is drawn in `renderParkingLot` (the same element whose `o
 border: isRequestedSpot(space) ? '3px dashed #2e7d32' : '1px solid #1a3d7a',
 ```
 
-**Explanation:**
-- `isRequestedSpot` is `true` only in Assign to Spot mode (`editAction === 'manual'`) and only for a space whose `id` is in the picked request's `space_ids` — so the outline appears exactly when a request is selected and clears when it's deselected.
-- A green dashed border reads as "this is the target," visually distinct from the fills that already mean available / assigned / disabled, so the student's chosen spot jumps out on the map.
-- `Space` is the type you already use for `assignedPick`, imported from `parkingSlice`.
+**Why it works & further reading:**
+- `isRequestedSpot` is true only in Assign to Spot mode, for a space whose `id` is in the picked request's `space_ids` — so the outline tracks exactly which request is selected.
+- The dashed green border reads as "the target," visually distinct from the available/assigned/disabled fills already on the map.
 
 ### Step 5 — Unassign or move the selected assigned spot (~10 min)
 
@@ -331,8 +350,8 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
         title="Free this spot and put the student back in the pending queue for this lot"
         onClick={() => {
           const who = assignedPick.assigned_user_name ?? `user #${assignedPick.assigned_user_id ?? '?'}`;
-          if (!window.confirm(`Unassign ${who} from ${assignedPick.label}? Their request goes back to the pending queue.`)) return;
-          dispatch(unassignSpace({ spaceId: assignedPick.id, lotId: selectedLotId })).then(() => dispatch(fetchSpaces(selectedLotId)));
+          if (!window.confirm(`Unassign ${who} from ${assignedPick.label}? Their request goes back to the pending queue.`)) return;   // bail out on Cancel
+          dispatch(unassignSpace({ spaceId: assignedPick.id, lotId: selectedLotId })).then(() => dispatch(fetchSpaces(selectedLotId)));   // re-colour after the DELETE resolves
           resetAssignPick();
         }}
       >
@@ -348,7 +367,7 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
         onChange={e => setMoveLotId(e.target.value ? Number(e.target.value) : null)}
       >
         <option value="">Choose a lot…</option>
-        {lots.filter(l => l.id !== selectedLotId).map(l => (
+        {lots.filter(l => l.id !== selectedLotId).map(l => (   // every lot EXCEPT the one being viewed
           <option key={l.id} value={l.id}>{l.name}</option>
         ))}
       </select>
@@ -370,11 +389,11 @@ Add a second sub-panel that appears once `assignedPick` is set — it offers **U
 )}
 ```
 
-**Explanation:**
-- This panel only renders once a request-holding space is *picked* (Step 4), not on every click — that's the "select, then choose an action" model U-29 asks for.
-- **Unassign** first shows a `window.confirm(...)` naming the student and the spot ("Unassign Ana from A3? Their request goes back to the pending queue.") — a plain browser confirm dialog, no extra library — and bails out (`return`) if the admin cancels it. Only past that guard does it dispatch `unassignSpace`. On the server, one `DELETE` both frees the space and reverts the interest row to `pending`; since the thunk itself only refreshes the pending-interest list, the handler chains `.then(() => dispatch(fetchSpaces(selectedLotId)))` to also re-colour this lot's grid, then clears the local pick with `resetAssignPick()`.
-- **Move** needs a target lot first — the `<select>` lists every *other* lot (`lots.filter(l => l.id !== selectedLotId)`); the **Move** button stays `disabled` until one is chosen. It intentionally does **not** ask for a target *spot* — the admin assigns the actual spot afterward, in the target lot, through the same Step 4 flow. One assign path, not two. There's no confirm dialog here (only Unassign asks).
-- `moveAssignment` only takes `{ fromSpaceId, toLotId }` — no source-lot field — so the handler captures `selectedLotId` into a local `fromLotId` *before* dispatching, then uses that captured value in the `.then()` to refresh the *source* lot's spaces once the move resolves (the lot the admin is currently looking at, which just lost its occupant). `resetAssignPick()` runs inside that same `.then()`, alongside the refetch — not synchronously — so a leftover `moveLotId` from this attempt can't bleed into the next one.
+**Why it works & further reading:**
+- This panel only renders once an assigned space is *picked* (Step 4) — "select, then choose an action," not act-on-click.
+- **Unassign** confirms via a plain `window.confirm(...)` naming the student and spot before dispatching `unassignSpace`; since the thunk only refreshes the interest list, the handler chains `.then(...)` to also refetch spaces, then clears the pick.
+- **Move** only asks for a target **lot** — the admin assigns the actual spot afterward in that lot via the normal Step 4 flow, so there's one assign path, not two. No confirm dialog here (only Unassign asks).
+- `moveAssignment` takes no source-lot argument, so the handler captures `selectedLotId` into `fromLotId` *before* dispatching, then refetches that lot's spaces once the move resolves.
 
 **UI mock (after this phase).** Admin in **Assign to Spot**: Ana's request (this lot) is picked (gold) and the spot she asked for is **outlined (dashed)** on the map, about to be clicked, which then turns blue (assigned). A second admin session has instead clicked an already-assigned space, opening the Unassign/Move sub-panel.
 ```

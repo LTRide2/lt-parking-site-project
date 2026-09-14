@@ -24,6 +24,22 @@ A login screen that talks to the **real backend** instead of pretending. Concret
 - [ ] Clicking Logout returns you to the login selection screen, and a refresh after that stays logged **out**.
 - [ ] Your work is committed on branch `cr/u1-real-auth` and pushed, PR base = `cr/u0-hygiene`.
 
+**🖼 What changes on screen (before → after):**
+```
+        BEFORE (fake)                        AFTER (real login)
+┌───────────────────────────┐      ┌───────────────────────────┐
+│           Login           │      │       Student Login       │
+│                           │      │                           │
+│   [ Student ] [ Admin ]   │  ─▶  │   Code: [ STU001______ ]  │
+│                           │      │        [   Login   ]      │
+│  (click either = you're   │      │        [    Back    ]     │
+│   instantly "logged in")  │      │   Invalid code   ◀── red  │
+└───────────────────────────┘      └───────────────────────────┘
+  any click let you in                a wrong code is rejected;
+                                      a right one calls the server
+```
+Nothing about the *selection* screen's two buttons moves — what changes is that clicking one now opens a **real form** that checks with the server, instead of logging you in on the spot.
+
 ---
 
 ## 🤔 Why this lesson matters
@@ -35,7 +51,9 @@ Real login means three things have to happen together:
 2. The backend replies with a **token** (a signed piece of text proving "yes, this is user #12, role student") that the browser must remember and re-send with every future request — this is how the server recognizes you on the *next* request without asking for your password again.
 3. If you refresh the page, the browser has to **prove the token is still good** before showing you anything private, instead of just trusting whatever was in memory a second ago.
 
-This is also your first time writing **Redux Toolkit thunks** — the pattern every later lesson (loading lots, saving assignments, registering interest) reuses. Get comfortable with `createAsyncThunk` and `extraReducers` here, and U3–U6 will feel familiar instead of new.
+This is also your first time writing **[Redux Toolkit](GLOSSARY.md#redux-toolkit) [thunks](GLOSSARY.md#thunk)** (Redux is the app's *shared memory*; a thunk is an action that waits for something slow, like a network call) — the pattern every later lesson (loading lots, saving assignments, registering interest) reuses. Get comfortable with `createAsyncThunk` and `extraReducers` here, and U3–U6 will feel familiar instead of new.
+
+> **New words ahead?** Every bolded term below links to the [**Glossary**](GLOSSARY.md) the first time it appears — click any you don't know, read the one-sentence version, and jump back. You never have to memorize a term before the lesson uses it.
 
 ---
 
@@ -79,47 +97,53 @@ Replace the whole file:
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { api, setToken } from "../api/client";
 
+// A "User" always has these fields. role can ONLY be one of these two words,
+// so a typo like "studnet" is caught before the app even runs.
 export interface User {
   id: number;
   role: "student" | "admin";
   name: string;
-  email?: string;
+  email?: string;                          // the "?" means this field is optional
 }
 
+// The shape of the "auth" slice — the app's memory of who's logged in.
 interface AuthState {
   isLoggedIn: boolean;
-  user: User | null;
-  status: "idle" | "loading" | "error";
-  error: string | null;
+  user: User | null;                       // null until someone logs in
+  status: "idle" | "loading" | "error";    // used to show a spinner / disable the button
+  error: string | null;                    // the red message shown on a failed login
 }
 
 const initialState: AuthState = {
-  // If a token is already saved, we'll confirm it via fetchMe() on app start.
+  // Start logged-out. If a token is already saved, we confirm it via fetchMe() on app start.
   isLoggedIn: false,
   user: null,
   status: "idle",
   error: null,
 };
 
-// --- Async thunks: these call the backend (created in CR B3) ---
+// --- Async thunks: each wraps ONE backend call (endpoints built in CR B3) ---
+// loginStudent(code) sends the code to the server; RTK auto-fires pending → fulfilled/rejected.
 export const loginStudent = createAsyncThunk(
-  "auth/loginStudent",
+  "auth/loginStudent",                                   // a unique name for this action
   (code: string) => api.post("/api/auth/student", { code }) as Promise<{ token: string; user: User }>
 );
 
+// Same idea for admins, but it sends a username + password instead of a code.
 export const loginAdmin = createAsyncThunk(
   "auth/loginAdmin",
   (creds: { username: string; password: string }) =>
     api.post("/api/auth/admin", creds) as Promise<{ token: string; user: User }>
 );
 
-// Called on page load to restore the session from a saved token.
+// Called on page load to restore the session: "here's my saved token — who am I?"
 export const fetchMe = createAsyncThunk("auth/me", () => api.get("/api/auth/me") as Promise<User>);
 
 const authSlice = createSlice({
-  name: "auth",
+  name: "auth",                 // this slice's key inside the store
   initialState,
   reducers: {
+    // logout is a plain (non-async) action, so it lives here in `reducers`.
     logout(state) {
       setToken(null);            // clears localStorage + the in-memory token
       state.isLoggedIn = false;
@@ -128,20 +152,23 @@ const authSlice = createSlice({
       state.error = null;
     },
   },
+  // extraReducers reacts to the thunks above (defined OUTSIDE this reducers block).
   extraReducers: (builder) => {
+    // Shared handler for a successful login (student OR admin).
     const loginOk = (state: AuthState, action: { payload: { token: string; user: User } }) => {
-      setToken(action.payload.token);
+      setToken(action.payload.token);      // save the token so a refresh keeps you logged in
       state.isLoggedIn = true;
       state.user = action.payload.user;
       state.status = "idle";
       state.error = null;
     };
-    const loginPending = (state: AuthState) => { state.status = "loading"; state.error = null; };
-    const loginFail = (state: AuthState, action: { error: { message?: string } }) => {
+    const loginPending = (state: AuthState) => { state.status = "loading"; state.error = null; }; // request started
+    const loginFail = (state: AuthState, action: { error: { message?: string } }) => {           // request failed
       state.status = "error";
-      state.error = action.error.message ?? "Login failed";
+      state.error = action.error.message ?? "Login failed";   // show the server's message, or a fallback
     };
 
+    // Wire each thunk's 3 stages to the handlers above.
     builder
       .addCase(loginStudent.pending, loginPending)
       .addCase(loginStudent.fulfilled, loginOk)
@@ -155,7 +182,7 @@ const authSlice = createSlice({
         state.user = action.payload;
       })
       .addCase(fetchMe.rejected, (state) => {
-        setToken(null);
+        setToken(null);                    // saved token was invalid/expired — throw it away
         state.isLoggedIn = false;
         state.user = null;
       });
@@ -163,16 +190,17 @@ const authSlice = createSlice({
 });
 
 export const { logout } = authSlice.actions;
-export default authSlice.reducer;
+export default authSlice.reducer;    // this reducer gets plugged into the store
 ```
 
-**Explanation, piece by piece:**
-- `export interface User { ... }` — a **TypeScript interface** describing exactly what a logged-in user looks like. `role: "student" | "admin"` means "only these two strings are allowed," so a typo like `"studnet"` is a compile error, not a bug you find in production. → [TS Handbook: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
-- `createAsyncThunk("auth/loginStudent", (code) => api.post(...))` — bundles "call this async function" into an action you can `dispatch()`. Redux Toolkit automatically fires a `pending` action first, then `fulfilled` (with the result) or `rejected` (with the error) — you don't write that plumbing yourself. → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
-- `api.post("/api/auth/student", { code })` — under the hood this calls the browser's `fetch` (the API client you built in U0 wraps it). → [MDN: Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API).
-- `setToken(action.payload.token)` — saves the **JWT** the backend returned into `localStorage` (via `client.ts`), so it survives a page refresh and gets attached to every future request. → [MDN: localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) · [jwt.io: Introduction](https://jwt.io/introduction).
-- `extraReducers` with `builder.addCase(...)` — this is how a slice reacts to thunks defined *outside* its own `reducers` block: one case per thunk state (`pending` / `fulfilled` / `rejected`). → [RTK: createSlice](https://redux-toolkit.js.org/api/createSlice).
-- `fetchMe.rejected` calls `setToken(null)` — if the saved token turns out to be invalid or expired, we clear it and fall back to logged-out instead of getting stuck in a broken half-logged-in state.
+The inline comments above cover *what* each line does. Here's the *why* — plus links if you want to go deeper:
+
+**Why it works & further reading:**
+- **[Interface](GLOSSARY.md#interface) `User`** — TypeScript checks every user object against this shape, so a missing or misspelled field is caught as you type, not by a user in production. → [TS: Object Types](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types).
+- **[`createAsyncThunk`](GLOSSARY.md#thunk)** — you write only the network call; [Redux Toolkit](GLOSSARY.md#redux-toolkit) generates the *pending / fulfilled / rejected* [actions](GLOSSARY.md#action) for you, which is exactly why the slice can react to all three without extra plumbing. → [RTK: createAsyncThunk](https://redux-toolkit.js.org/api/createAsyncThunk).
+- **[`extraReducers`](GLOSSARY.md#extrareducers)** — the bridge that lets this [slice](GLOSSARY.md#slice) respond to thunks declared *outside* its own `reducers` block. → [RTK: createSlice](https://redux-toolkit.js.org/api/createSlice).
+- **Why save the [token](GLOSSARY.md#jwt)?** `setToken` writes it to [localStorage](GLOSSARY.md#localstorage) so it survives a refresh and rides along on every later request (wired up in U0's `client.ts`). → [jwt.io](https://jwt.io/introduction).
+- **Why `fetchMe.rejected` clears the token** — a saved-but-expired token should drop you to logged-out, not trap you in a broken half-logged-in state.
 
 > **What changed vs. the old slice?** The old fake `userType`/`userCode` fields are gone — the real `user` object (with `role`) now comes from the server. Any component still reading `state.auth.userType` needs to switch to `state.auth.user?.role`.
 
@@ -193,9 +221,9 @@ const StudentLoginForm = ({ onBack }: { onBack: () => void }) => {
   const loading = useAppSelector((s) => s.auth.status === "loading");
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const code = new FormData(e.currentTarget).get("code") as string;
-    dispatch(loginStudent(code));   // thunk; success flips isLoggedIn
+    e.preventDefault();                                                // stop the browser's old-style page reload
+    const code = new FormData(e.currentTarget).get("code") as string;  // read the typed code by its name="code"
+    dispatch(loginStudent(code));   // fire the thunk; on success the slice flips isLoggedIn
   };
 
   return (
@@ -220,8 +248,8 @@ const AdminLoginForm = ({ onBack }: { onBack: () => void }) => {
   const loading = useAppSelector((s) => s.auth.status === "loading");
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
+    e.preventDefault();                            // stop the old-style page reload
+    const form = new FormData(e.currentTarget);    // grab all the typed fields at once
     dispatch(loginAdmin({
       username: form.get("username") as string,
       password: form.get("password") as string,   // now actually sent!
@@ -273,13 +301,12 @@ const Login = () => {
 export default Login;
 ```
 
-**Explanation, piece by piece:**
-- `<form onSubmit={handleSubmit}>` with plain `<input name="code" />` (no `value`/`onChange`) — this is a lighter-weight alternative to a fully "controlled" input. Instead of tracking every keystroke in React state, we let the browser hold the value and read it all at once on submit via `FormData`. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
-- `e.preventDefault()` — stops the browser's default "reload the page and submit like it's 1999" behavior, so React can handle the submit instead.
-- `new FormData(e.currentTarget).get("code") as string` — pulls the typed value out by its `name` attribute. `as string` tells TypeScript "trust me, this field is always present" (it's a required input).
-- `dispatch(loginStudent(code))` — fires the thunk from Step 1. You don't need `.then()` here — the slice's `extraReducers` already handle success and failure by updating `isLoggedIn` / `error`, and the component just re-renders when that state changes.
-- `disabled={loading}` — reads `state.auth.status === "loading"` so the button can't be double-clicked mid-request.
-- `{error && <p style={{ color: "red" }}>{error}</p>}` — the red error message comes straight from `state.auth.error`, which `loginFail` set in Step 1's slice.
+The inline comments cover the mechanics; here are the ideas worth remembering:
+
+**Why it works & further reading:**
+- **Uncontrolled form + [FormData](GLOSSARY.md#formdata)** — instead of tracking every keystroke in [state](GLOSSARY.md#state), we let the browser hold the values and read them all at once on submit. Less code, same result. → [MDN: FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData).
+- **No `.then()` needed after [`dispatch`](GLOSSARY.md#dispatch)** — the slice's [`extraReducers`](GLOSSARY.md#extrareducers) already update `isLoggedIn` / `error`, and the [component](GLOSSARY.md#component) re-draws automatically when that [store](GLOSSARY.md#store) value changes. That's the whole reason login lives in Redux.
+- **The red message is just [state](GLOSSARY.md#state)** — `{error && …}` shows `state.auth.error`, which `loginFail` set back in Step 1; there's no separate error-handling code in the component. `disabled={loading}` works the same way, reading `status === "loading"` so the button can't be double-clicked mid-request.
 
 ### Step 3 — Restore the session on refresh, in `src/App.tsx` (~10 min)
 
@@ -295,11 +322,12 @@ function App() {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
-    // If a token was saved last time, confirm it and reload the user.
+    // Runs once, right after the page loads. If a token was saved last time,
+    // confirm it with the server and reload the user, so a refresh keeps you logged in.
     if (localStorage.getItem("token")) {
       dispatch(fetchMe());
     }
-  }, [dispatch]);
+  }, [dispatch]);   // the [dispatch] list means "run this effect once"; dispatch never changes
 
   return (
     <div className="App">
@@ -311,10 +339,9 @@ function App() {
 export default App;
 ```
 
-**Explanation, piece by piece:**
-- `useEffect(() => { ... }, [dispatch])` — runs once when the app first mounts (right after a refresh), which is exactly when you need to check "was I logged in before this page reload happened?"
-- `localStorage.getItem("token")` — checks whether a token survived the refresh. → [MDN: localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage).
-- `dispatch(fetchMe())` — if a token exists, ask the backend "who does this token belong to?" via `GET /api/auth/me`. If the token is still valid, `fetchMe.fulfilled` (from Step 1) sets `isLoggedIn = true` and you land straight on the dashboard — no re-typing your code. If it's expired or invalid, `fetchMe.rejected` clears it and you see the login screen instead.
+**Why it works & further reading:**
+- **[`useEffect`](GLOSSARY.md#useeffect) runs after the first draw** — right after a refresh, which is exactly when you need to ask "was I logged in before the page reloaded?" → [React: useEffect](https://react.dev/reference/react/useEffect).
+- **The [token](GLOSSARY.md#jwt) is the whole trick** — if one survived in [localStorage](GLOSSARY.md#localstorage), `fetchMe` asks the server "who owns this token?" via `GET /api/auth/me`. A valid one lands you back on the dashboard with no retyping; an invalid one is cleared by `fetchMe.rejected` (Step 1) and you see the login screen. → [MDN: localStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage).
 
 **UI mock (after this phase):** the selection screen, the student form, and a failed login showing the red error.
 ```
@@ -332,7 +359,7 @@ export default App;
 
 ## 🧪 Prove it works — testing guide
 
-1. **Setup:** start the [backend](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/backend-development-guide.md), through **B3**, seeded, and run `npm run dev`.
+1. **Setup:** start the [backend](../../backend/backend-development-guide.md), through **B3**, seeded, and run `npm run dev`.
 2. **Steps:**
    - Student: enter a seeded code (`STU001`) → Login.
    - Enter a **wrong** code (`NOPE`) → Login.
@@ -364,7 +391,7 @@ Then open a Pull Request on GitHub with **base = `cr/u0-hygiene`** (not `main` �
 ## 🧯 If something breaks
 
 - **Blank page + `ReferenceError: Cannot access '…' before initialization` in the console** — a module-level value is computed before a function it depends on is defined; move the `let x = load()` below the function declarations.
-- **Browser console shows a CORS error** ("blocked by CORS policy") — the backend's `CORS_ORIGINS` setting doesn't include your frontend's address. Check the backend's `.env` has `CORS_ORIGINS=http://localhost:5173` (see backend [Lesson B0](https://github.com/LTRide2/LTR-Backend/blob/main/plan/backend/lessons/B0-clean-slate-and-safety.md)) and restart the backend.
+- **Browser console shows a CORS error** ("blocked by CORS policy") — the backend's `CORS_ORIGINS` setting doesn't include your frontend's address. Check the backend's `.env` has `CORS_ORIGINS=http://localhost:5173` (see backend [Lesson B0](../../backend/lessons/B0-clean-slate-and-safety.md)) and restart the backend.
 - **Every request fails with "Failed to fetch" / a network error** — either the backend isn't running, or your frontend `.env`'s `VITE_API_URL` doesn't match the backend's actual address/port. Confirm both terminals: backend running, and `VITE_API_URL=http://localhost:8000` in your `.env` (from U0).
 - **Login succeeds but every *next* request comes back `401 Unauthorized`** — the token isn't being attached. Open DevTools → Application tab → Local Storage and confirm a `token` key exists after login; if it's missing, double-check `setToken` is being called in the `loginOk` case in Step 1.
 - **Refreshing logs you out even after a successful login** — `fetchMe` is failing. Check the backend's `GET /api/auth/me` endpoint (from B3) is implemented and returns `200` for a valid token, and that the token in `localStorage` isn't stale from an earlier backend restart.

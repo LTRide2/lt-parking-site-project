@@ -1,0 +1,8 @@
+[
+  "AdminCidr=203.0.113.10/32",
+  "KeyName=ltride-key",
+  "DomainName=ltride.example.edu",
+  "HostedZoneId=Z0123456789ABCDEFGHIJ",
+  "WebInstanceType=t3.micro",
+  "DbInstanceClass=db.t3.micro"
+]

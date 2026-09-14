@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  LTRide database stack — a managed PostgreSQL server (Amazon RDS). Resolves the
+  master username/password from the ltride/db secret (created FIRST by the
+  secrets stack, 00-secrets.yaml — deploy that before this), builds a subnet
+  group telling RDS which subnets it may live in, and the database instance
+  itself. Imports the VPC/subnets/DB-firewall from the network stack.
+
+# -----------------------------------------------------------------------------
+# Parameters (all six declared — see note in 01-network.yaml about why)
+# -----------------------------------------------------------------------------
+Parameters:
+  AdminCidr:
+    Type: String
+    Description: (Unused here)
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: (Unused here)
+  DomainName:
+    Type: String
+    Description: (Unused here)
+  HostedZoneId:
+    Type: String
+    Description: (Unused here)
+  WebInstanceType:
+    Type: String
+    Description: (Unused here)
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS instance size. db.t3.micro is the cheapest burstable class.
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+Resources:
+
+  # RDS must be told which subnets it may place the database in. It requires at
+  # least two AZs (we hand it both public subnets from the network stack).
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: ltride db subnet group
+      SubnetIds:
+        - !ImportValue ltride-PublicSubnet1
+        - !ImportValue ltride-PublicSubnet2
+      Tags:
+        - { Key: Name, Value: ltride-db-subnets }
+
+  # The PostgreSQL server itself.
+  Database:
+    Type: AWS::RDS::DBInstance
+    # Retain a final snapshot on delete so `deploy.sh down` never silently
+    # destroys data — you can restore from the snapshot later.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: ltride-db
+      DBName: ltride                       # the initial database that gets created
+      Engine: postgres
+      EngineVersion: "16"                  # Postgres 16.x (latest minor auto-picked)
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"               # GB; 20 is the free-tier minimum
+      StorageType: gp3
+      # Pull username/password straight out of the ltride/db secret (owned by the
+      # secrets stack) — the resolved value is wired into RDS but never appears in
+      # this template or the events log. Referencing the secret by NAME creates an
+      # implicit ordering: this stack won't deploy until ltride/db exists.
+      MasterUsername: '{{resolve:secretsmanager:ltride/db:SecretString:username}}'
+      MasterUserPassword: '{{resolve:secretsmanager:ltride/db:SecretString:password}}'
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue ltride-DbSecurityGroupId
+      PubliclyAccessible: false            # only reachable from inside the VPC
+      MultiAZ: false                       # single AZ to keep cost down
+      BackupRetentionPeriod: 7             # keep 7 days of automated backups
+      StorageEncrypted: true
+      Tags:
+        - { Key: Name, Value: ltride-db }
+
+# -----------------------------------------------------------------------------
+# Outputs / Exports
+# -----------------------------------------------------------------------------
+Outputs:
+  DbEndpoint:
+    Description: Hostname the app connects to (host part of DATABASE_URL)
+    Value: !GetAtt Database.Endpoint.Address
+    Export: { Name: ltride-DbEndpoint }
+  DbPort:
+    Value: !GetAtt Database.Endpoint.Port
+    Export: { Name: ltride-DbPort }
+  # Note: the DB secret ARN is exported by the secrets stack (ltride-DbSecretArn),
+  # not here — this stack only consumes the secret.
