@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  LTRide database stack — a managed PostgreSQL server (Amazon RDS). Creates the
-  DB password in Secrets Manager (so it is never written in plaintext anywhere),
-  a subnet group telling RDS which subnets it may live in, and the database
-  instance itself. Imports the VPC/subnets/DB-firewall from the network stack.
+  LTRide database stack — a managed PostgreSQL server (Amazon RDS). Resolves the
+  master username/password from the ltride/db secret (created FIRST by the
+  secrets stack, 00-secrets.yaml — deploy that before this), builds a subnet
+  group telling RDS which subnets it may live in, and the database instance
+  itself. Imports the VPC/subnets/DB-firewall from the network stack.
 
 # -----------------------------------------------------------------------------
 # Parameters (all six declared — see note in 01-network.yaml about why)
@@ -34,21 +35,6 @@ Parameters:
 # -----------------------------------------------------------------------------
 Resources:
 
-  # Generate and store the DB password. We never type it or commit it. The app
-  # server reads it from here at provision time to build DATABASE_URL.
-  #   GenerateSecretString builds JSON like {"username":"ltride","password":"..."}
-  #   ExcludeCharacters keeps out characters that break a URL or shell quoting.
-  DbSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: ltride/db
-      Description: LTRide RDS master credentials
-      GenerateSecretString:
-        SecretStringTemplate: '{"username":"ltride"}'
-        GenerateStringKey: password
-        PasswordLength: 24
-        ExcludeCharacters: '"@/\ ''`$'
-
   # RDS must be told which subnets it may place the database in. It requires at
   # least two AZs (we hand it both public subnets from the network stack).
   DbSubnetGroup:
@@ -76,10 +62,12 @@ Resources:
       DBInstanceClass: !Ref DbInstanceClass
       AllocatedStorage: "20"               # GB; 20 is the free-tier minimum
       StorageType: gp3
-      # Pull username/password straight out of Secrets Manager — the resolved
-      # value is wired into RDS but never appears in the template or events log.
-      MasterUsername: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:password}}'
+      # Pull username/password straight out of the ltride/db secret (owned by the
+      # secrets stack) — the resolved value is wired into RDS but never appears in
+      # this template or the events log. Referencing the secret by NAME creates an
+      # implicit ordering: this stack won't deploy until ltride/db exists.
+      MasterUsername: '{{resolve:secretsmanager:ltride/db:SecretString:username}}'
+      MasterUserPassword: '{{resolve:secretsmanager:ltride/db:SecretString:password}}'
       DBSubnetGroupName: !Ref DbSubnetGroup
       VPCSecurityGroups:
         - !ImportValue ltride-DbSecurityGroupId
@@ -101,7 +89,5 @@ Outputs:
   DbPort:
     Value: !GetAtt Database.Endpoint.Port
     Export: { Name: ltride-DbPort }
-  DbSecretArn:
-    Description: Secrets Manager ARN holding the DB username/password
-    Value: !Ref DbSecret
-    Export: { Name: ltride-DbSecretArn }
+  # Note: the DB secret ARN is exported by the secrets stack (ltride-DbSecretArn),
+  # not here — this stack only consumes the secret.

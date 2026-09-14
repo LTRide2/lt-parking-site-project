@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   LTRide compute stack — the web server. Creates an IAM role that can read the
-  DB password from Secrets Manager, an EC2 instance running Ubuntu, and a fixed
-  public address (Elastic IP) so the DNS record never has to change. The
+  DB + app secrets from Secrets Manager, an EC2 instance running Ubuntu, and a
+  fixed public address (Elastic IP) so the DNS record never has to change. The
   instance's UserData script provisions the box on first boot (mirrors
-  deploy/server/provision.sh): installs nginx + gunicorn, writes .env from the
-  secret, runs migrations, and starts the services.
+  deploy/server/provision.sh): clones the monorepo, builds the backend/ venv,
+  writes backend/.env from the secrets, runs migrations, and starts the services.
 
 # -----------------------------------------------------------------------------
 # Parameters (all six declared — see note in 01-network.yaml)
@@ -51,15 +51,17 @@ Resources:
             Principal: { Service: ec2.amazonaws.com }   # EC2 may assume this role
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: read-db-secret
+        - PolicyName: read-app-secrets
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                # Scope to exactly the secret the database stack made — least
+                # Scope to exactly the two secrets the secrets stack made — least
                 # privilege, so a compromised box can't read other secrets.
-                Resource: !ImportValue ltride-DbSecretArn
+                Resource:
+                  - !ImportValue ltride-DbSecretArn
+                  - !ImportValue ltride-AppSecretArn
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -92,7 +94,8 @@ Resources:
             export DEBIAN_FRONTEND=noninteractive
 
             APP_USER=ltride
-            APP_DIR=/home/$APP_USER/app
+            APP_DIR=/home/$APP_USER/app          # the monorepo root, cloned here
+            BACKEND_DIR=$APP_DIR/backend          # Flask app + venv + .env live here
             WEB_ROOT=/var/www/ltride
             REPO_URL="${RepoUrl}"
 
@@ -109,30 +112,35 @@ Resources:
             # 2. app user
             id "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash "$APP_USER"
 
-            # 3. code + virtualenv
+            # 3. code + virtualenv. Clone the whole monorepo; the backend is the
+            #    backend/ subtree, so the venv and requirements live under there
+            #    (gunicorn's "webapp.App:app" import resolves from backend/).
             if [ ! -d "$APP_DIR/.git" ]; then
               sudo -u "$APP_USER" git clone "$REPO_URL" "$APP_DIR"
             else
               sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
             fi
-            sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && python3 -m venv .venv && \
+            sudo -u "$APP_USER" bash -lc "cd '$BACKEND_DIR' && python3 -m venv .venv && \
               .venv/bin/pip install --upgrade pip && \
               .venv/bin/pip install -r webapp/requirements.txt"
 
-            # 4. .env from Secrets Manager (password never touches the template)
-            SECRET_JSON=$(aws --region ${AWS::Region} secretsmanager get-secret-value \
+            # 4. backend/.env from Secrets Manager (no secret touches the template).
+            #    DB username/password come from ltride/db; SECRET_KEY from ltride/app.
+            DB_SECRET_JSON=$(aws --region ${AWS::Region} secretsmanager get-secret-value \
               --secret-id ${DbSecretArn} --query SecretString --output text)
-            DB_USER=$(echo "$SECRET_JSON" | jq -r .username)
-            DB_PASS=$(echo "$SECRET_JSON" | jq -r .password)
-            SECRET_KEY=$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 48)
-            cat > "$APP_DIR/.env" <<ENVEOF
+            DB_USER=$(echo "$DB_SECRET_JSON" | jq -r .username)
+            DB_PASS=$(echo "$DB_SECRET_JSON" | jq -r .password)
+            APP_SECRET_JSON=$(aws --region ${AWS::Region} secretsmanager get-secret-value \
+              --secret-id ${AppSecretArn} --query SecretString --output text)
+            SECRET_KEY=$(echo "$APP_SECRET_JSON" | jq -r .secret_key)
+            cat > "$BACKEND_DIR/.env" <<ENVEOF
             SECRET_KEY=$SECRET_KEY
             DATABASE_URL=postgresql://$DB_USER:$DB_PASS@${DbEndpoint}:${DbPort}/ltride
             CORS_ORIGINS=https://${DomainName}
             JWT_EXP_HOURS=12
             ENVEOF
-            chown "$APP_USER":"$APP_USER" "$APP_DIR/.env"
-            chmod 600 "$APP_DIR/.env"
+            chown "$APP_USER":"$APP_USER" "$BACKEND_DIR/.env"
+            chmod 600 "$BACKEND_DIR/.env"
 
             # 5. systemd unit + nginx site (shipped in the repo under deploy/server)
             cp "$APP_DIR/deploy/server/ltride.service" /etc/systemd/system/ltride.service
@@ -144,20 +152,21 @@ Resources:
             systemctl enable ltride
             nginx -t
 
-            # 6. migrations + start
-            sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && set -a && . .env && set +a && \
+            # 6. migrations + start (migrations live under backend/webapp/sql)
+            sudo -u "$APP_USER" bash -lc "cd '$BACKEND_DIR' && set -a && . .env && set +a && \
               for f in webapp/sql/migrations/*.sql; do [ -e \"\$f\" ] || continue; \
               echo \"applying \$f\"; psql \"\$DATABASE_URL\" -f \"\$f\"; done" || true
             systemctl restart ltride
             systemctl reload nginx
-          - DbEndpoint:  !ImportValue ltride-DbEndpoint
-            DbPort:      !ImportValue ltride-DbPort
-            DbSecretArn: !ImportValue ltride-DbSecretArn
+          - DbEndpoint:   !ImportValue ltride-DbEndpoint
+            DbPort:       !ImportValue ltride-DbPort
+            DbSecretArn:  !ImportValue ltride-DbSecretArn
+            AppSecretArn: !ImportValue ltride-AppSecretArn
             # Clone over HTTPS (the box has no SSH deploy key). This works as-is
-            # for a PUBLIC repo. If LTRide2/LTR-Backend is PRIVATE, either make a
+            # for a PUBLIC repo. If the monorepo is PRIVATE, either make a
             # read-only deploy token and bake it in (https://<token>@github.com/...),
             # or attach a deploy key and switch to the git@ SSH form.
-            RepoUrl: "https://github.com/LTRide2/LTR-Backend.git"
+            RepoUrl: "https://github.com/LTRide2/lt-parking-site-project.git"
 
   # A fixed public IP. Without it, stopping/starting the instance would hand
   # back a new IP and break your DNS record. The dns stack points the domain
@@ -172,8 +181,8 @@ Resources:
 # -----------------------------------------------------------------------------
 # Outputs / Exports
 # -----------------------------------------------------------------------------
-# release.sh reads `ElasticIp` (then falls back to `PublicIp`) to find the host
-# to SSH into. The dns stack imports `ElasticIp` for the A record.
+# The db + app deploy scripts read `ElasticIp` (then fall back to `PublicIp`) to
+# find the host to SSH into. The dns stack imports `ElasticIp` for the A record.
 # -----------------------------------------------------------------------------
 Outputs:
   InstanceId:

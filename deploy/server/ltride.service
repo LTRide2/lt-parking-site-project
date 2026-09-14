@@ -24,13 +24,15 @@ After=network.target
 # compromised, the blast radius is just this one account.
 User=ltride
 Group=ltride
-WorkingDirectory=/home/ltride/app
+# The monorepo is cloned at /home/ltride/app; the Flask backend is the backend/
+# subtree, so we run from there — that's where "webapp.App:app" imports from.
+WorkingDirectory=/home/ltride/app/backend
 
 # --- configuration ----------------------------------------------------------
 # Load secrets/settings (SECRET_KEY, DATABASE_URL, CORS_ORIGINS, ...) from a
 # file that lives ONLY on the server and is readable only by ltride. This is
 # the production equivalent of your local .env — it is never committed to git.
-EnvironmentFile=/home/ltride/app/.env
+EnvironmentFile=/home/ltride/app/backend/.env
 
 # --- the command that runs the app -----------------------------------------
 # Use gunicorn from the project's virtualenv (NOT the system python).
@@ -42,7 +44,7 @@ EnvironmentFile=/home/ltride/app/.env
 #                        port 8000 directly.
 #   webapp.App:app     : import path "webapp.App" then the object named "app"
 #                        (that's the `app = create_app()` line from CR B1).
-ExecStart=/home/ltride/app/.venv/bin/gunicorn \
+ExecStart=/home/ltride/app/backend/.venv/bin/gunicorn \
     --workers 3 \
     --bind 127.0.0.1:8000 \
     --access-logfile - \

@@ -5,9 +5,12 @@
 # WHAT THIS DOES (top to bottom):
 #   1. Installs the OS packages we need (python, nginx, git, postgres client).
 #   2. Creates the unprivileged "ltride" user that owns and runs the app.
-#   3. Clones the backend repo and builds its Python virtualenv.
+#   3. Clones the monorepo and builds the backend's Python virtualenv.
 #   4. Installs the systemd service (gunicorn) and the nginx site config.
 #   5. Starts everything.
+#
+# The monorepo is cloned at /home/ltride/app; the Flask backend is the backend/
+# subtree, so the venv, .env, and migrations all live under app/backend.
 #
 # WHEN TO RUN IT:
 #   - Normally you DON'T run this by hand — the CloudFormation compute stack's
@@ -26,9 +29,10 @@ set -euo pipefail
 
 APP_USER="ltride"
 APP_HOME="/home/${APP_USER}"
-APP_DIR="${APP_HOME}/app"
+APP_DIR="${APP_HOME}/app"                 # the monorepo root
+BACKEND_DIR="${APP_DIR}/backend"          # Flask app + venv + .env live here
 WEB_ROOT="/var/www/ltride"
-REPO_URL="${REPO_URL:-https://github.com/LTRide2/LTR-Backend.git}"   # public clone URL; override with REPO_URL=... if private
+REPO_URL="${REPO_URL:-https://github.com/LTRide2/lt-parking-site-project.git}"   # public clone URL; override with REPO_URL=... if private
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -62,8 +66,9 @@ else
 fi
 
 log "building virtualenv + installing requirements"
+# The venv lives under backend/ so gunicorn's "webapp.App:app" import resolves.
 sudo -u "$APP_USER" bash -lc "
-    cd '$APP_DIR'
+    cd '$BACKEND_DIR'
     python3 -m venv .venv
     .venv/bin/pip install --upgrade pip
     .venv/bin/pip install -r webapp/requirements.txt
@@ -74,15 +79,15 @@ sudo -u "$APP_USER" bash -lc "
 # CloudFormation flow, UserData pulls DATABASE_URL (with the RDS password from
 # Secrets Manager) and a generated SECRET_KEY and writes them to this file.
 # If provisioning by hand, create it now:
-if [[ ! -f "$APP_DIR/.env" ]]; then
-    log "WARNING: ${APP_DIR}/.env not found — creating a TEMPLATE you must fill in"
-    sudo -u "$APP_USER" tee "$APP_DIR/.env" >/dev/null <<'ENVTEMPLATE'
+if [[ ! -f "$BACKEND_DIR/.env" ]]; then
+    log "WARNING: ${BACKEND_DIR}/.env not found — creating a TEMPLATE you must fill in"
+    sudo -u "$APP_USER" tee "$BACKEND_DIR/.env" >/dev/null <<'ENVTEMPLATE'
 SECRET_KEY=CHANGE_ME_to_a_long_random_string
 DATABASE_URL=postgresql://ltride:DB_PASSWORD@YOUR_RDS_ENDPOINT:5432/ltride
 CORS_ORIGINS=https://YOUR_DOMAIN_OR_IP
 JWT_EXP_HOURS=12
 ENVTEMPLATE
-    chmod 600 "$APP_DIR/.env"          # readable only by the ltride user
+    chmod 600 "$BACKEND_DIR/.env"          # readable only by the ltride user
 fi
 
 # --- 4a. systemd service (gunicorn) -----------------------------------------
@@ -103,7 +108,7 @@ nginx -t                                  # fail loudly if the config is invalid
 # --- 5. run migrations + start ----------------------------------------------
 log "applying database migrations"
 sudo -u "$APP_USER" bash -lc "
-    cd '$APP_DIR'
+    cd '$BACKEND_DIR'
     set -a; . .env; set +a
     for f in webapp/sql/migrations/*.sql; do
         [ -e \"\$f\" ] || continue
