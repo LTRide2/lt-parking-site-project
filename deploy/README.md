@@ -5,6 +5,9 @@ templates, the stack parameters, and the on-server config files. The runnable or
 one level up in [`scripts/`](../scripts/) — a single credential-checked entrypoint,
 `scripts/deploy.sh`, split into **four concerns**.
 
+> **In a hurry?** [`runbook.md`](runbook.md) is the one-page, command-first operational
+> reference for configuring and deploying to AWS (grounded in the scripts + templates here).
+>
 > **Docs live in the deployment guide, not here.** The authoritative deployment documentation is in
 > [`plan/deploy/deployment-guide.md`](../plan/deploy/deployment-guide.md):
 > - **Step-by-step tutorial** → [Part 1 — Deploy to AWS (CRs D0–D4)](../plan/deploy/deployment-guide.md#part-1--deploy-to-aws-step-by-step-crs-d0d4)
