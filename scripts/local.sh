@@ -47,21 +47,154 @@ run_in_database() {
 }
 
 # --- Database (Docker Postgres) ---
+port_in_use() {
+  # port_in_use <port> — true (0) when something is already listening on
+  # localhost:<port>. Uses bash's /dev/tcp so no external tool is required.
+  local port="$1"
+  if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+    exec 3>&- 3<&-
+    return 0
+  fi
+  return 1
+}
+
+find_free_port() {
+  # find_free_port <start> — echo the first free port at or above <start>.
+  local candidate="$1"
+  while port_in_use "$candidate"; do
+    candidate=$((candidate + 1))
+  done
+  echo "$candidate"
+}
+
+prompt_port_conflict_choice() {
+  # Ask the user how to resolve the conflict; echo one of: kill | port | abort.
+  # With no interactive terminal we can't ask, so pick the safe non-destructive
+  # option (a different port) automatically.
+  local conflicting_container="$1" reply
+  if [ ! -t 0 ]; then
+    echo "  no interactive terminal — automatically choosing a different port." >&2
+    echo "port"
+    return 0
+  fi
+  {
+    echo "how do you want to resolve this?"
+    if [ -n "$conflicting_container" ]; then
+      echo "  [k] stop the Docker container '${conflicting_container}' and use port ${database_host_port}"
+    else
+      echo "  [k] kill the process using port ${database_host_port} and use it for LTRide"
+    fi
+    echo "  [p] keep the other service and run LTRide's Postgres on a different free port"
+    echo "  [a] abort"
+  } >&2
+  while true; do
+    printf "choose [k/p/a]: " >&2
+    if ! read -r reply; then reply="a"; fi
+    case "$reply" in
+      k|K)     echo "kill";  return 0 ;;
+      p|P)     echo "port";  return 0 ;;
+      a|A|"")  echo "abort"; return 0 ;;
+      *)       echo "  please type k, p, or a." >&2 ;;
+    esac
+  done
+}
+
+free_native_port_holder() {
+  # Kill the non-Docker process(es) listening on the database port. Needs lsof;
+  # if it is missing we can't identify the process, so we bail with guidance.
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "cannot identify the process automatically ('lsof' not installed)." >&2
+    echo "free port ${database_host_port} yourself, or re-run and choose a different port." >&2
+    exit 1
+  fi
+  local holder_pids
+  holder_pids="$(lsof -tiTCP:"${database_host_port}" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -z "$holder_pids" ]; then
+    echo "could not find the process holding port ${database_host_port}." >&2
+    exit 1
+  fi
+  echo "stopping process(es) on port ${database_host_port}: ${holder_pids}"
+  # Send TERM (not KILL) so the service can shut down cleanly.
+  kill $holder_pids 2>/dev/null || true
+}
+
+free_conflicting_port() {
+  # Free the database port by stopping whatever holds it, then wait for release.
+  local conflicting_container="$1" attempt
+  if [ -n "$conflicting_container" ]; then
+    echo "stopping Docker container '${conflicting_container}'..."
+    docker stop "$conflicting_container" >/dev/null
+  else
+    free_native_port_holder
+  fi
+  for attempt in $(seq 1 10); do
+    port_in_use "$database_host_port" || return 0
+    sleep 1
+  done
+  echo "port ${database_host_port} is still in use after trying to free it." >&2
+  exit 1
+}
+
+switch_to_free_port() {
+  # Move LTRide's Postgres to the next free port and update the derived settings.
+  local new_port
+  new_port="$(find_free_port $((database_host_port + 1)))"
+  echo "using port ${new_port} for LTRide's Postgres instead of ${database_host_port}."
+  # docker start can't change a container's port mapping, so an existing
+  # container bound to the old port must be recreated on the new one.
+  if docker ps -a --format '{{.Names}}' | grep -qx "$database_container"; then
+    echo "  removing existing '${database_container}' so it can be recreated on ${new_port} (its local data resets)."
+    docker rm -f "$database_container" >/dev/null
+  fi
+  database_host_port="$new_port"
+  database_url="postgresql://${database_user}:${database_password}@localhost:${database_host_port}/${database_name}"
+  echo "  tip: set LTRIDE_DB_PORT=${new_port} on future runs to skip this prompt."
+}
+
+resolve_database_port_conflict() {
+  # If another Postgres (or anything) already owns the database port, ask the
+  # user whether to free it or move LTRide to a different port. No-op when free.
+  if ! port_in_use "$database_host_port"; then
+    return 0
+  fi
+  local conflicting_container
+  conflicting_container="$(docker ps --format '{{.Names}} {{.Ports}}' \
+    | grep -E ":${database_host_port}->" | head -n1 | awk '{print $1}' || true)"
+  echo
+  echo "port ${database_host_port} is already in use — LTRide's Postgres can't bind it."
+  if [ -n "$conflicting_container" ]; then
+    echo "  it is held by Docker container: ${conflicting_container}"
+  else
+    echo "  it is held by another process on this machine (not a Docker container)."
+  fi
+  case "$(prompt_port_conflict_choice "$conflicting_container")" in
+    kill) free_conflicting_port "$conflicting_container" ;;
+    port) switch_to_free_port ;;
+    *)    echo "aborting — free port ${database_host_port} or set LTRIDE_DB_PORT, then re-run." >&2
+          exit 1 ;;
+  esac
+}
+
 start_database() {
   require_command docker " — install Docker Desktop: https://www.docker.com/products/docker-desktop/"
   if docker ps --format '{{.Names}}' | grep -qx "$database_container"; then
     echo "postgres container '$database_container' already running"
-  elif docker ps -a --format '{{.Names}}' | grep -qx "$database_container"; then
-    echo "starting existing postgres container '$database_container'..."
-    docker start "$database_container" >/dev/null
   else
-    echo "creating postgres container '$database_container' on port $database_host_port..."
-    docker run -d --name "$database_container" \
-      -e POSTGRES_USER="$database_user" \
-      -e POSTGRES_PASSWORD="$database_password" \
-      -e POSTGRES_DB="$database_name" \
-      -p "${database_host_port}:5432" \
-      postgres:16 >/dev/null
+    # Our container isn't running, so we're about to bind the port ourselves —
+    # make sure nothing else has it first.
+    resolve_database_port_conflict
+    if docker ps -a --format '{{.Names}}' | grep -qx "$database_container"; then
+      echo "starting existing postgres container '$database_container'..."
+      docker start "$database_container" >/dev/null
+    else
+      echo "creating postgres container '$database_container' on port $database_host_port..."
+      docker run -d --name "$database_container" \
+        -e POSTGRES_USER="$database_user" \
+        -e POSTGRES_PASSWORD="$database_password" \
+        -e POSTGRES_DB="$database_name" \
+        -p "${database_host_port}:5432" \
+        postgres:16 >/dev/null
+    fi
   fi
   wait_for_database
 }
